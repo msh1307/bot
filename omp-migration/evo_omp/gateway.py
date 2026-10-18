@@ -95,11 +95,18 @@ class Bot(commands.Bot):
             if not await self._check_slash_authorization(interaction, name):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
+
+            async def reply(text):
+                if name == 'compact' and interaction.is_expired():
+                    await self.deliver(interaction.channel, text)
+                else:
+                    await interaction.edit_original_response(content=text)
+
             try:
                 answer = await self.command(interaction.channel, name, args)
-                await interaction.edit_original_response(content=answer or '완료')
+                await reply(answer or '완료')
             except Exception as e:
-                await interaction.edit_original_response(content='실패: ' + context.redact_sensitive_text(str(e))[:500])
+                await reply('실패: ' + context.redact_sensitive_text(str(e))[:500])
         return callback
 
     async def on_ready(self):

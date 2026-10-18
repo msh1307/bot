@@ -167,21 +167,17 @@ class OmpSession:
             self.pending.pop(ident, None)
 
     async def compact(self, focus=''):
-        # Summarization can take as long as a normal model turn. A timed-out
-        # request must not leave compaction running after admission is released.
+        # Model work waits for completion or an explicit interruption.
         self.last_event = 'compacting'
         self.compacting, self.compact_cancelled = True, False
         try:
             options = {'customInstructions': focus} if focus else {}
-            result = await self.request('compact', timeout=1200, **options)
+            result = await self.request('compact', timeout=None, **options)
             return {'cancelled': True} if self.compact_cancelled else result
         except RuntimeError:
             if self.compact_cancelled:
                 return {'cancelled': True}
             raise
-        except asyncio.TimeoutError:
-            await self.abort(reason='timeout')
-            raise TimeoutError('대화 압축 제한 시간을 초과해 중단했습니다.')
         finally:
             self.compacting = False
             self.last_used = time.monotonic()
@@ -199,6 +195,7 @@ class OmpSession:
         done = asyncio.get_running_loop().create_future()
         ack = asyncio.get_running_loop().create_future()
         self.prompts[ident], self.pending[ident] = done, ack
+        phase = '작업 접수'
         try:
             await self.send(dict(type='prompt', id=ident, message=text, **({'images': images} if images else {})))
             accepted = await asyncio.wait_for(ack, 45)
@@ -206,9 +203,10 @@ class OmpSession:
                 raise RuntimeError(str(accepted.get('error', 'Prompt rejected'))[:300])
             if accepted.get('data', {}).get('agentInvoked') is False:
                 return ''
-            result = await asyncio.wait_for(done, 1200)
+            result = await done
             # Failed turns also settle. Their transcript remains useful if the
             # upstream session confirms there are no outstanding operations.
+            phase = '작업 종료 확인'
             await asyncio.wait_for(self.settled.wait(), 20)
             if result.get('status') in ('error', 'failed'):
                 raise RuntimeError(context.redact_sensitive_text(result.get('error') or self.error or 'OMP turn failed')[:350])
@@ -217,7 +215,7 @@ class OmpSession:
             return self.last_text
         except asyncio.TimeoutError:
             await self.abort(reason='timeout')
-            raise TimeoutError('작업 제한 시간을 초과했습니다. /status로 상태를 확인하세요.')
+            raise TimeoutError(f'OMP {phase} 응답이 없습니다. /status로 상태를 확인하세요.')
         finally:
             self.pending.pop(ident, None)
             self.prompts.pop(ident, None)
