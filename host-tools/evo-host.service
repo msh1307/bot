@@ -1,0 +1,36 @@
+[Unit]
+Description=EVO owner-approved host command broker
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -I /usr/local/lib/evo-host/evo-host-broker.py
+Restart=on-failure
+RestartSec=3
+RuntimeDirectory=evo-host
+RuntimeDirectoryMode=0750
+User=root
+Group=evo-hermes
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/run/evo-host
+# Validation must pin the same host /tmp inode that approved root jobs use.
+# ProtectSystem=strict still makes it read-only for the broker itself.
+PrivateTmp=false
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+CPUQuota=25%
+MemoryMax=64M
+MemorySwapMax=0
+TasksMax=32
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

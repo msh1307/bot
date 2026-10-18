@@ -1,0 +1,34 @@
+{
+  "workspace": "/var/lib/evo-hermes/workspace",
+  "runtime": "/run/evo-host",
+  "users": [
+    "evo-hermes",
+    "root"
+  ],
+  "max_timeout": 120,
+  "approval_ttl": 330,
+  "private_paths": [
+    "/etc/evo-omp",
+    "/run/evo-omp",
+    "/var/lib/evo-omp",
+    "/opt/evo-omp",
+    "/run/evo-web-python",
+    "/etc/evo-hermes",
+    "/etc/evo-host",
+    "/run/evo-host",
+    "/run/evo-access",
+    "/run/evo-python",
+    "/etc/evo-access",
+    "/var/lib/evo-access",
+    "/var/lib/evo-hermes/hermes",
+    "/opt/evo-hermes",
+    "/root",
+    "/home/your-user/.ssh",
+    "/home/your-user/.config",
+    "/home/your-user/mshsrv",
+    "/var/lib/evo-hermes/mshsrv",
+    "/tmp/mshsrv",
+    "/home/your-user/evo-llm/backups",
+    "/var/backups/evo-host"
+  ]
+}

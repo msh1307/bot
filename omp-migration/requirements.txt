@@ -1,0 +1,7 @@
+discord.py==2.7.1
+websockets==16.1.1
+PyYAML==6.0.3
+croniter==6.2.4
+httpx==0.28.1
+Pillow==12.3.0
+playwright==1.62.0

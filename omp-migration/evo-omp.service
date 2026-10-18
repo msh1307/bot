@@ -1,0 +1,47 @@
+[Unit]
+Description=EVO owner Discord assistant using Oh My Pi
+Wants=network-online.target
+After=network-online.target evo-host.service evo-router.service
+Conflicts=evo-hermes.service
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=evo-hermes
+Group=evo-hermes
+Environment=HOME=/var/lib/evo-omp
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=TZ=Asia/Seoul
+EnvironmentFile=/etc/evo-omp/discord.env
+WorkingDirectory=/opt/evo-omp
+ExecStart=/opt/evo-omp/venv/bin/python -m evo_omp.gateway
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillMode=control-group
+UMask=0077
+RuntimeDirectory=evo-omp
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/evo-omp /var/lib/evo-hermes/workspace /run/evo-omp
+PrivateTmp=true
+ProtectKernelTunables=false
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+MemoryHigh=1536M
+MemoryMax=2G
+MemorySwapMax=0
+CPUQuota=200%
+TasksMax=256
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
