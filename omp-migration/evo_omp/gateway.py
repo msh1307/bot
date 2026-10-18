@@ -21,7 +21,8 @@ from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run
 LOG = logging.getLogger('evo-omp')
 DEFAULT_MODEL = 'sc117-flash-next-iq3_xxs'
 MODELS = {'flash': DEFAULT_MODEL, '27b': 'qwen3.8-27b-uncensored'}
-PROGRESS_INTERVAL = 30
+STATUS_INTERVAL = 30
+PROGRESS_INTERVAL = 120
 
 
 def progress_text(session, seconds):
@@ -33,7 +34,7 @@ def progress_text(session, seconds):
     if phase is None:
         phase = '도구 실행 중: ' + session.last_event.removeprefix('tool: ')
     idle = int(time.monotonic() - session.last_activity)
-    if idle >= PROGRESS_INTERVAL:
+    if idle >= STATUS_INTERVAL:
         phase += f' · 마지막 이벤트 {idle}초 전'
     text = f'⏳ 작업 중 · {elapsed} · {session.rounds}회 · 도구 {session.tools}회\n{phase}'
     if session.last_progress:
@@ -384,13 +385,17 @@ class Bot(commands.Bot):
             yield
             return
         notice, started = None, time.monotonic()
+        last_update = started
 
         async def update():
-            nonlocal notice
+            nonlocal notice, last_update
             while True:
-                await asyncio.sleep(PROGRESS_INTERVAL)
-                text = progress_text(session, time.monotonic() - started)
+                await asyncio.sleep(STATUS_INTERVAL)
                 self.write_status('working')
+                now = time.monotonic()
+                if now - last_update < PROGRESS_INTERVAL:
+                    continue
+                text = progress_text(session, now - started)
                 try:
                     if notice is None:
                         notice = await asyncio.wait_for(channel.send(text,
@@ -398,6 +403,7 @@ class Bot(commands.Bot):
                     else:
                         await asyncio.wait_for(notice.edit(content=text,
                             allowed_mentions=discord.AllowedMentions.none()), 5)
+                    last_update = now
                 except (discord.HTTPException, asyncio.TimeoutError) as error:
                     LOG.warning('progress_update_failed class=%s', type(error).__name__)
                     return
