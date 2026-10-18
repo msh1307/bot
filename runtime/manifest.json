@@ -47,15 +47,6 @@
       "limitation": "Exact historical helper base commit not recovered; recheck target source before use.",
       "sha256": "8abc28a70a94db9f4ab94665f1097d13ee279d59218b9f9f79cd7c4819b3f968",
       "bytes": 870
-    },
-    {
-      "path": "qwen/experiments/adaptive-dflash.patch",
-      "status": "rejected_experiment",
-      "base_revision": "a043d38a62aeacde876dee02b9386cf6c3baf134",
-      "lineage": "https://github.com/ucicelos/flashnext-hybrid",
-      "limitation": "Slower in sampled fixtures; not enabled in production; Nathan v0.7.8.1 compatibility unverified.",
-      "sha256": "35a15602b5b1586ac1afd2b82c2655db55ef4fc5c9df24fd532edf48efa0b7c6",
-      "bytes": 5103
     }
   ]
 }

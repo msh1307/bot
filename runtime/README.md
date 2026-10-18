@@ -4,7 +4,6 @@ Local patches for EVO-X2 64GB / gfx1151.
 
 - `strata/`: startup direct I/O, staging release, on-demand CPU vision and timings.
 - `vision/`: projector mmap and bitmap cleanup.
-- `qwen/experiments/`: rejected adaptive DFlash experiment; slower in sampled runs.
 
 Use the upstream revisions and hashes in [manifest.json](manifest.json).
 Check with `git apply --check` before applying; build and deployment are separate.

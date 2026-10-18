@@ -14,7 +14,6 @@
 !/runtime/manifest.json
 !/runtime/strata/*.patch
 !/runtime/vision/*.patch
-!/runtime/qwen/experiments/*.patch
 /omp-migration/*
 !/omp-migration/evo_omp/
 !/omp-migration/*.py
