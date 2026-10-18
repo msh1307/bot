@@ -35,7 +35,7 @@ def progress_text(session, seconds):
     idle = int(time.monotonic() - session.last_activity)
     if idle >= PROGRESS_INTERVAL:
         phase += f' · 마지막 이벤트 {idle}초 전'
-    text = f'⏳ 작업 중 · {elapsed} · {session.rounds}/40회 · 도구 {session.tools}회\n{phase}'
+    text = f'⏳ 작업 중 · {elapsed} · {session.rounds}회 · 도구 {session.tools}회\n{phase}'
     if session.last_progress:
         text += '\n최근 중간 답변: ' + discord.utils.escape_markdown(session.last_progress)
     return context.redact_sensitive_text(text)

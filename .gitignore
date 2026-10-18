@@ -22,7 +22,7 @@
 !/omp-migration/models.yml
 !/omp-migration/instructions.txt
 !/omp-migration/requirements.txt
-!/omp-migration/turn-limit.ts
+!/omp-migration/provider.ts
 !/omp-migration/README.md
 /omp-migration/evo_omp/**
 !/omp-migration/evo_omp/**/

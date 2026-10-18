@@ -1,4 +1,4 @@
-// Bound provider dispatch inside OMP, before HTTP starts. No prompt rewriting.
+// Prevent compounded HTTP retries inside OMP. No prompt rewriting.
 import { streamSimple } from "@oh-my-pi/pi-ai";
 
 export default function (pi: any) {
@@ -18,10 +18,5 @@ export default function (pi: any) {
       ),
     });
     if (!await pi.setModel({ ...selected, api })) throw new Error("EVO bounded provider setup failed");
-  });
-  let requests = 0;
-  pi.on("before_agent_start", () => { requests = 0; });
-  pi.on("before_provider_request", (_event: any, ctx: any) => {
-    if (++requests > 40) ctx.abort();
   });
 }

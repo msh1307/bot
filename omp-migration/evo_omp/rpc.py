@@ -27,7 +27,7 @@ def sandbox_argv(profile, model):
             '--ro-bind', '/lib64', '/lib64', '--symlink', 'usr/bin', '/bin',
             '--symlink', 'usr/sbin', '/sbin', '--proc', '/proc', '--dev', '/dev',
             '--ro-bind', str(ROOT / 'bin'), str(ROOT / 'bin'),
-            '--ro-bind', str(ROOT / 'turn-limit.ts'), str(ROOT / 'turn-limit.ts'),
+            '--ro-bind', str(ROOT / 'provider.ts'), str(ROOT / 'provider.ts'),
             '--ro-bind', str(ROOT / 'sandbox-etc'), '/etc',
             '--ro-bind', '/etc/resolv.conf', '/etc/resolv.conf',
             '--ro-bind', '/etc/hosts', '/etc/hosts',
@@ -50,7 +50,7 @@ def sandbox_argv(profile, model):
     return args + [str(ROOT / 'bin/omp-v18.11.3'), '--mode', 'rpc', '--no-ui',
                    '--session-dir', '/home/agent/sessions',
                    '--no-extensions', '--no-skills', '--no-rules',
-                   '--extension', str(ROOT / 'turn-limit.ts'),
+                   '--extension', str(ROOT / 'provider.ts'),
                    '--no-title', '--no-lsp', '--no-pty', '--no-prewalk',
                    '--approval-mode', 'yolo',
                    '--model', 'evo/' + model,
@@ -305,9 +305,6 @@ class OmpSession:
         elif kind == 'turn_start':
             self.last_event = 'waiting for model'
             self.rounds += 1
-            if self.rounds > 40:
-                self.error = '40회 작업 한도에 도달했습니다. 다음 메시지로 이어갈 수 있습니다.'
-                asyncio.create_task(self.abort())
         elif kind == 'tool_execution_start':
             self.tools += 1
             self.last_event = 'tool: ' + event.get('toolName', '')[:80]
