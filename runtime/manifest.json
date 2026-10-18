@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "packaged_date": "2026-10-18",
+  "target": {
+    "hardware": "EVO-X2",
+    "unified_memory_gb": 64,
+    "gpu_arch": "gfx1151"
+  },
+  "packaging_scope": "Source packaging and recorded-source comparison only; no new build, model call or benchmark.",
+  "patches": [
+    {
+      "path": "strata/evo-v0.1.43.patch",
+      "status": "recorded_deployed_source",
+      "upstream": "https://github.com/Niko1221/Strata",
+      "base_revision": "7695859aa13afb248bdb4d36f9b2e95707db079d",
+      "release": "v0.1.43",
+      "matches_server_candidate_diff": true,
+      "features": [
+        "startup_direct_io",
+        "startup_staging_release",
+        "cpu_vision_lifecycle",
+        "opt_in_live_timings"
+      ],
+      "sha256": "8a3a396ab90a009288b3574d6bf2e00e5d3b758d91669daf3da97cb2354cdc86",
+      "bytes": 21882
+    },
+    {
+      "path": "vision/llama-mmap.patch",
+      "status": "recorded_deployed_helper_change",
+      "upstream": "https://github.com/ggml-org/llama.cpp",
+      "base_revision": "3cf03257f219afbe7334045ff7c6a06ac68c627d",
+      "targets": [
+        "tools/mtmd/clip.cpp"
+      ],
+      "recorded_base_file_sha256": "f50b204fa1bd4138c53d041663bbaf1472bab3af3407b95a8023429eb14e51ce",
+      "sha256": "65ec128b0ab0184daf40ce6d57210fa7c19a1c3c2764d425400b91b67e0531c0",
+      "bytes": 2919
+    },
+    {
+      "path": "vision/strata-bitmap-lifetime.patch",
+      "status": "recorded_deployed_helper_change",
+      "upstream": "https://github.com/Niko1221/Strata",
+      "base_revision": null,
+      "targets": [
+        "tools/vision/strata_vision.cpp"
+      ],
+      "limitation": "Exact historical helper base commit not recovered; recheck target source before use.",
+      "sha256": "8abc28a70a94db9f4ab94665f1097d13ee279d59218b9f9f79cd7c4819b3f968",
+      "bytes": 870
+    },
+    {
+      "path": "qwen/experiments/adaptive-dflash.patch",
+      "status": "rejected_experiment",
+      "base_revision": "a043d38a62aeacde876dee02b9386cf6c3baf134",
+      "lineage": "https://github.com/ucicelos/flashnext-hybrid",
+      "limitation": "Slower in sampled fixtures; not enabled in production; Nathan v0.7.8.1 compatibility unverified.",
+      "sha256": "35a15602b5b1586ac1afd2b82c2655db55ef4fc5c9df24fd532edf48efa0b7c6",
+      "bytes": 5103
+    }
+  ]
+}

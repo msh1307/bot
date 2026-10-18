@@ -1,0 +1,444 @@
+diff --git a/include/strata/core/expert_source.hpp b/include/strata/core/expert_source.hpp
+index 5d16d99..564d00e 100644
+--- a/include/strata/core/expert_source.hpp
++++ b/include/strata/core/expert_source.hpp
+@@ -652,6 +652,29 @@ public:
+     /// take the RAM the budget was sized for.  `why` says what decided.
+     /// #577: `ram_bytes` counts up to every expert, and only the experts outside it are what the cache must keep.
+     bool set_unbuffered(uint64_t ram_bytes, std::string& why);
++    /// EVO opt-in: bypass the file cache only while the full resident expert tiers are filled.
++    /// Called at startup with no concurrent readers; resume the mapped file tier before serving.
++    bool begin_startup_direct(std::string& why);
++    void end_startup_direct();
++    /// EVO: reclaim temporary GGUF assembly buffers after the profile fill's futures and blocking
++    /// H2D copies have finished, before allocating the permanent RAM complement. Startup-only:
++    /// callers must not retain blob pointers or submit inference/lookahead work across this call.
++    /// No class-layout, tensor, resident arena or numerical changes. Refuse an unfinished fill.
++    bool release_startup_staging(uint64_t& released) {
++        released = 0;
++        std::lock_guard<std::mutex> lock(stage_mu_);
++        for (char busy : stage_busy_) if (busy) return false;
++        released = (uint64_t) stage_buf_.size() * stage_blob_;
++        stage_of_.clear();
++        stage_buf_.clear();
++        stage_key_.clear();
++        stage_epoch_.clear();
++        stage_used_.clear();
++        stage_busy_.clear();
++        stage_seq_ = 0;
++        stage_grew_ = false;
++        return true;
++    }
+     /// #577: the same decision once the RAM copy is built (pin_cache_complement), from the RAM it really holds and the
+     /// expert bytes outside it; switches either way (startup only, nothing reading).  Returns whether unbuffered.
+     bool recheck_unbuffered(std::string& why);
+diff --git a/serve/server.py b/serve/server.py
+index cb5543e..363fe7b 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -2013,11 +2013,22 @@ class Vision:
+             args += ["--min-tokens", str(cfg["min_tokens"])]
+         self.dir = self.work_dir()
+         self.spawn = (args, log, env)                   # to start it again after an unload
++        self.activity_path = Path(cfg["activity_path"]) if cfg.get("activity_path") else None
++        self.on_demand = cfg.get("on_demand") is True
++        if self.on_demand and cfg.get("gpu"):
++            raise ValueError("on-demand vision currently supports the CPU encoder only")
++        self.idle_unload_s = float(cfg.get("idle_unload_s", 60))
++        if not math.isfinite(self.idle_unload_s) or self.idle_unload_s <= 0:
++            raise ValueError("vision idle_unload_s must be a positive finite number")
++        self.lock = threading.RLock()
+         self.proc = None
+         self.stopped = True
+-        self.lock = threading.Lock()
++        self.closed = False
++        self._idle_timer = None
++        self._idle_serial = 0
+         self.cache: dict[str, tuple[Path, int]] = {}
+-        if not lazy:
++        self.cache_entries = max(1, int(cfg.get("cache_entries", 64)))
++        if not lazy and not self.on_demand:
+             self._start()
+ 
+     def _start(self):
+@@ -2068,6 +2079,44 @@ class Vision:
+     def alive(self) -> bool:
+         return self.proc is not None and not self.stopped and self.proc.poll() is None
+ 
++    def _activity_begin(self):
++        if self.activity_path is not None:
++            temporary = self.activity_path.with_suffix(".new")
++            temporary.write_text(json.dumps({"pid": os.getpid(), "encoding": True,
++                                             "expires_monotonic": time.monotonic() + 120}))
++            temporary.replace(self.activity_path)
++
++    def _activity_end(self):
++        if self.activity_path is not None:
++            self.activity_path.unlink(missing_ok=True)
++            self.activity_path.with_suffix(".new").unlink(missing_ok=True)
++
++    def _cancel_idle(self):
++        # Called under self.lock. A cancelled callback may already be waiting
++        # for that lock, so also invalidate its serial number.
++        self._idle_serial += 1
++        if self._idle_timer is not None:
++            self._idle_timer.cancel()
++            self._idle_timer = None
++
++    def _schedule_idle(self):
++        self._cancel_idle()
++        if self.on_demand and not self.closed and self.alive():
++            timer = threading.Timer(self.idle_unload_s, self._idle_unload,
++                                    args=(self._idle_serial,))
++            timer.daemon = True
++            self._idle_timer = timer
++            timer.start()
++
++    def _idle_unload(self, serial):
++        with self.lock:
++            if serial != self._idle_serial or self.closed or not self.alive():
++                return
++            self._idle_timer = None
++            self._close()
++            print(f"[strata] vision encoder stopped after {self.idle_unload_s:g} s idle; "
++                  "image embeddings kept", flush=True)
++
+     def unload(self):
+         """Stop the encoder process (its VRAM or RAM goes back); the encoded images stay cached on disk."""
+         self.close()
+@@ -2075,14 +2124,12 @@ class Vision:
+ 
+     def restart(self):
+         """Start the encoder again after an unload (or if it died); the cache of encoded images is kept."""
+-        if self.proc is not None:
+-            try:
+-                self.proc.kill()
+-            except OSError:
+-                pass
+-        self.proc = None
+-        self.stopped = True
+-        self._start()
++        with self.lock:
++            if self.closed:
++                raise RuntimeError("the vision encoder has shut down")
++            self.close()
++            self._start()
++            self._schedule_idle()
+ 
+     @staticmethod
+     def load(source: str) -> bytes:
+@@ -2183,12 +2230,18 @@ class Vision:
+         data = self.normalize(source if isinstance(source, bytes) else self.load(source))
+         key = hashlib.sha256(data).hexdigest()[:32]
+         with self.lock:
++            if self.closed:
++                raise ValueError("the vision encoder has shut down")
+             if key in self.cache:
+                 self.cache[key] = self.cache.pop(key)                  # most recently used last
+                 return self.cache[key]
++            self._cancel_idle()
++            self._activity_begin()
+             img, out = self.dir / f"{key}.img", self.dir / f"{key}.sve"
+-            img.write_bytes(data)
+             try:
++                if not self.alive():
++                    self._start()
++                img.write_bytes(data)
+                 self.proc.stdin.write(f"ENC {img.name} {out.name}\n")      # relative to the encoder's cwd (#480)
+                 self.proc.stdin.flush()
+                 try:
+@@ -2198,43 +2251,53 @@ class Vision:
+                     raise ValueError(str(e)) from None
+             finally:                                                   # #352: also when the encoder's pipe is gone
+                 img.unlink(missing_ok=True)
++                self._activity_end()
++                self._schedule_idle()
+             if not line.startswith("OK"):
+                 raise ValueError("the image could not be read: " + (line[4:] if line.startswith("ERR") else
+                                                                      "the vision encoder stopped"))
+             self.cache[key] = (out, int(line.split()[1]))
+             held = {str(p) for p in keep} | {str(out)}
+             for old in list(self.cache):                               # oldest first, but never one still in use
+-                if len(self.cache) <= 64:
++                if len(self.cache) <= self.cache_entries:
+                     break
+                 if str(self.cache[old][0]) not in held:
+                     self.cache.pop(old)[0].unlink(missing_ok=True)
+             return self.cache[key]
+ 
+-    def close(self):
++    def _close(self):
+         proc, self.proc = self.proc, None
++        self.stopped = True
+         if proc is None:
+-            self.stopped = True
+             return
+         try:
+-            proc.stdin.write("QUIT\n")
+-            proc.stdin.flush()
++            if proc.poll() is None:
++                proc.stdin.write("QUIT\n")
++                proc.stdin.flush()
+             proc.wait(timeout=10)
+         except Exception:
+             try:
+                 proc.kill()
+-            except OSError:
+-                pass
+-            try:
+-                proc.wait(timeout=10)
+-            except (OSError, subprocess.TimeoutExpired):
++                proc.wait(timeout=5)
++            except (OSError, subprocess.SubprocessError):
+                 pass
+-        self.stopped = True
++        finally:
++            for stream in (proc.stdin, proc.stdout):
++                if stream is not None:
++                    stream.close()
++
++    def close(self):
++        with self.lock:
++            self._cancel_idle()
++            self._close()
+ 
+     def shutdown(self):
+         """#914: close() for good: the server ends, so the encoder's directory (one ~10 MB .sve per image, on a tmpfs
+         /tmp that is RAM) goes with it instead of piling up with every start.  unload() keeps it for the restart."""
+-        self.close()
+-        shutil.rmtree(self.dir, ignore_errors=True)
++        with self.lock:
++            self.closed = True
++            self.close()
++            shutil.rmtree(self.dir, ignore_errors=True)
+ 
+ 
+ def gpu_list(cfg: dict) -> list[int]:
+@@ -2977,7 +3040,8 @@ class Service:
+         return value if value > 0 else None
+ 
+     def _vision_down(self) -> bool:
+-        return self.vision is not None and hasattr(self.vision, "alive") and not self.vision.alive()
++        return (self.vision is not None and not getattr(self.vision, "on_demand", False)
++                and hasattr(self.vision, "alive") and not self.vision.alive())
+ 
+     def free_vram_mib(self) -> int | None:
+         """Free VRAM on the engine's (first) GPU, from NVML (AMD backend: amdgpu's sysfs files, #301); None when it can't
+@@ -4332,9 +4396,30 @@ def openai_chunks(svc: Service, req: dict, ids, thinking, tools, max_new, cancel
+     # that does not.  Strata already sends a keep-alive comment on every PP line, so this only fills that line in.
+     want_progress = bool(req.get("return_progress"))
+ 
++    want_live_timings = want_progress or bool(req.get("timings_per_token"))
++    last_live_timing = 0.0
++
+     def chunk(delta, finish=None):
+-        return {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
+-                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
++        nonlocal last_live_timing
++        result = {"id": cid, "object": "chat.completion.chunk", "created": created, "model": model,
++                  "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
++        now = time.monotonic()
++        # The llama.cpp UI reads timings, not usage. Send real counters once per second;
++        # final request_timings below still supplies the engine's measured durations.
++        # The global live status belongs to this request only on the single-slot path.
++        if (want_live_timings and finish is None and now - last_live_timing >= 1.0
++                and not getattr(svc.engine, "batch", 0)):
++            with svc.status_lock:
++                live = dict(svc.status)
++            if live.get("busy") and live.get("first_token") is not None:
++                prompt_n = int(live.get("prompt_tokens") or 0)
++                cached = min(prompt_n, max(0, int(getattr(svc.engine, "reused", 0) or 0)))
++                generated = int(live.get("generated") or 0)
++                elapsed_ms = max(0.0, (time.time() - live["first_token"]) * 1000)
++                result["timings"] = {"prompt_n": prompt_n - cached, "cache_n": cached,
++                                     "predicted_n": generated, "predicted_ms": round(elapsed_ms, 1)}
++                last_live_timing = now
++        return result
+ 
+     yield chunk({"role": "assistant", "content": ""})
+     calls = 0
+diff --git a/src/core/expert_source.cpp b/src/core/expert_source.cpp
+index ad28f56..04ae263 100644
+--- a/src/core/expert_source.cpp
++++ b/src/core/expert_source.cpp
+@@ -1650,6 +1650,30 @@ bool FileExpertSource::set_unbuffered(uint64_t ram_bytes, std::string& why) {
+ #endif
+ }
+ 
++bool FileExpertSource::begin_startup_direct(std::string& why) {
++#if defined(__linux__)
++    if (base_ == nullptr || paths_.empty()) {
++        why = "no expert files open";
++        return false;
++    }
++    if (!direct_.empty()) {
++        why = "already unbuffered";
++        return false;  // do not take ownership of another mode's file handles
++    }
++    why = "startup-only O_DIRECT; mapped serving restored after resident fill";
++    return open_direct(why);
++#else
++    why = "startup-only direct read is Linux-only";
++    return false;
++#endif
++}
++
++void FileExpertSource::end_startup_direct() {
++    // The profile-fill future and every complement-copy worker have joined at the call site.
++    for (void* file : direct_) close_direct(file);
++    direct_.clear();
++}
++
+ bool FileExpertSource::recheck_unbuffered(std::string& why) {
+ #if defined(_WIN32) || defined(__linux__)
+     if (const char* env = std::getenv("STRATA_UNBUFFERED_LOAD"); env != nullptr && env[0] != '\0') {
+@@ -3133,6 +3157,42 @@ bool FileExpertSource::pin_cache_complement(
+         release();
+         return false;
+     }
++    // Optional installation check; compare every resident byte with the original mapped file.
++    // Off in normal operation; this deliberately reads the source pages independently of O_DIRECT.
++    if (const char* v = std::getenv("STRATA_VERIFY_STARTUP_COPY");
++        v != nullptr && std::strcmp(v, "1") == 0) {
++        uint64_t checked = 0;
++        for (size_t i = 0; i < offsets.size(); ++i) {
++            if (offsets[i] == kNoComplement) continue;
++            const int64_t layer = (int64_t) (i / (size_t) n_expert_);
++            const int64_t expert = (int64_t) (i % (size_t) n_expert_);
++            const uint8_t* dst = host + (size_t) offsets[i];
++            bool equal = true;
++            uint64_t at = 0;
++            if (role_ptr_.empty()) {
++                const uint8_t* ref = mapped_blob(layer, expert);
++                equal = ref != nullptr && std::memcmp(dst, ref, (size_t) layer_blob_bytes_[(size_t) layer]) == 0;
++                at = layer_blob_bytes_[(size_t) layer];
++            } else {
++                for (int r = 0; r < 3 && equal; ++r) {
++                    const size_t k = (size_t) (3 * layer + r);
++                    const uint64_t per = role_bytes_[k];
++                    const uint8_t* ref = role_ptr_[k] + (size_t) ((uint64_t) expert * per);
++                    equal = std::memcmp(dst + (size_t) at, ref, (size_t) per) == 0;
++                    at += per;
++                }
++            }
++            if (!equal) {
++                err = "EVO resident-copy verification failed at layer " + std::to_string(layer) +
++                      " expert " + std::to_string(expert);
++                release();
++                return false;
++            }
++            checked += at;
++        }
++        std::fprintf(stderr, "evo startup copy verification: CPU matched %llu bytes against mapped source\n",
++                     (unsigned long long) checked);
++    }
+ #if defined(_WIN32)
+     // The mapped pages this process touched (the GPU cache's fill and this copy) leave its working set for the
+     // standby list: VirtualUnlock on pages that are not locked does exactly that (it then reports ERROR_NOT_LOCKED).
+diff --git a/src/program/generate.cpp b/src/program/generate.cpp
+index 4aa057d..5f2141f 100644
+--- a/src/program/generate.cpp
++++ b/src/program/generate.cpp
+@@ -4539,6 +4539,7 @@ int main(int argc, char** argv) {
+     // CUDA error left set by the failed `cudaHostRegister` and read later by `gr_read`'s launch check.  See the
+     // note in `pinned.cu`.
+     strata::core::FileExpertSource src;
++    bool evo_startup_direct = false;
+     {   // the card, and whether this build has code for it (a binary built for other GPUs fails at its first kernel
+         // otherwise, after the whole expert arena has loaded) - before the arena starts loading
+         int dev = 0;
+@@ -4696,6 +4697,15 @@ int main(int argc, char** argv) {
+         } else if (const char* sv = std::getenv("STRATA_IO_STATS"); sv != nullptr && std::atoi(sv) != 0) {
+             src.set_io_stats(true);
+         }
++        // EVO: only the complete resident mode, with no explicit RAM budget.
++        // Existing budget/unbuffered behavior and the serving-time file cache are unchanged.
++        if (const char* v = std::getenv("STRATA_STARTUP_DIRECT");
++            v != nullptr && std::strcmp(v, "1") == 0 && o.resident_cpu_experts && o.resident_budget == 0) {
++            std::string why;
++            evo_startup_direct = src.begin_startup_direct(why);
++            std::fprintf(stderr, "evo startup direct: %s (%s)\n",
++                         evo_startup_direct ? "enabled" : "unavailable; mapped fallback", why.c_str());
++        }
+         srcp = &src;
+     } else {
+         arena_src.set_gguf(o.native_preset);   // plan v0.3 P6: a native pack may take its experts from shard 1
+@@ -5235,6 +5245,46 @@ int main(int argc, char** argv) {
+         }
+     }
+ 
++    // EVO single-device resident startup: the profile-fill future has joined and every H2D
++    // copy above was blocking. No inference/lookahead has started. Its assembly cache is
++    // now a disposable copy, so release it before the large permanent RAM allocation.
++    if (const char* v = std::getenv("STRATA_STARTUP_TRIM_STAGING");
++        v != nullptr && std::strcmp(v, "1") == 0 && src.unbuffered() &&
++        srcp == &src && stages.empty() && o.peer_device < 0 && !remote_caches &&
++        o.resident_cpu_experts) {
++        uint64_t released = 0;
++        if (!src.release_startup_staging(released)) {
++            std::fprintf(stderr, "strata generate: EVO startup staging trim refused: a fill is still busy\n");
++            return 1;
++        }
++        std::fprintf(stderr, "strata generate: EVO startup staging trim released %llu bytes before RAM fill\n",
++                     (unsigned long long) released);
++        mem_mark("EVO startup staging trim");
++        if (const char* check = std::getenv("STRATA_VERIFY_STARTUP_TRIM");
++            check != nullptr && std::strcmp(check, "1") == 0) {
++            std::vector<uint8_t> seen((size_t) g.n_layers, 0);
++            uint64_t verified_bytes = 0;
++            int64_t verified_layers = 0;
++            for (const auto& p : profile) {
++                if (p.first < 0 || p.first >= g.n_layers || seen[(size_t) p.first]) continue;
++                const int32_t slot = xcache.slot_of(p.first, p.second);
++                if (slot < 0) continue;
++                const uint8_t* reference = src.blob(p.first, p.second);
++                const int64_t bytes = (int64_t) strata::kernels::cpu::expert_layout().blob_bytes(p.first);
++                if (reference == nullptr || !xcache.verify_slot(slot, reference, err, bytes)) {
++                    std::fprintf(stderr, "strata generate: EVO post-trim GPU verification failed: %s\n", err.c_str());
++                    return 1;
++                }
++                seen[(size_t) p.first] = 1;
++                verified_bytes += (uint64_t) bytes;
++                ++verified_layers;
++            }
++            if (!src.release_startup_staging(released)) return 1;
++            std::fprintf(stderr, "strata generate: EVO post-trim GPU verification: %lld layers, %llu bytes equal\n",
++                         (long long) verified_layers, (unsigned long long) verified_bytes);
++        }
++    }
++
+     for (auto& stp : stages) {
+         GpuStage& st = *stp;
+         const auto& lay = strata::kernels::cpu::expert_layout();
+@@ -6812,6 +6862,31 @@ int main(int argc, char** argv) {
+         }
+ #endif
+     }
++    if (evo_startup_direct) {
++        const int64_t fallbacks = src.direct_fallbacks();
++        src.end_startup_direct();
++        std::fprintf(stderr, "evo startup direct: finished; mapped serving restored; direct fallbacks %lld\n",
++                     (long long) fallbacks);
++        if (const char* v = std::getenv("STRATA_VERIFY_STARTUP_COPY");
++            v != nullptr && std::strcmp(v, "1") == 0) {
++            int64_t checked = 0;
++            uint64_t checked_bytes = 0;
++            for (const auto& pair : profile) {
++                const int32_t slot = xcache.slot_of(pair.first, pair.second);
++                if (slot == strata::core::kNotResident) continue;
++                const uint8_t* ref = srcp->blob(pair.first, pair.second);
++                const uint64_t bytes = strata::kernels::cpu::expert_layout().blob_bytes(pair.first);
++                if (ref == nullptr || !xcache.verify_slot(slot, ref, err, (int64_t) bytes)) {
++                    std::fprintf(stderr, "evo startup copy verification: GPU mismatch: %s\n", err.c_str());
++                    return 1;
++                }
++                ++checked;
++                checked_bytes += bytes;
++            }
++            std::fprintf(stderr, "evo startup copy verification: GPU matched %lld slots / %llu bytes\n",
++                         (long long) checked, (unsigned long long) checked_bytes);
++        }
++    }
+     if (o.adapt_async && !src.complement_ready()) adapt_async_off("the resident RAM mode is not running");
+     // pp-opt: with the file tier unbuffered, the mapped view of experts.bin is only a fallback from here on - and while
+     // it exists NTFS serves the unbuffered reads one at a time (drop_mapping).  STRATA_KEEP_MAPPING=1 keeps it (A/B).

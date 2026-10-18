@@ -1,0 +1,112 @@
+diff --git a/common/arg.cpp b/common/arg.cpp
+index 14d82f6..3e03f6d 100644
+--- a/common/arg.cpp
++++ b/common/arg.cpp
+@@ -4146,6 +4146,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
+         }
+     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_N_CPU_MOE"));
+ 
++    add_opt(common_arg(
++        {"--spec-draft-adaptive"},
++        "adapt DFlash2 draft length to measured acceptance (default: off)",
++        [](common_params & params) {
++            params.speculative.draft.adaptive = true;
++        }
++    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_ADAPTIVE"));
+     add_opt(common_arg(
+         {"--spec-draft-n-max"}, "N",
+         string_format("number of tokens to draft for speculative decoding (default: %d)", params.speculative.draft.n_max),
+diff --git a/common/common.h b/common/common.h
+index 2f50d90..089d738 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -332,6 +332,8 @@ struct common_params_speculative_draft {
+     float p_split = 0.1f; // speculative decoding split probability
+     float p_min   = 0.0f; // minimum speculative decoding probability (greedy)
+ 
++    bool adaptive = false; // acceptance-driven DFlash2 draft length
++
+     bool backend_sampling = true; // offload draft sampling to the backend (default: on)
+ 
+     bool probabilistic = false; // sample the draft and verify by rejection, instead of argmax and match
+diff --git a/common/speculative.cpp b/common/speculative.cpp
+index a7f095a..8947493 100644
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -982,6 +982,9 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
+ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+     common_params_speculative_draft params;
+ 
++    std::vector<float> acc_ema;
++    std::vector<int32_t> n_last_draft;
++
+     common_batch batch;        // noise tokens
+     common_batch batch_inject; // target features for KV cache injection
+ 
+@@ -1080,6 +1083,11 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+             this->params.n_min = std::min(this->params.n_min, n_draft_max);
+         }
+         this->n_max = this->params.n_max;
++        acc_ema.assign(n_seq, 2.0f);
++        n_last_draft.assign(n_seq, 0);
++        if (this->params.adaptive && is_dflash2) {
++            LOG_INF("%s: adaptive DFlash2 enabled, floor=%d, ceiling=%d\n", __func__, this->params.n_min, this->params.n_max);
++        }
+ 
+         batch        = common_batch(ctx_dft);
+         batch_inject = common_batch(ctx_dft);
+@@ -1141,6 +1149,8 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+             return;
+         }
+ 
++        acc_ema[seq_id] = 2.0f;
++        n_last_draft[seq_id] = 0;
+         const int32_t N = (int32_t) prompt.size();
+         if (N <= 0) {
+             return;
+@@ -1259,7 +1269,13 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+ 
+             const int32_t n = (int32_t) dp.pos0;
+ 
+-            const int32_t n_draft = params.n_max;
++            int32_t n_draft = params.n_max;
++            if (params.adaptive && is_dflash2) {
++                const int32_t ceiling = dp.n_max > 0 ? std::min(params.n_max, dp.n_max) : params.n_max;
++                const int32_t floor = std::min(ceiling, std::max(1, params.n_min));
++                n_draft = std::min(ceiling, std::max(floor, (int32_t) std::lround(acc_ema[seq_id])));
++                acc_ema[seq_id] = std::min(acc_ema[seq_id], (float) ceiling);
++            }
+ 
+             const int32_t n_block_tokens = n_draft + (is_dspark && sample_from_anchor ? 0 : 1);
+             i_block_beg[seq_id] = batch.size();
+@@ -1320,6 +1336,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+                 if (result.size() < (size_t) params.n_min) {
+                     result.clear();
+                 }
++                n_last_draft[seq_id] = (int32_t) result.size();
+                 continue;
+             }
+ 
+@@ -1382,8 +1399,21 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
+         }
+     }
+ 
+-    void accept(llama_seq_id /*seq_id*/, uint16_t /*n_accepted*/, bool /*is_other*/) override {
+-        // noop
++    void accept(llama_seq_id seq_id, uint16_t n_accepted, bool is_other) override {
++        if (!params.adaptive || !is_dflash2 || is_other || seq_id < 0 || seq_id >= (llama_seq_id) n_seq) {
++            return;
++        }
++        const int32_t n_drafted = n_last_draft[seq_id];
++        if (n_drafted <= 0) {
++            return;
++        }
++        // A full accept is a lower bound; probe up instead of averaging it down.
++        if ((int32_t) n_accepted >= n_drafted) {
++            acc_ema[seq_id] += 1.0f;
++        } else {
++            acc_ema[seq_id] = 0.75f * acc_ema[seq_id] + 0.25f * (float) n_accepted;
++        }
++        n_last_draft[seq_id] = 0;
+     }
+ };

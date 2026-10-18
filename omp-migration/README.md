@@ -4,6 +4,9 @@ A small owner-only Discord gateway around Oh My Pi 18.11.3. OMP owns the model
 and coding-tool loop; this project owns Discord, task scheduling, approvals and
 the existing EVO integrations. The inference server and WebUI remain separate.
 
+Inference-engine patches and sanitized historical measurements are maintained
+separately in [runtime/](../runtime/README.md).
+
 ## Implemented
 
 | Feature | Current behavior |

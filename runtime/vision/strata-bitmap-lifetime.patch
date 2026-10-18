@@ -1,0 +1,20 @@
+--- a/tools/vision/strata_vision.cpp
++++ b/tools/vision/strata_vision.cpp
+@@ -194,6 +194,8 @@
+             const mtmd_input_chunk* ch = mtmd_input_chunks_get(chunks, c);
+             if (mtmd_input_chunk_get_type(ch) == MTMD_INPUT_CHUNK_TYPE_IMAGE) ichunk = ch;
+         }
++        mtmd_bitmap_free(bw.bitmap);
++        bw.bitmap = nullptr;
+         if (err.empty() && !ichunk) err = "no image chunk";
+         if (err.empty() && mtmd_encode_chunk(ctx, ichunk) != 0) err = "the vision encoder failed";
+         if (err.empty()) {
+@@ -219,7 +221,7 @@
+         if (!err.empty()) std::printf("ERR %s\n", err.c_str());
+         std::fflush(stdout);
+         mtmd_input_chunks_free(chunks);
+-        mtmd_bitmap_free(bw.bitmap);
++        if (bw.bitmap) mtmd_bitmap_free(bw.bitmap);
+         if (bw.video_ctx) mtmd_helper_video_free(bw.video_ctx);
+     }
+     mtmd_free(ctx);

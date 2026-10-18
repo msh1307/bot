@@ -1,10 +1,20 @@
 # This workspace also contains private infrastructure notes and experiments.
-# Only the active bot source and its host broker belong in this repository.
+# Track the bot, its host broker and the curated inference patches.
 /*
 !/.gitignore
 !/.gitattributes
 !/omp-migration/
 !/host-tools/
+!/runtime/
+/runtime/**
+!/runtime/**/
+!/runtime/README.md
+!/runtime/RESULTS.md
+!/runtime/THIRD-PARTY-NOTICES.md
+!/runtime/manifest.json
+!/runtime/strata/*.patch
+!/runtime/vision/*.patch
+!/runtime/qwen/experiments/*.patch
 /omp-migration/*
 !/omp-migration/evo_omp/
 !/omp-migration/*.py
