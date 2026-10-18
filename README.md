@@ -1,15 +1,9 @@
 # EVO bot
 
-Owner-only Discord assistant built around Oh My Pi, plus EVO-X2 runtime patches.
+Owner-only Discord assistant built on Oh My Pi for EVO-X2.
 
-| Directory | Contents |
-|---|---|
-| [omp-migration](omp-migration/README.md) | Discord, sandbox tools, browser, Gmail, Codex, memory and timers |
-| [host-tools](host-tools/README.md) | Host commands and per-command root approval |
-| [runtime](runtime/README.md) | Inference patches, upstream versions and historical measurements |
+- [Bot](omp-migration/README.md)
+- [Host commands](host-tools/README.md)
+- [Inference patches](runtime/README.md)
 
-Targets an existing EVO-X2 installation; deployment paths and account IDs need
-local configuration. Model APIs, OMP and browser binaries are external dependencies.
-
-Credentials, network maps, personal memory, cookies, conversations, build output
-and local research archives are excluded from Git.
+Credentials and runtime data are excluded from Git.
