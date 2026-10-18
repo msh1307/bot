@@ -1,95 +1,69 @@
-# EVO OMP Discord bot
+# OMP Discord bot
 
-A small owner-only Discord gateway around Oh My Pi 18.11.3. OMP owns the model
-and coding-tool loop; this project owns Discord, task scheduling, approvals and
-the existing EVO integrations. The inference server and WebUI remain separate.
+Owner-only Discord gateway using official Oh My Pi 18.11.3. OMP runs the model
+and coding loop; this code adds Discord, integrations, scheduling and approvals.
 
-Inference-engine patches and sanitized historical measurements are maintained
-separately in [runtime/](../runtime/README.md).
+## Layout
 
-## Implemented
+- `evo_omp/gateway.py`: Discord, interruption, queue and scheduling.
+- `evo_omp/rpc.py`: OMP process and bwrap sandbox.
+- `evo_omp/tools.py`, `integrations/`: memory, timers, web, browser, Gmail and Codex.
+- `config.yml`, `models.yml`, `instructions.txt`: model/tool configuration.
+- `turn-limit.ts`: 40 provider dispatches per turn; turn deadline is 20 minutes.
+- `*.service`: service definitions. `stage.py` and `cutover.py` are migration helpers.
 
-| Feature | Current behavior |
-|---|---|
-| Coding | OMP read/grep/glob/edit/write/bash inside bwrap; shared workspace and network |
-| Interruption | A new owner message interrupts work in that channel and continues the conversation |
-| Context | RAM conversations, two channels by LRU, automatic compression and `/compact` |
-| Memory | Explicit document list/read/write/delete; no automatic profile injection or review |
-| Reminders | Natural-language tool calls, one-shot reminders and recurring cron briefings |
-| Follow-up | Interruptible short waits or a saved one-shot continuation; queue behind active work |
-| Browser | Lazy Chrome Headless Shell, persistent login profile, DOM actions and screenshots |
-| Integrations | Read-only Gmail, Windows Codex tasks/chats, sensors and timed API/Web access |
-| Host commands | Owner Discord only; ordinary host commands remain restricted |
-| Root | Fresh Allow Once for the exact command; normal host root rights for that command |
+## Behavior
 
-Daily reminders already work without generating a skill. A scheduled job stores
-its task prompt, schedule and destination in `jobs.json`; it survives restart.
-Recurring briefings deliberately have only web/browser/status tools. They cannot
-use Gmail, run host commands or perform unattended root maintenance. One-shot
-task continuations keep ordinary task tools, with a new approval for every root
-command. Pending callbacks and recurring jobs have different stop/reset rules;
-see [timing behavior](OMP-TIMING.md).
+- One active task, two RAM conversations retained by LRU. New owner messages
+  interrupt the current turn in that channel. Automatic compression and `/compact`.
+- `/new` clears context. `/reset` also clears shared workspace, preserving Git
+  home, durable memory and recurring alarms. Restart clears RAM conversations.
+- Memory is explicit document list/read/write/delete. Skills and automatic profile
+  injection are disabled. Gmail is read-only; Codex controls an existing Windows bridge.
+- Coding runs in shared `/workspace` inside bwrap with network access.
+  [Host commands](../host-tools/README.md) use a separate broker and root approval.
+- Bot + OMP + browser share a 2GiB service ceiling, 1.5GiB high watermark, zero
+  swap and 256 tasks. Inference is a separate service.
 
-Skill discovery and automatic skill generation are disabled. Memory documents
-are read only when relevant and updated when the owner asks. An explicitly saved
-procedure can be read as a document; it is not an automatically loaded skill.
+## Browser
 
-## Boundaries
+Chrome Headless Shell 155.0.8059.84 + Playwright 1.62.0, launched on demand over
+a private pipe. DOM navigation/actions, JavaScript and RAM screenshots (960x640).
+Images default off (`open images=true` enables them); media and downloads are blocked.
+Read output defaults to 6,000 chars, maximum 12,000; use offset to continue.
+Action timeout defaults to 15s, maximum 60s. Browser wait pauses at most 5s.
 
-- Native coding tools always stay in bwrap. `host_command` starts a separate
-  host job; approving root does not switch the ongoing shell to root or disable
-  bwrap for later tool calls.
-- Root approval is per command, owner Discord only. No session-wide root grant,
-  WebUI/API root tool, cron root command or automatic root consent exists.
-- Root gets the actual host filesystem, `/root`, host `/tmp` and normal root
-  capabilities. Ordinary jobs mask credentials and control state, including the
-  current OMP paths. Passwords/tokens remain in private files outside workspace.
-- Each host job retains a 512 MiB RAM ceiling, no swap and at most 120 seconds.
-  Large builds/package installations may need a different execution budget.
-- The bot has a 2 GiB service limit with swap disabled. The model is a separate
-  service. Browser/login state and explicit memory/schedules persist; chat
-  context is transient.
-- `/new` clears conversation context; `/reset` also clears shared workspace,
-  preserving Git home, durable documents and recurring alarms.
+One persistent profile under `/var/lib/evo-omp/browser`. Close after 15 idle minutes;
+`close` preserves login state, browser `reset` deletes it. Cookie persistence writes
+to disk. Outer bwrap isolation is active; Chromium's internal sandbox is disabled
+because of the host AppArmor restriction. No automatic Camoufox fallback.
+Recurring jobs can browse/read/screenshot but cannot click, fill or evaluate.
+The separate WebUI reader still uses Lightpanda.
 
-## Source layout
+## Timers
 
-- `evo_omp/`: active gateway, OMP transport, integrations, browser and Python bridge.
-- `turn-limit.ts`: provider retry ownership and 40-dispatch bound.
-- `config.yml`, `models.yml`, `instructions.txt`: model metadata and short instructions.
-- `evo-omp.service`, `evo-web-python.service`: runtime service definitions.
-- `../host-tools/{evo-host-broker.py,command-runner.py,evo-host.service,policy.example.json}`:
-  host execution and its ordinary/root permission split. Keep these with the bot source.
-- `stage.py`, `cutover.py`, `install_browser_runtime.py`: this EVO installation's
-  preparation/migration helpers, not a general fresh-machine installer.
+- `wait(seconds)`: interruptible, 1-300s, cumulative 300s per turn; no inference
+  while asleep. `schedule(action=defer, after_seconds, prompt)` saves a continuation
+  for 1s-24h later, at most eight pending. Include task/target IDs in its prompt.
+- Due jobs queue behind active work; the scheduler checks every 5s. A saved prompt
+  resumes in the retained conversation, or a fresh one after eviction/restart.
+- Ordinary messages retain timers. `/stop`, `/new`, `/model` cancel that channel's
+  continuations; `/reset` cancels all continuations. Recurring alarms remain.
+- Unclaimed callbacks survive restart; already running callbacks are not replayed.
+  Root always needs fresh approval. Recurring briefings use web/browser/status only.
+- `/alarms` lists jobs; pause/delete revoke pending callbacks. Jobs persist privately
+  in `jobs.json`; no extra KV snapshot is allocated for a timer.
 
-## Git scope
+## Deployment
 
-Version-control the active source, configuration templates, service definitions,
-dependency pins and operation documents. Keep the real `/etc/evo-omp` credentials,
-SSH keys, browser profile/cookies, `jobs.json`, personal memory, workspace files,
-network maps, captured conversations, old server snapshots, archives and downloaded runtimes
-out of the repository. `.gitignore` provides common exclusions; it does not make
-the entire surrounding EVO experiment workspace safe to publish.
+Requires bwrap, the pinned Python dependencies, official OMP binary, Headless Shell,
+model router, private Discord configuration and existing service accounts/paths.
+Search and images use the existing EVO HTTP tool service; Web Python and Codex
+need their separate bridges. This folder is not a fresh-machine installer.
+Browser installer: `python3 /opt/evo-omp/install_browser_runtime.py` (root).
+It records a local download digest; this is not an independently verified checksum.
 
-The parent repository uses an allowlist for these source folders; the surrounding
-infrastructure notes and experiments are excluded. The real host `policy.json`
-is also excluded: adapt `policy.example.json` privately for the destination host.
-Check the staged diff before every commit. Account IDs currently embedded in the
-source are deployment-specific, non-secret values; this is not a generic bot package.
-
-## Deployment dependencies and limitations
-
-This source targets the already configured EVO host. It needs OMP's official
-binary, bwrap, the pinned Python dependencies, Headless Shell, a model API/router,
-private Discord configuration and the existing service accounts/directories.
-Search/page/image tools use the separate EVO HTTP tool service. Web Python loads
-`/opt/evo-python/bridge.py`; Codex and external access use their existing bridges.
-Those service runtimes/credentials are not created simply by cloning this folder.
-Retired Hermes agent code is not imported by the active bot; the frozen public
-reader/Python dependencies still use legacy paths.
-
-Operation: `systemctl status evo-omp evo-host`; bot status is
-`/run/evo-omp/status.json`. Stop the active task before any restart. Restarting
-the bot clears RAM conversations. Historical checks do not establish long-term
-reliability, model quality or every login site's compatibility.
+Services: `evo-omp`, `evo-host`, `evo-web-python`.
+Status: `/run/evo-omp/status.json`. Let active work finish before restarting.
+`verify*.py` contains checks; some contact models/accounts, so inspect before running.
+[Inference patches](../runtime/README.md) are maintained separately.

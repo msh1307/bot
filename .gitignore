@@ -3,13 +3,13 @@
 /*
 !/.gitignore
 !/.gitattributes
+!/README.md
 !/omp-migration/
 !/host-tools/
 !/runtime/
 /runtime/**
 !/runtime/**/
 !/runtime/README.md
-!/runtime/RESULTS.md
 !/runtime/THIRD-PARTY-NOTICES.md
 !/runtime/manifest.json
 !/runtime/strata/*.patch
@@ -25,8 +25,6 @@
 !/omp-migration/requirements.txt
 !/omp-migration/turn-limit.ts
 !/omp-migration/README.md
-!/omp-migration/OMP-BROWSER.md
-!/omp-migration/OMP-TIMING.md
 /omp-migration/evo_omp/**
 !/omp-migration/evo_omp/**/
 !/omp-migration/evo_omp/**/*.py
