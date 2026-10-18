@@ -24,6 +24,23 @@ MODELS = {'flash': DEFAULT_MODEL, '27b': 'qwen3.8-27b-uncensored'}
 PROGRESS_INTERVAL = 30
 
 
+def progress_text(session, seconds):
+    seconds = max(0, int(seconds))
+    elapsed = f'{seconds // 60}분 {seconds % 60}초' if seconds >= 60 else f'{seconds}초'
+    phase = {'waiting for model': '모델 응답 대기',
+             'receiving model response': '모델 응답 중', 'compacting': '대화 압축 중',
+             'finishing': '마무리 중', 'idle': '마무리 중'}.get(session.last_event)
+    if phase is None:
+        phase = '도구 실행 중: ' + session.last_event.removeprefix('tool: ')
+    idle = int(time.monotonic() - session.last_activity)
+    if idle >= PROGRESS_INTERVAL:
+        phase += f' · 마지막 이벤트 {idle}초 전'
+    text = f'⏳ 작업 중 · {elapsed} · {session.rounds}/40회 · 도구 {session.tools}회\n{phase}'
+    if session.last_progress:
+        text += '\n최근 중간 답변: ' + discord.utils.escape_markdown(session.last_progress)
+    return context.redact_sensitive_text(text)
+
+
 class Bot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -362,7 +379,7 @@ class Bot(commands.Bot):
 
     @contextlib.asynccontextmanager
     async def progress(self, channel, session, enabled=True):
-        """One temporary status for long interactive turns; no model text or commands."""
+        """Edit one status using public assistant text; never expose thinking/tool output."""
         if not enabled:
             yield
             return
@@ -372,9 +389,8 @@ class Bot(commands.Bot):
             nonlocal notice
             while True:
                 await asyncio.sleep(PROGRESS_INTERVAL)
-                seconds = int(time.monotonic() - started)
-                elapsed = f'{seconds // 60}분 {seconds % 60}초' if seconds >= 60 else f'{seconds}초'
-                text = f'⏳ 작업 중 · {elapsed} · 도구 {session.tools}회'
+                text = progress_text(session, time.monotonic() - started)
+                self.write_status('working')
                 try:
                     if notice is None:
                         notice = await asyncio.wait_for(channel.send(text,
@@ -387,14 +403,21 @@ class Bot(commands.Bot):
                     return
 
         task = asyncio.create_task(update())
+        finished = False
         try:
             yield
+            finished = True
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             if notice is not None:
                 with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
-                    await asyncio.wait_for(notice.delete(), 3)
+                    if session.last_progress and (not finished or context.is_interrupted()):
+                        text = '⏹ 작업 중단 · 마지막 중간 답변\n' + discord.utils.escape_markdown(session.last_progress)
+                        await asyncio.wait_for(notice.edit(content=text,
+                            allowed_mentions=discord.AllowedMentions.none()), 3)
+                    else:
+                        await asyncio.wait_for(notice.delete(), 3)
 
     async def deliver(self, channel, text):
         text = context.redact_sensitive_text(text)
@@ -433,7 +456,10 @@ class Bot(commands.Bot):
         data = {'engine': 'omp', 'version': '18.11.3', 'state': state,
                 'queued': self.queue.qsize(), 'sessions': len(self.sessions),
                 'active': bool(a), 'rounds': a['session'].rounds if a else 0,
-                'tools': a['session'].tools if a else 0, 'updated': int(time.time())}
+                'tools': a['session'].tools if a else 0,
+                'elapsed_seconds': int(time.monotonic() - a['start']) if a else 0,
+                'idle_seconds': int(time.monotonic() - a['session'].last_activity) if a else 0,
+                'updated': int(time.time())}
         p = Path('/run/evo-omp/status.json')
         with contextlib.suppress(OSError):
             p.with_suffix('.tmp').write_text(json.dumps(data))
@@ -462,7 +488,7 @@ class Bot(commands.Bot):
                     return '열린 대화가 없습니다.'
                 if a:
                     s = a['session']
-                    return f"OMP · {s.model}\n{s.rounds}/40회 · 도구 {s.tools}회 · {int(time.monotonic()-a['start'])}초\n{s.last_event} · 대기 {self.queue.qsize()}개"
+                    return f"OMP · {s.model}\n" + progress_text(s, time.monotonic() - a['start']) + f"\n대기 {self.queue.qsize()}개"
                 if any(s.compacting for s in self.sessions.values()):
                     return 'OMP 대화 압축 중 · /stop으로 이 채널의 압축을 중단할 수 있습니다.'
                 return f"OMP 대기 중 · 모델 {self.models.get(key, DEFAULT_MODEL)} · 열린 대화 {len(self.sessions)}개"

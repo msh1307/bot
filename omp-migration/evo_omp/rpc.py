@@ -67,6 +67,7 @@ class OmpSession:
         self.settled.set()
         self.turn = None
         self.last_text, self.error = '', ''
+        self.last_progress = ''
         self.transport_error = ''
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
@@ -74,6 +75,7 @@ class OmpSession:
         self.compacting = False
         self.compact_cancelled = False
         self.last_used = time.monotonic()
+        self.last_activity = self.last_used
         self.profile = RUNTIME / 'profiles' / secrets.token_hex(12)
         self.chunks = None
         self.write_lock = asyncio.Lock()
@@ -186,10 +188,12 @@ class OmpSession:
     async def prompt(self, text, turn, images=None):
         self.turn = turn
         self.last_text, self.error = '', ''
+        self.last_progress = ''
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
         self.last_event = 'waiting for model'
         self.last_used = time.monotonic()
+        self.last_activity = self.last_used
         self.settled.clear()
         ident = secrets.token_hex(10)
         done = asyncio.get_running_loop().create_future()
@@ -263,7 +267,7 @@ class OmpSession:
 
     async def dispatch(self, event):
         kind = event.get('type')
-        self.last_event = kind or self.last_event
+        self.last_activity = time.monotonic()
         if kind == 'ready':
             self.ready.set()
         elif kind == 'response':
@@ -271,30 +275,42 @@ class OmpSession:
             if fut is not None and not fut.done():
                 fut.set_result(event)
         elif kind == 'prompt_result':
+            self.last_event = 'finishing'
             fut = self.prompts.get(event.get('id'))
             if fut is not None and not fut.done():
                 fut.set_result(event)
             if event.get('sessionSettled'):
                 self.settled.set()
         elif kind == 'session_settled':
+            self.last_event = 'idle'
             self.settled.set()
         elif kind == 'message_end':
             msg = event.get('message', {})
             if msg.get('role') == 'assistant':
                 blocks = msg.get('content', [])
                 text = '\n'.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
+                if text:
+                    preview = ' '.join(context.redact_sensitive_text(text).split())
+                    self.last_progress = preview[:600] + ('…' if len(preview) > 600 else '')
                 if text and not any(b.get('type') in ('toolCall', 'tool_call') for b in blocks):
                     self.last_text = text
                 if msg.get('errorMessage'):
                     self.error = context.redact_sensitive_text(msg['errorMessage'])[:350]
         elif kind == 'turn_start':
+            self.last_event = 'waiting for model'
             self.rounds += 1
             if self.rounds > 40:
                 self.error = '40회 작업 한도에 도달했습니다. 다음 메시지로 이어갈 수 있습니다.'
                 asyncio.create_task(self.abort())
         elif kind == 'tool_execution_start':
             self.tools += 1
-            self.last_event = 'tool: ' + event.get('toolName', '')
+            self.last_event = 'tool: ' + event.get('toolName', '')[:80]
+        elif kind in ('tool_execution_end', 'agent_start', 'auto_compaction_end'):
+            self.last_event = 'waiting for model'
+        elif kind == 'auto_compaction_start':
+            self.last_event = 'compacting'
+        elif kind == 'message_update' and self.last_event != 'compacting':
+            self.last_event = 'receiving model response'
         elif kind == 'host_tool_call':
             if self.turn is None or event.get('toolName') not in {d['name'] for d in self.definitions}:
                 await self.send({'type': 'host_tool_result', 'id': event['id'], 'isError': True,
