@@ -71,6 +71,8 @@ class OmpSession:
         self.turn = None
         self.last_text, self.error = '', ''
         self.last_progress = ''
+        self.pending_text = ''
+        self.on_progress = None
         self.transport_error = ''
         self.stderr_tail = ''
         self.closing = False
@@ -195,6 +197,7 @@ class OmpSession:
         self.turn = turn
         self.last_text, self.error = '', ''
         self.last_progress = ''
+        self.pending_text = ''
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
         self.last_event = 'waiting for model'
@@ -271,6 +274,11 @@ class OmpSession:
             context.current.reset(token)
             self.host_jobs.pop(ident, None)
 
+    def flush_progress(self):
+        text, self.pending_text = self.pending_text, ''
+        if text and self.on_progress is not None:
+            self.on_progress(text)
+
     async def dispatch(self, event):
         kind = event.get('type')
         self.last_activity = time.monotonic()
@@ -295,14 +303,21 @@ class OmpSession:
             if msg.get('role') == 'assistant':
                 blocks = msg.get('content', [])
                 text = '\n'.join(b.get('text', '') for b in blocks if b.get('type') == 'text')
+                has_tools = any(b.get('type') in ('toolCall', 'tool_call') for b in blocks)
                 if text:
+                    self.flush_progress()
                     preview = ' '.join(context.redact_sensitive_text(text).split())
                     self.last_progress = preview[:600] + ('…' if len(preview) > 600 else '')
-                if text and not any(b.get('type') in ('toolCall', 'tool_call') for b in blocks):
-                    self.last_text = text
+                    self.pending_text = text
+                    if has_tools:
+                        self.flush_progress()
+                    else:
+                        self.last_text = text
                 if msg.get('errorMessage'):
                     self.error = context.redact_sensitive_text(msg['errorMessage'])[:350]
         elif kind == 'turn_start':
+            self.flush_progress()
+            self.last_text = ''
             self.last_event = 'waiting for model'
             self.rounds += 1
         elif kind == 'tool_execution_start':

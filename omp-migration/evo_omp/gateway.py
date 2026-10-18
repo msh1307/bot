@@ -25,7 +25,7 @@ STATUS_INTERVAL = 30
 PROGRESS_INTERVAL = 120
 
 
-def progress_text(session, seconds):
+def progress_text(session, seconds, include_text=True):
     seconds = max(0, int(seconds))
     elapsed = f'{seconds // 60}분 {seconds % 60}초' if seconds >= 60 else f'{seconds}초'
     phase = {'waiting for model': '모델 응답 대기',
@@ -37,7 +37,7 @@ def progress_text(session, seconds):
     if idle >= STATUS_INTERVAL:
         phase += f' · 마지막 이벤트 {idle}초 전'
     text = f'⏳ 작업 중 · {elapsed} · {session.rounds}회 · 도구 {session.tools}회\n{phase}'
-    if session.last_progress:
+    if include_text and session.last_progress:
         text += '\n최근 중간 답변: ' + discord.utils.escape_markdown(session.last_progress)
     return context.redact_sensitive_text(text)
 
@@ -380,12 +380,35 @@ class Bot(commands.Bot):
 
     @contextlib.asynccontextmanager
     async def progress(self, channel, session, enabled=True):
-        """Edit one status using public assistant text; never expose thinking/tool output."""
+        """Forward completed public text and keep one quiet status while waiting."""
         if not enabled:
             yield
             return
         notice, started = None, time.monotonic()
         last_update = started
+        updates = asyncio.Queue(maxsize=16)
+        delivered = False
+
+        def enqueue(text):
+            try:
+                updates.put_nowait(text)
+            except asyncio.QueueFull:
+                LOG.warning('progress_delivery_backlog; intermediate message not delivered')
+
+        session.on_progress = enqueue
+
+        async def forward():
+            nonlocal last_update, delivered
+            while True:
+                text = await updates.get()
+                try:
+                    if await asyncio.wait_for(self.deliver(channel, text), 15):
+                        delivered = True
+                        last_update = time.monotonic()
+                except Exception as error:
+                    LOG.warning('progress_delivery_failed class=%s', type(error).__name__)
+                finally:
+                    updates.task_done()
 
         async def update():
             nonlocal notice, last_update
@@ -395,7 +418,7 @@ class Bot(commands.Bot):
                 now = time.monotonic()
                 if now - last_update < PROGRESS_INTERVAL:
                     continue
-                text = progress_text(session, now - started)
+                text = progress_text(session, now - started, include_text=False)
                 try:
                     if notice is None:
                         notice = await asyncio.wait_for(channel.send(text,
@@ -409,16 +432,28 @@ class Bot(commands.Bot):
                     return
 
         task = asyncio.create_task(update())
+        sender = asyncio.create_task(forward())
         finished = False
         try:
             yield
             finished = True
         finally:
+            if not finished or context.is_interrupted():
+                session.flush_progress()
+            session.on_progress = None
+            session.pending_text = ''
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            try:
+                await asyncio.wait_for(updates.join(), 3 if context.is_interrupted() else 15)
+            except asyncio.TimeoutError:
+                LOG.warning('progress_delivery_incomplete pending=%s', updates.qsize())
+            finally:
+                sender.cancel()
+                await asyncio.gather(sender, return_exceptions=True)
             if notice is not None:
                 with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
-                    if session.last_progress and (not finished or context.is_interrupted()):
+                    if session.last_progress and not delivered and (not finished or context.is_interrupted()):
                         text = '⏹ 작업 중단 · 마지막 중간 답변\n' + discord.utils.escape_markdown(session.last_progress)
                         await asyncio.wait_for(notice.edit(content=text,
                             allowed_mentions=discord.AllowedMentions.none()), 3)
