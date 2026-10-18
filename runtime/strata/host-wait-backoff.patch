@@ -1,0 +1,158 @@
+diff --git a/src/core/mtp.cpp b/src/core/mtp.cpp
+index 3ed034d..23d2eca 100644
+--- a/src/core/mtp.cpp
++++ b/src/core/mtp.cpp
+@@ -2,6 +2,7 @@
+ #include "strata/core/mtp.hpp"
+ #include "strata/core/coupled_draft.hpp"
+ #include "strata/core/spec_prob.hpp"
++#include "strata/core/host_wait.hpp"
+ #include "strata/core/on_device.hpp"
+ 
+ #include "strata/core/native_head.hpp"
+@@ -1345,13 +1346,19 @@ bool MtpDrafter::draft(int T, const int32_t* tokens, int64_t p, int a, int32_t*
+         }
+         (void) cudaStreamQuery(cs_);
+         prefetch_ple(tokens[a]);
++        const HostWaitTimerSlack host_wait_slack;
+         auto wait_step = [&](int j) {
++            HostWait host_wait;
+             uint32_t spins = 0;
+             while (((volatile int32_t*) h_out_)[j] < 0) {
+ #if defined(_WIN32) || defined(__x86_64__)
+                 _mm_pause();
+ #endif
+-                if ((++spins & 1023u) == 0 && cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                if ((++spins & 1023u) == 0) {
++                    if (cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                    if (host_wait_enabled() && ((volatile int32_t*) h_out_)[j] < 0)
++                        host_wait.poll(Clock::now());
++                }
+             }
+         };
+         wait_step(0);
+diff --git a/src/core/verify.cpp b/src/core/verify.cpp
+index df61724..f96cc3d 100644
+--- a/src/core/verify.cpp
++++ b/src/core/verify.cpp
+@@ -5,6 +5,7 @@
+ #include "strata/core/remote_expert_opt.hpp"
+ #include "strata/core/dma_batch.hpp"
+ #include "strata/core/spec_prob.hpp"
++#include "strata/core/host_wait.hpp"
+ #if defined(_WIN32)
+ #include <intrin.h>
+ #endif
+@@ -2180,6 +2181,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
+     const int gtb[2] = {0, (T + 1) / 2}, gte[2] = {G == 2 ? (T + 1) / 2 : T, T};
+     const int64_t steps = (le_ - lb_) * G;
+     const bool test_stall = g_test_stall > 0 && windows + 1 == g_test_stall;   // #267 test hook (off: false)
++    const HostWaitTimerSlack host_wait_slack;
+     if (ar_on() && !test_stall) {
+         if (do_ple) {
+             const Clock::time_point tp = Clock::now();
+@@ -2200,6 +2202,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
+         auto last_flush = a;
+         uint32_t spins = 0;
+         progress_at("verify window: waiting for the GPU to reach layer", l);
++        HostWait host_wait;
+         while (*seq < want) {
+             _mm_pause();
+             if ((++spins & 1023u) != 0) continue;
+@@ -2228,6 +2231,7 @@ bool Verifier::run(int T, const int32_t* tokens, int64_t pos0, PoolMultiFn pool,
+                 err = "verify: timed out at layer " + std::to_string(l) + released_note(release_gpu_waits(5000));
+                 return false;
+             }
++            if (host_wait_enabled() && *seq < want) host_wait.poll(now);
+         }
+         const Clock::time_point b = Clock::now();
+         if (g_trace) trace_ev("RANG", k, l, (int64_t) std::chrono::duration_cast<std::chrono::microseconds>(b - a).count());
+diff --git a/include/strata/core/host_wait.hpp b/include/strata/core/host_wait.hpp
+new file mode 100644
+index 0000000..3c9462c
+--- /dev/null
++++ b/include/strata/core/host_wait.hpp
+@@ -0,0 +1,83 @@
++// Opt-in host/GPU handshake backoff. Linux only; unset/0 retains busy polling.
++#pragma once
++
++#include <chrono>
++#include <cstdlib>
++#include <thread>
++#if defined(__linux__)
++#include <sys/prctl.h>
++#endif
++
++namespace strata::core {
++namespace host_wait_detail {
++struct Config {
++    long sleep_us = 0;
++    long spin_us = 10;
++};
++inline long read_us(const char* name, long fallback) {
++    const char* value = std::getenv(name);
++    if (value == nullptr || *value == '\0') return fallback;
++    char* end = nullptr;
++    const long n = std::strtol(value, &end, 10);
++    return end != value && *end == '\0' && n >= 0 && n <= 1000 ? n : fallback;
++}
++inline const Config& config() {
++    static const Config value = [] {
++        Config c;
++#if defined(__linux__)
++        c.sleep_us = read_us("STRATA_HOST_WAIT_US", 0);
++        c.spin_us = read_us("STRATA_HOST_SPIN_US", 10);
++#endif
++        return c;
++    }();
++    return value;
++}
++}  // namespace host_wait_detail
++
++inline bool host_wait_enabled() { return host_wait_detail::config().sleep_us > 0; }
++
++// Linux normally coalesces short sleeps with a 50us timer slack. Tighten it only
++// for this calling thread while backoff is enabled, then restore its prior value.
++class HostWaitTimerSlack {
++public:
++    HostWaitTimerSlack() {
++#if defined(__linux__)
++        if (!host_wait_enabled()) return;
++        const long previous = ::prctl(PR_GET_TIMERSLACK, 0UL, 0UL, 0UL, 0UL);
++        if (previous > 1 && ::prctl(PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL) == 0)
++            previous_ = previous;
++#endif
++    }
++    ~HostWaitTimerSlack() {
++#if defined(__linux__)
++        if (previous_ > 0)
++            (void) ::prctl(PR_SET_TIMERSLACK, (unsigned long) previous_, 0UL, 0UL, 0UL);
++#endif
++    }
++    HostWaitTimerSlack(const HostWaitTimerSlack&) = delete;
++    HostWaitTimerSlack& operator=(const HostWaitTimerSlack&) = delete;
++private:
++    long previous_ = -1;
++};
++
++class HostWait {
++public:
++    using Clock = std::chrono::steady_clock;
++    HostWait() {
++        if (host_wait_enabled())
++            next_sleep_ = Clock::now() +
++                          std::chrono::microseconds(host_wait_detail::config().spin_us);
++    }
++    // Call only after the existing driver/error checks and while the GPU's
++    // completion word is still pending. No whole-stream wait: the GPU may be
++    // waiting for a flag that this same host loop must publish.
++    void poll(Clock::time_point now) {
++        const auto& cfg = host_wait_detail::config();
++        if (cfg.sleep_us == 0 || now < next_sleep_) return;
++        std::this_thread::sleep_for(std::chrono::microseconds(cfg.sleep_us));
++        next_sleep_ = Clock::now() + std::chrono::microseconds(cfg.spin_us);
++    }
++private:
++    Clock::time_point next_sleep_{};
++};
++}  // namespace strata::core
