@@ -1,0 +1,143 @@
+diff --git a/packages/agent/CHANGELOG.md b/packages/agent/CHANGELOG.md
+index 0e3737c..5db43f0 100644
+--- a/packages/agent/CHANGELOG.md
++++ b/packages/agent/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## [Unreleased]
+ 
++### Fixed
++
++- Preserve history when essential compaction summaries are empty or incomplete, and process split-turn summaries sequentially.
++
+ ## [18.11.3] - 2026-10-16
+ 
+ ### Added
+diff --git a/packages/agent/src/compaction/compaction.ts b/packages/agent/src/compaction/compaction.ts
+index 31a4478..24677fe 100644
+--- a/packages/agent/src/compaction/compaction.ts
++++ b/packages/agent/src/compaction/compaction.ts
+@@ -671,6 +671,20 @@ function createSummarizationError(prefix: string, response: AssistantMessage): E
+ 		: new AIError.ProviderHttpError(text, response.errorStatus);
+ }
+ 
++/** Essential summaries must finish before they can replace conversation history. */
++function requireSummaryText(prefix: string, response: AssistantMessage): string {
++	if (response.stopReason === "error") throw createSummarizationError(prefix, response);
++	if (response.stopReason !== "stop") {
++		throw new Error(`${prefix}: incomplete response (${response.stopReason})`);
++	}
++	const text = response.content
++		.filter((c): c is { type: "text"; text: string } => c.type === "text")
++		.map(c => c.text)
++		.join("\n");
++	if (!text.trim()) throw new Error(`${prefix}: empty summary`);
++	return text;
++}
++
+ function shouldRetryHandoffWithAutoToolChoice(response: AssistantMessage): boolean {
+ 	if (response.errorStatus !== 400) return false;
+ 	const message = response.errorMessage ?? "";
+@@ -1048,16 +1062,7 @@ async function summarizeConversationWindow(
+ 		},
+ 	);
+ 
+-	if (response.stopReason === "error") {
+-		throw createSummarizationError("Summarization failed", response);
+-	}
+-
+-	const textContent = response.content
+-		.filter((c): c is { type: "text"; text: string } => c.type === "text")
+-		.map(c => c.text)
+-		.join("\n");
+-
+-	return textContent;
++	return requireSummaryText("Summarization failed", response);
+ }
+ 
+ // ============================================================================
+@@ -2158,7 +2163,7 @@ export async function compact(
+ 		throw new NativeCompactionError(nativeCompactionError);
+ 	}
+ 
+-	// Generate summaries (can be parallel if both needed) and merge into one
++	// Complete each essential summary before starting the next request.
+ 	let summary: string;
+ 
+ 	if (nativeSummary !== undefined) {
+@@ -2175,10 +2180,11 @@ export async function compact(
+ 		const inputTokens = getCompactionV2PreserveData(preserveData)?.usedTokens ?? 0;
+ 		summary = formatRemoteCompactionSummary(inputTokens);
+ 	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
+-		// Generate both summaries in parallel
+-		const [historyResult, turnPrefixResult] = await Promise.all([
++		// A single inference backend must not queue one summary behind another
++		// and mistake that queue wait for a failed model.
++		const historyResult =
+ 			messagesToSummarize.length > 0 || previousSummaryForCompaction
+-				? generateSummary(
++				? await generateSummary(
+ 						messagesToSummarize,
+ 						model,
+ 						reserveTokens,
+@@ -2188,9 +2194,15 @@ export async function compact(
+ 						previousSummaryForCompaction,
+ 						summaryOptions,
+ 					)
+-				: Promise.resolve("No prior history."),
+-			generateTurnPrefixSummary(turnPrefixMessages, model, reserveTokens, apiKey, signal, summaryOptions),
+-		]);
++				: "No prior history.";
++		const turnPrefixResult = await generateTurnPrefixSummary(
++			turnPrefixMessages,
++			model,
++			reserveTokens,
++			apiKey,
++			signal,
++			summaryOptions,
++		);
+ 		// Merge into single summary
+ 		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
+ 	} else if (messagesToSummarize.length > 0) {
+@@ -2314,12 +2326,5 @@ async function generateTurnPrefixSummary(
+ 		},
+ 	);
+ 
+-	if (response.stopReason === "error") {
+-		throw createSummarizationError("Turn prefix summarization failed", response);
+-	}
+-
+-	return response.content
+-		.filter((c): c is { type: "text"; text: string } => c.type === "text")
+-		.map(c => c.text)
+-		.join("\n");
++	return requireSummaryText("Turn prefix summarization failed", response);
+ }
+diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
+index b59a3b7..3058842 100644
+--- a/packages/coding-agent/CHANGELOG.md
++++ b/packages/coding-agent/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ ## [Unreleased]
+ 
++### Fixed
++
++- Honor disabled model fallback during conversation compaction.
++
+ ## [18.11.3] - 2026-10-16
+ 
+ ### Breaking Changes
+diff --git a/packages/coding-agent/src/session/session-maintenance.ts b/packages/coding-agent/src/session/session-maintenance.ts
+index b8c28f2..499c00f 100644
+--- a/packages/coding-agent/src/session/session-maintenance.ts
++++ b/packages/coding-agent/src/session/session-maintenance.ts
+@@ -3504,6 +3504,8 @@ export class SessionMaintenance {
+ 			addCandidate(resolveCompactionConfiguredTarget(preferredModel, availableModels));
+ 		}
+ 		addCandidate(preferredModel ?? undefined);
++		// Compaction must obey the session's model-fallback policy too.
++		if (!cfgRetry.get(settings).modelFallback) return candidates;
+ 		for (const role of CHAT_MODEL_ROLE_IDS) {
+ 			addCandidate(
+ 				resolveRoleModelFull(this.#host.settings, role, availableModels, preferredModel ?? undefined).model,

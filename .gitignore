@@ -25,6 +25,10 @@
 !/omp-migration/requirements.txt
 !/omp-migration/provider.ts
 !/omp-migration/README.md
+!/omp-migration/patches/
+!/omp-migration/patches/*.patch
+!/omp-migration/patches/LICENSE.omp
+!/omp-migration/runtime-build.json
 /omp-migration/evo_omp/**
 !/omp-migration/evo_omp/**/
 !/omp-migration/evo_omp/**/*.py

@@ -1,0 +1,21 @@
+{
+  "upstream": {
+    "repository": "https://github.com/can1357/oh-my-pi",
+    "tag": "v18.11.3",
+    "commit": "96894a6147d8cc64b7e00ad3a7d7178fd93b9531"
+  },
+  "patch": {
+    "file": "patches/compaction.patch",
+    "sha256": "165ecac925fe1c547b17f7c6ffaf54862505b77b9ff3d65527f00870241d742e"
+  },
+  "build": {
+    "bun": "1.4.3",
+    "target": "bun-linux-x64-baseline",
+    "command": "CROSS_TARGET=linux-x64 bun --cwd=packages/coding-agent run build"
+  },
+  "binary": {
+    "name": "omp-v18.11.3",
+    "sha256": "463e5076d0c1d0f702838d44873080e5c7bd7b7e4e731301a6ca3499381a85df",
+    "bytes": 263768032
+  }
+}
