@@ -39,7 +39,7 @@ MemoryHigh=1536M
 MemoryMax=2G
 MemorySwapMax=0
 CPUQuota=200%
-TasksMax=256
+TasksMax=1024
 StandardOutput=journal
 StandardError=journal
 

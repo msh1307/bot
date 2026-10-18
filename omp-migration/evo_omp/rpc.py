@@ -1,8 +1,10 @@
 """Bounded upstream OMP RPC transport; native coding tools stay inside bwrap."""
 import asyncio
 import base64
+import codecs
 import contextlib
 import json
+import logging
 import os
 from pathlib import Path
 import secrets
@@ -15,6 +17,7 @@ from . import context
 ROOT = Path('/opt/evo-omp')
 WORKSPACE = Path('/var/lib/evo-hermes/workspace')
 RUNTIME = Path('/run/evo-omp')
+LOG = logging.getLogger('evo-omp.rpc')
 
 
 def sandbox_argv(profile, model):
@@ -69,6 +72,8 @@ class OmpSession:
         self.last_text, self.error = '', ''
         self.last_progress = ''
         self.transport_error = ''
+        self.stderr_tail = ''
+        self.closing = False
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
         self.last_event = 'idle'
@@ -130,7 +135,8 @@ class OmpSession:
                                          return_when=asyncio.FIRST_COMPLETED)
         if ready_wait not in finished:
             ready_wait.cancel()
-            raise RuntimeError('OMP startup failed: ' + getattr(self, 'stderr_tail', 'no ready frame'))
+            detail = self.transport_error or context.redact_sensitive_text(self.stderr_tail)[-2000:]
+            raise RuntimeError('OMP startup failed: ' + (detail or 'no ready frame'))
         exit_wait.cancel()
         await self.request('negotiate_protocol', protocolVersion=2)
         await self.request('set_event_filter', events=['message_end', 'turn_start',
@@ -354,9 +360,38 @@ class OmpSession:
                 elif self.chunks:
                     raise ValueError('Interleaved OMP chunks')
                 await self.dispatch(event)
-            raise ConnectionError('OMP process exited')
+            if self.closing:
+                return
+            code = self.process.returncode
+            if code is None:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    code = await asyncio.wait_for(self.process.wait(), 3)
+            stderr_reader = getattr(self, 'stderr_reader', None)
+            if stderr_reader is not None:
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(stderr_reader), 1)
+            if code is None:
+                detail = 'OMP RPC stdout closed while process is still running'
+            elif code < 0:
+                detail = f'OMP process exited (signal {-code})'
+            else:
+                detail = f'OMP process exited (code {code})'
+            raise ConnectionError(detail)
         except Exception as e:
-            self.error = context.redact_sensitive_text(str(e))[:350]
+            if self.closing:
+                return
+            detail = context.redact_sensitive_text(str(e))[:350]
+            stderr = ' '.join(context.redact_sensitive_text(self.stderr_tail).split())[-2000:]
+            resources = {}
+            cgroup = Path('/sys/fs/cgroup/system.slice/evo-omp.service')
+            for name in ('pids.current', 'pids.peak', 'pids.max', 'pids.events',
+                         'memory.current', 'memory.peak', 'memory.events'):
+                with contextlib.suppress(OSError):
+                    resources[name] = (cgroup / name).read_text().strip()[:500]
+            LOG.error('omp_transport_failed pid=%s code=%s detail=%s stderr=%s resources=%s',
+                      self.process.pid, self.process.returncode, detail,
+                      json.dumps(stderr, ensure_ascii=False), json.dumps(resources))
+            self.error = detail + (f' · {stderr[-200:]}' if stderr else '')
             self.transport_error = self.error
             for f in [*self.pending.values(), *self.prompts.values()]:
                 if not f.done():
@@ -364,13 +399,14 @@ class OmpSession:
             self.settled.set()
 
     async def drain_stderr(self):
-        # Keep the pipe drained, retaining only one bounded, redacted diagnostic.
-        while raw := await self.process.stderr.readline():
-            text = raw.decode(errors='replace').strip()
-            if text:
-                self.stderr_tail = (getattr(self, 'stderr_tail', '') + '\n' + context.redact_sensitive_text(text))[-2000:]
+        # Drain arbitrary-length lines. Redact the bounded RAM tail before output.
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        while raw := await self.process.stderr.read(4096):
+            self.stderr_tail = (self.stderr_tail + decoder.decode(raw))[-8192:]
+        self.stderr_tail = (self.stderr_tail + decoder.decode(b'', final=True))[-8192:]
 
     async def close(self):
+        self.closing = True
         self.transport_error = self.transport_error or 'OMP session closed'
         if self.turn:
             self.turn.cancelled.set()
