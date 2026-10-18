@@ -1,0 +1,41 @@
+--- /dev/null
++++ b/usr/local/bin/evo-cpu-balanced
+@@ -0,0 +1,18 @@
++#!/usr/bin/python3
++"""Apply the EVO balanced CPU policy without changing power limits."""
++from pathlib import Path
++
++policies = list(Path('/sys/devices/system/cpu/cpufreq').glob('policy*'))
++if not policies:
++    raise SystemExit('No CPU frequency policies found')
++for policy in policies:
++    (policy / 'scaling_governor').write_text('powersave')
++    choices = (policy / 'energy_performance_available_preferences').read_text().split()
++    if 'balance_performance' not in choices:
++        raise SystemExit(f'{policy.name}: balanced EPP unavailable')
++    (policy / 'energy_performance_preference').write_text('balance_performance')
++    for name, expected in (('scaling_governor', 'powersave'),
++                           ('energy_performance_preference', 'balance_performance')):
++        if (policy / name).read_text().strip() != expected:
++            raise SystemExit(f'{policy.name}: {name} readback failed')
++print(f'Balanced CPU policy applied to {len(policies)} logical CPUs')
+--- a/usr/local/bin/evo-power
++++ b/usr/local/bin/evo-power
+@@ -16,6 +16,7 @@
+     if type(watts) is not int or not 45<=watts<=85:raise SystemExit('Invalid power profile')
+     limits=(watts,watts,watts)
+ else:raise SystemExit('Unknown profile')
++subprocess.run(['/usr/local/bin/evo-cpu-balanced'],check=True,timeout=10)
+ cmd=['/usr/local/bin/ryzenadj','--stapm-limit='+str(limits[0]*1000),'--fast-limit='+str(limits[1]*1000),'--slow-limit='+str(limits[2]*1000),'-i']
+ result=subprocess.run(cmd,capture_output=True,text=True,check=True,timeout=15)
+ for label,expected in zip(['STAPM LIMIT','PPT LIMIT FAST','PPT LIMIT SLOW'],limits):
+--- a/etc/systemd/system/evo-qwen.service
++++ b/etc/systemd/system/evo-qwen.service
+@@ -12,7 +12,6 @@
+ Environment=CTX=131072
+ Environment=DRAFT=3
+ EnvironmentFile=-/home/msh/evo-llm/tuning.env
+-ExecStartPre=+/usr/local/bin/evo-qwen-performance
+ ExecStart=/home/msh/evo-llm/serve-qwen.sh
+ Restart=on-failure
+ RestartSec=10
