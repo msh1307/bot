@@ -9,6 +9,7 @@ Sandbox coding, browser, Gmail, Codex, memory and timers through Discord.
 - `/compact` compresses context; `/new` clears it; `/reset` also clears shared workspace.
 - Memory and recurring alarms persist. Root needs [per-command approval](../host-tools/README.md).
 - Browser starts on demand and saves login state. bwrap provides isolation; Chromium's internal sandbox is disabled.
-- OMP 18.11.3 compaction fixes: [patch](patches/compaction.patch), [build details](runtime-build.json).
+- OMP 18.11.3 fixes oversized split-turn compaction and validates summaries: [patch](patches/compaction.patch), [build details](runtime-build.json).
+- Flash compaction keeps thinking enabled, caps the final handoff at 8192 tokens and reports progress every 30 seconds. Replies show remaining context.
 
 This targets an existing installation, not a standalone installer.

@@ -14,9 +14,21 @@ index 0e3737c..5db43f0 100644
  
  ### Added
 diff --git a/packages/agent/src/compaction/compaction.ts b/packages/agent/src/compaction/compaction.ts
-index 31a4478..24677fe 100644
+index 31a4478..e36d8f2 100644
 --- a/packages/agent/src/compaction/compaction.ts
 +++ b/packages/agent/src/compaction/compaction.ts
+@@ -207,9 +207,9 @@ export const DEFAULT_RESERVE_TOKENS = 16384;
+  * ~120k-token summary. At that size the model copies rather than compresses, and
+  * output is the slowest and most expensive token class. Capping absolutely keeps
+  * the compression ratio improving with window size instead of degrading. The value
+- * mirrors {@link DEFAULT_RESERVE_TOKENS} so this adds no new tuning constant.
++ * is 8192 tokens for the final handoff; reasoning is budgeted by the provider.
+  */
+-export const MAX_SUMMARY_TOKENS = DEFAULT_RESERVE_TOKENS;
++export const MAX_SUMMARY_TOKENS = 8192;
+ 
+ // reserveTokens is deliberately absent: an unset reserve is what marks it as
+ // defaulted, which resolveBudgetReserveTokens needs to distinguish "user never
 @@ -671,6 +671,20 @@ function createSummarizationError(prefix: string, response: AssistantMessage): E
  		: new AIError.ProviderHttpError(text, response.errorStatus);
  }
@@ -38,13 +50,98 @@ index 31a4478..24677fe 100644
  function shouldRetryHandoffWithAutoToolChoice(response: AssistantMessage): boolean {
  	if (response.errorStatus !== 400) return false;
  	const message = response.errorMessage ?? "";
-@@ -1048,16 +1062,7 @@ async function summarizeConversationWindow(
+@@ -900,7 +914,23 @@ export async function generateSummary(
+ 	options?: SummaryOptions,
+ ): Promise<string> {
+ 	const maxTokens = Math.min(Math.floor(0.8 * reserveTokens), MAX_SUMMARY_TOKENS);
++	return generateWindowedSummary(
++		currentMessages, model, maxTokens, apiKey, signal, customInstructions, previousSummary, options,
++	);
++}
+ 
++/** Share window sizing and overflow recovery between history and split-turn summaries. */
++async function generateWindowedSummary(
++	currentMessages: AgentMessage[],
++	model: Model,
++	maxTokens: number,
++	apiKey: ApiKey,
++	signal?: AbortSignal,
++	customInstructions?: string,
++	previousSummary?: string,
++	options?: SummaryOptions,
++	oneshotKind: "compaction_summary" | "compaction_turn_prefix" = "compaction_summary",
++): Promise<string> {
+ 	// Serialize conversation to text so model doesn't try to continue it
+ 	// Convert to LLM messages first (handles custom app messages when caller provides a transformer).
+ 	const llmMessages = (options?.convertToLlm ?? defaultConvertToLlm)(currentMessages);
+@@ -937,6 +967,7 @@ export async function generateSummary(
+ 				signal,
+ 				customInstructions,
+ 				options,
++				oneshotKind,
+ 			);
+ 		} catch (error) {
+ 			// The catalog window can overstate what the provider actually accepts:
+@@ -982,16 +1013,28 @@ async function summarizeConversationWindow(
+ 	signal: AbortSignal | undefined,
+ 	customInstructions: string | undefined,
+ 	options: SummaryOptions | undefined,
++	oneshotKind: "compaction_summary" | "compaction_turn_prefix",
++	shorterRetry = true,
+ ): Promise<string> {
+ 	// Use update prompt if we have a previous summary, otherwise initial prompt
+ 	let basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
+ 	if (options?.promptOverride) {
+ 		basePrompt = options.promptOverride;
++		if (previousSummary) {
++			basePrompt += "\n\nUpdate <previous-summary> with this window; preserve earlier requests, decisions, and unresolved work.";
++		}
+ 	}
+ 	if (customInstructions) {
+ 		basePrompt = `${basePrompt}\n\nAdditional focus: ${customInstructions}`;
+ 	}
+ 
++	// Tell the model its final-text budget, independently of its reasoning budget.
++	basePrompt += `\n\nFinal handoff: at most ${maxTokens} tokens; aim for ${Math.floor(maxTokens * 0.6)}. ` +
++		"This budget takes priority over reproducing every detail of a previous summary. " +
++		"Keep the current goal, owner corrections, decisions, verified evidence, blockers and exact references needed to resume. " +
++		"Use short bullets, not narrative paragraphs. Include only what is essential to continue. " +
++		"Merge duplicates and omit obsolete steps and verbose logs. Finish the handoff within the budget; do not continue the task.";
++
+ 	// Build the prompt with conversation wrapped in tags
+ 	let promptText = `<conversation>\n${conversationText}\n</conversation>\n\n`;
+ 	if (previousSummary) {
+@@ -1033,7 +1076,8 @@ async function summarizeConversationWindow(
+ 			apiKey,
+ 			reasoning: resolveCompactionEffort(model, options?.thinkingLevel),
+ 			initiatorOverride: options?.initiatorOverride,
+-			metadata: options?.metadata,
++			metadata: { ...options?.metadata, omp_operation: "compaction",
++				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off },
+ 			fetch: options?.fetch,
+ 			sessionId: options?.sessionId,
+ 			promptCacheKey: options?.promptCacheKey,
+@@ -1042,22 +1086,21 @@ async function summarizeConversationWindow(
+ 		},
+ 		{
+ 			telemetry: options?.telemetry,
+-			oneshotKind: "compaction_summary",
++			oneshotKind: oneshotKind,
+ 			completeImpl: options?.completeImpl,
+ 			retry: summaryOneshotRetry(options),
  		},
  	);
  
 -	if (response.stopReason === "error") {
 -		throw createSummarizationError("Summarization failed", response);
--	}
++	// A truncated handoff must never replace history. Try a smaller final
++	// summary once; deterministic failures are not an unbounded retry loop.
++	if (response.stopReason === "length" && shorterRetry) {
++		const smallerBudget = Math.max(512, Math.floor(maxTokens / 2));
++		const focus = `${customInstructions ?? ""}\nKeep the final handoff below ${smallerBudget} tokens. Retain the active request, decisions, evidence and unresolved work; omit redundant detail.`;
++		return summarizeConversationWindow(conversationText, previousSummary, model, smallerBudget,
++			apiKey, signal, focus, options, oneshotKind, false);
+ 	}
 -
 -	const textContent = response.content
 -		.filter((c): c is { type: "text"; text: string } => c.type === "text")
@@ -56,7 +153,17 @@ index 31a4478..24677fe 100644
  }
  
  // ============================================================================
-@@ -2158,7 +2163,7 @@ export async function compact(
+@@ -1247,7 +1290,8 @@ async function generateShortSummary(
+ 			apiKey,
+ 			reasoning: resolveCompactionEffort(model, options?.thinkingLevel),
+ 			initiatorOverride: options?.initiatorOverride,
+-			metadata: options?.metadata,
++			metadata: { ...options?.metadata, omp_operation: "compaction",
++				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off },
+ 			fetch: options?.fetch,
+ 			sessionId: options?.sessionId,
+ 			promptCacheKey: options?.promptCacheKey,
+@@ -2158,7 +2202,7 @@ export async function compact(
  		throw new NativeCompactionError(nativeCompactionError);
  	}
  
@@ -65,7 +172,7 @@ index 31a4478..24677fe 100644
  	let summary: string;
  
  	if (nativeSummary !== undefined) {
-@@ -2175,10 +2180,11 @@ export async function compact(
+@@ -2175,10 +2219,11 @@ export async function compact(
  		const inputTokens = getCompactionV2PreserveData(preserveData)?.usedTokens ?? 0;
  		summary = formatRemoteCompactionSummary(inputTokens);
  	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
@@ -80,7 +187,7 @@ index 31a4478..24677fe 100644
  						messagesToSummarize,
  						model,
  						reserveTokens,
-@@ -2188,9 +2194,15 @@ export async function compact(
+@@ -2188,9 +2233,15 @@ export async function compact(
  						previousSummaryForCompaction,
  						summaryOptions,
  					)
@@ -99,10 +206,77 @@ index 31a4478..24677fe 100644
  		// Merge into single summary
  		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
  	} else if (messagesToSummarize.length > 0) {
-@@ -2314,12 +2326,5 @@ async function generateTurnPrefixSummary(
- 		},
- 	);
+@@ -2224,6 +2275,22 @@ export async function compact(
+ 	// Compute file lists and append to summary
+ 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
+ 	summary = upsertFileOperations(summary, readFiles, modifiedFiles, fileOps.read);
++	// The two split-turn summaries and file references share one final budget.
++	if (!usedRemoteCompaction && nativeSummary === undefined) {
++		const tokenizer = new Tokenizer(model);
++		const budget = Math.min(MAX_SUMMARY_TOKENS, Math.floor(0.8 * reserveTokens));
++		if (!tokenizer.checkTokenBudget(summary, budget).fits) {
++			summary = await generateSummary(
++				[{ role: "user", content: summary, timestamp: Date.now() }], model, reserveTokens,
++				apiKey, signal, "Consolidate this handoff below the output budget, preserving active work and evidence.",
++				undefined, summaryOptions,
++			);
++			if (!tokenizer.checkTokenBudget(summary, budget).fits) {
++				throw new Error("Compaction summary still exceeds its output budget; original history preserved");
++			}
++		}
++	}
++
+ 	if (nativeSummary !== undefined) {
+ 		// The replayed block stays byte-identical to the API's summary so it
+ 		// matches its signature. The harness file lists above travel
+@@ -2279,47 +2346,15 @@ async function generateTurnPrefixSummary(
+ ): Promise<string> {
+ 	const maxTokens = Math.min(Math.floor(0.5 * reserveTokens), MAX_SUMMARY_TOKENS); // Smaller budget for turn prefix
  
+-	const llmMessages = (options?.convertToLlm ?? defaultConvertToLlm)(messages);
+-	const conversationText = serializeConversationForSummary(llmMessages, preferredDialect(model.id));
+-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+-	const summarizationMessages = [
+-		{
+-			role: "user" as const,
+-			content: [{ type: "text" as const, text: promptText }],
+-			timestamp: Date.now(),
+-		},
+-	];
+-
+-	const response = await instrumentedCompleteSimple(
++	return generateWindowedSummary(
++		messages,
+ 		model,
+-		{ systemPrompt: [SUMMARIZATION_SYSTEM_PROMPT], messages: summarizationMessages },
+-		{
+-			maxTokens,
+-			signal,
+-			apiKey,
+-			reasoning: resolveCompactionEffort(model, options?.thinkingLevel),
+-			initiatorOverride: options?.initiatorOverride,
+-			metadata: options?.metadata,
+-			fetch: options?.fetch,
+-			sessionId: options?.sessionId,
+-			promptCacheKey: options?.promptCacheKey,
+-			providerSessionState: options?.providerSessionState,
+-			codexCompaction: localCodexCompaction(options),
+-		},
+-		{
+-			telemetry: options?.telemetry,
+-			oneshotKind: "compaction_turn_prefix",
+-			completeImpl: options?.completeImpl,
+-			retry: summaryOneshotRetry(options),
+-		},
++		maxTokens,
++		apiKey,
++		signal,
++		undefined,
++		undefined,
++		{ ...options, promptOverride: TURN_PREFIX_SUMMARIZATION_PROMPT },
++		"compaction_turn_prefix",
+ 	);
+-
 -	if (response.stopReason === "error") {
 -		throw createSummarizationError("Turn prefix summarization failed", response);
 -	}
@@ -111,7 +285,6 @@ index 31a4478..24677fe 100644
 -		.filter((c): c is { type: "text"; text: string } => c.type === "text")
 -		.map(c => c.text)
 -		.join("\n");
-+	return requireSummaryText("Turn prefix summarization failed", response);
  }
 diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
 index b59a3b7..3058842 100644

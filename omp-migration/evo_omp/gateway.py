@@ -14,7 +14,7 @@ import time
 import discord
 from discord.ext import commands
 from . import context
-from .discord_text import messages as discord_messages
+from .discord_text import messages as discord_messages, units as discord_units
 from .rpc import OmpSession, WORKSPACE
 from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run, image_content, cancel_deferred
 
@@ -23,6 +23,17 @@ DEFAULT_MODEL = 'sc117-flash-next-iq3_xxs'
 MODELS = {'flash': DEFAULT_MODEL, '27b': 'qwen3.8-27b-uncensored'}
 STATUS_INTERVAL = 30
 PROGRESS_INTERVAL = 120
+
+
+async def context_footer(session):
+    try:
+        state = await session.request('get_state', timeout=5)
+        percent = (state.get('contextUsage') or {}).get('percent')
+        if isinstance(percent, (int, float)) and 0 <= percent <= 100:
+            return f'[context {100 - percent:.0f}% 남음]'
+    except Exception as error:
+        LOG.warning('context_usage_unavailable class=%s', type(error).__name__)
+    return ''
 
 
 def progress_text(session, seconds, include_text=True):
@@ -85,11 +96,34 @@ class Bot(commands.Bot):
             await self.tree.sync(guild=guild)
         except Exception as e:
             LOG.error('slash_sync_failed %s', type(e).__name__)
+        await self.restore_recovery()
         self.worker = asyncio.create_task(self.work_loop())
         self.worker.add_done_callback(self.worker_finished)
         # An interrupted service must not leave a schedule permanently 'running'.
         await asyncio.to_thread(self.recover_schedules)
         self.scheduler = asyncio.create_task(self.schedule_loop())
+
+    async def restore_recovery(self):
+        # An explicit maintenance handoff on tmpfs; normal restarts stay fresh.
+        manifest = Path('/run/evo-omp/recovery.json')
+        if not manifest.exists():
+            return
+        item = json.loads(manifest.read_text())
+        channel, model = str(item['channel']), item['model']
+        source = Path('/run/evo-omp/recovery')
+        if not channel.isdigit() or model not in MODELS.values():
+            raise ValueError('Invalid maintenance recovery manifest')
+        session = OmpSession(channel, model, self.registry.definitions(False), self.registry.call)
+        try:
+            await session.start(resume_dir=source)
+        except BaseException:
+            await session.close()
+            raise
+        self.sessions[channel], self.models[channel] = session, model
+        usage = (await session.request('get_state')).get('contextUsage')
+        manifest.unlink()
+        shutil.rmtree(source)
+        LOG.info('maintenance_session_restored channel=%s model=%s context=%s', channel, model, usage)
 
     @staticmethod
     def recover_schedules():
@@ -129,14 +163,17 @@ class Bot(commands.Bot):
 
     async def on_ready(self):
         self.initialized = True
-        self.write_status('connected')
+        self.write_status('working' if self.active else 'connected')
         LOG.info('discord_connected bot_id=%s engine=omp-18.11.3', self.user.id)
 
+    async def on_resumed(self):
+        self.write_status('working' if self.active else 'connected')
+        LOG.info('discord_resumed')
+
     async def on_disconnect(self):
+        # Withdraw pending approvals, but let accepted work survive a transient
+        # gateway reconnect. Discord.py resumes the connection automatically.
         context.cancel_all()
-        if self.active:
-            self.active['turn'].cancelled.set()
-            asyncio.create_task(self.active['session'].abort())
         self.write_status('disconnected')
 
     async def on_message(self, message):
@@ -290,7 +327,8 @@ class Bot(commands.Bot):
                 else:
                     if not answer:
                         raise RuntimeError(session.error or '모델이 최종 답변을 반환하지 않았습니다. 다시 요청할 수 있습니다.')
-                    outcome = 'ok' if await self.deliver(channel, answer) else 'delivery_failed'
+                    footer = await context_footer(session) if not turn.cron else ''
+                    outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
             except Exception as e:
                 LOG.error('turn_failed turn=%s class=%s detail=%s', turn.id, type(e).__name__,
                           context.redact_sensitive_text(str(e))[:400])
@@ -385,7 +423,7 @@ class Bot(commands.Bot):
             yield
             return
         notice, started = None, time.monotonic()
-        last_update = started
+        last_update, last_phase = started, None
         updates = asyncio.Queue(maxsize=16)
         delivered = False
 
@@ -411,12 +449,14 @@ class Bot(commands.Bot):
                     updates.task_done()
 
         async def update():
-            nonlocal notice, last_update
+            nonlocal notice, last_update, last_phase
             while True:
                 await asyncio.sleep(STATUS_INTERVAL)
                 self.write_status('working')
                 now = time.monotonic()
-                if now - last_update < PROGRESS_INTERVAL:
+                compacting = session.last_event == 'compacting'
+                interval = STATUS_INTERVAL if compacting else PROGRESS_INTERVAL
+                if now - last_update < interval and not (compacting and last_phase != 'compacting'):
                     continue
                 text = progress_text(session, now - started, include_text=False)
                 try:
@@ -427,6 +467,7 @@ class Bot(commands.Bot):
                         await asyncio.wait_for(notice.edit(content=text,
                             allowed_mentions=discord.AllowedMentions.none()), 5)
                     last_update = now
+                    last_phase = session.last_event
                 except (discord.HTTPException, asyncio.TimeoutError) as error:
                     LOG.warning('progress_update_failed class=%s', type(error).__name__)
                     return
@@ -460,9 +501,15 @@ class Bot(commands.Bot):
                     else:
                         await asyncio.wait_for(notice.delete(), 3)
 
-    async def deliver(self, channel, text):
+    async def deliver(self, channel, text, footer=''):
         text = context.redact_sensitive_text(text)
-        for part in discord_messages(text):
+        parts = discord_messages(text)
+        if footer:
+            if parts and discord_units(parts[-1] + '\n\n' + footer) <= 1900:
+                parts[-1] += '\n\n' + footer
+            else:
+                parts.append(footer)
+        for part in parts:
             try:
                 await channel.send(part, allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException as e:
@@ -493,6 +540,8 @@ class Bot(commands.Bot):
                 await session.abort()
 
     def write_status(self, state):
+        if state == 'working' and not self.is_ready():
+            state = 'disconnected'
         a = self.active
         data = {'engine': 'omp', 'version': '18.11.3', 'state': state,
                 'queued': self.queue.qsize(), 'sessions': len(self.sessions),
@@ -579,10 +628,13 @@ class Bot(commands.Bot):
                     s = self.sessions.get(key)
                     if not s:
                         return '압축할 대화가 없습니다.'
-                    result = await s.compact(args.strip())
+                    channel = self.get_channel(int(key)) or await self.fetch_channel(int(key))
+                    async with self.progress(channel, s):
+                        result = await s.compact(args.strip())
                     if result.get('cancelled'):
                         return '대화 압축을 중단했습니다.'
-                return '대화를 압축했습니다.'
+                footer = await context_footer(s)
+                return '대화를 압축했습니다.' + ('\n' + footer if footer else '')
             if name == 'memory':
                 from .tools import memory
                 action, _, filename = args.partition(' ')

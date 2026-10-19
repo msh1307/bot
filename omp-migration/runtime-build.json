@@ -6,7 +6,7 @@
   },
   "patch": {
     "file": "patches/compaction.patch",
-    "sha256": "165ecac925fe1c547b17f7c6ffaf54862505b77b9ff3d65527f00870241d742e"
+    "sha256": "ece5eec6d638157123c17d6a43feddf4b02d80a7288bc37893ef3286bbddaa5a"
   },
   "build": {
     "bun": "1.4.3",
@@ -15,7 +15,7 @@
   },
   "binary": {
     "name": "omp-v18.11.3",
-    "sha256": "463e5076d0c1d0f702838d44873080e5c7bd7b7e4e731301a6ca3499381a85df",
-    "bytes": 263768032
+    "sha256": "96573983130b3b8a89fbbee18d74545a2036556f4d85122a77dfbd6eface7e61",
+    "bytes": 263583712
   }
 }

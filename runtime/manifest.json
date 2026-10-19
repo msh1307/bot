@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "packaged_date": "2026-10-19",
+  "packaged_date": "2026-10-20",
   "target": {
     "hardware": "EVO-X2",
     "unified_memory_gb": 64,
@@ -39,6 +39,20 @@
       "comparison": "One matched 1024-token pair: main-thread CPU 99.4% to 42.7% of one logical CPU; total engine CPU 201.0% to 141.2%; decode 35.4 to 35.0 tok/s; identical output hash; zero swap pages. No thermal reduction established.",
       "sha256": "444ddefb2286dcce641c892b46d25f1ef7a58103749df8cb8e32a9f6548561d6",
       "bytes": 6076
+    },
+    {
+      "path": "strata/final-output-budget.patch",
+      "status": "deployed_python_wrapper",
+      "upstream": "https://github.com/Niko1221/Strata",
+      "base_revision": "7695859aa13afb248bdb4d36f9b2e95707db079d",
+      "apply_after": "strata/evo-v0.1.43.patch",
+      "features": [
+        "opt_in_final_text_token_budget",
+        "per_request_reasoning_loop_policy"
+      ],
+      "reasoning": "Not charged to final_output_max_tokens; total context remains finite.",
+      "sha256": "1c856a684e767d3d2f3e077964f3d3122c99e8323dae63f957252f85b831a6dd",
+      "bytes": 6251
     },
     {
       "path": "vision/llama-mmap.patch",

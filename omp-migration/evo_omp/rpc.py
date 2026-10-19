@@ -113,7 +113,7 @@ class OmpSession:
         except Exception:
             return False
 
-    async def start(self):
+    async def start(self, resume_dir=None):
         self.profile.mkdir(parents=True, mode=0o700)
         agent = self.profile / '.omp/agent'
         agent.mkdir(parents=True)
@@ -148,6 +148,20 @@ class OmpSession:
         await self.request('set_auto_retry', enabled=True)
         await self.request('set_cache_warming', mode='off')
         await self.request('set_auto_compaction', enabled=True)
+        if resume_dir is not None:
+            source = Path(resume_dir)
+            if source.is_symlink() or any(p.is_symlink() or not (p.is_file() or p.is_dir())
+                                          for p in source.rglob('*')):
+                raise ValueError('Recovery accepts regular files and directories only')
+            transcripts = list(source.glob('*.jsonl'))
+            if len(transcripts) != 1:
+                raise ValueError('Recovery requires exactly one session transcript')
+            shutil.copytree(source, self.profile / 'sessions', dirs_exist_ok=True)
+            result = await self.request('switch_session',
+                sessionPath='/home/agent/sessions/' + transcripts[0].name,
+                provider='evo', modelId=self.model)
+            if result.get('cancelled'):
+                raise RuntimeError('OMP session recovery was cancelled')
         state = await self.request('get_state')
         if state.get('model', {}).get('api') != 'evo-bounded-completions':
             raise RuntimeError('EVO retry limiter did not activate; refusing an unbounded provider')
@@ -193,6 +207,21 @@ class OmpSession:
             self.last_used = time.monotonic()
             self.last_event = 'idle'
 
+    async def wait_until_settled(self):
+        # prompt_result can precede automatic compaction. A completion frame
+        # is not a deadline for subsequent model work to finish.
+        while not self.settled.is_set():
+            try:
+                await asyncio.wait_for(self.settled.wait(), 20)
+            except asyncio.TimeoutError:
+                state = await self.request('get_state')
+                if (state.get('isSettled') is True
+                        and not state.get('isStreaming')
+                        and not state.get('isCompacting')
+                        and not state.get('hasPendingAsyncWork')
+                        and not state.get('queuedMessageCount')):
+                    self.settled.set()
+
     async def prompt(self, text, turn, images=None):
         self.turn = turn
         self.last_text, self.error = '', ''
@@ -220,7 +249,7 @@ class OmpSession:
             # Failed turns also settle. Their transcript remains useful if the
             # upstream session confirms there are no outstanding operations.
             phase = '작업 종료 확인'
-            await asyncio.wait_for(self.settled.wait(), 20)
+            await self.wait_until_settled()
             if result.get('status') in ('error', 'failed'):
                 raise RuntimeError(context.redact_sensitive_text(result.get('error') or self.error or 'OMP turn failed')[:350])
             if self.error and not self.last_text:
@@ -289,7 +318,8 @@ class OmpSession:
             if fut is not None and not fut.done():
                 fut.set_result(event)
         elif kind == 'prompt_result':
-            self.last_event = 'finishing'
+            if not self.compacting:
+                self.last_event = 'finishing'
             fut = self.prompts.get(event.get('id'))
             if fut is not None and not fut.done():
                 fut.set_result(event)
@@ -323,9 +353,18 @@ class OmpSession:
         elif kind == 'tool_execution_start':
             self.tools += 1
             self.last_event = 'tool: ' + event.get('toolName', '')[:80]
-        elif kind in ('tool_execution_end', 'agent_start', 'auto_compaction_end'):
+        elif kind == 'auto_compaction_end':
+            self.compacting = False
+            result = event.get('result') or {}
+            LOG.info('compaction_end action=%s aborted=%s before=%s after=%s error=%s',
+                     event.get('action'), event.get('aborted'), result.get('tokensBefore'),
+                     result.get('tokensAfter'), context.redact_sensitive_text(event.get('errorMessage', ''))[:400])
+            self.last_event = 'waiting for model'
+        elif kind in ('tool_execution_end', 'agent_start'):
             self.last_event = 'waiting for model'
         elif kind == 'auto_compaction_start':
+            self.compacting = True
+            LOG.info('compaction_start reason=%s action=%s', event.get('reason'), event.get('action'))
             self.last_event = 'compacting'
         elif kind == 'message_update' and self.last_event != 'compacting':
             self.last_event = 'receiving model response'

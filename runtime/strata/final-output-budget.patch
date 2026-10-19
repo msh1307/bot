@@ -1,0 +1,90 @@
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -3026,6 +3026,16 @@
+         prompt from it would send nothing, #351).  Reporting only: requests are checked in prepare()."""
+         return int(getattr(self.engine, "max_context", 0) or getattr(self.engine, "known_ctx", 0) or 0)
+ 
++    @staticmethod
++    def final_output_budget(req) -> int | None:
++        """Optional final-text cap; reasoning uses the request's total context budget."""
++        value = (req or {}).get("final_output_max_tokens")
++        if value is None:
++            return None
++        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
++            raise ValueError("final_output_max_tokens: expected a positive whole number of tokens")
++        return value
++
+     def reasoning_budget(self, req) -> int | None:
+         """#123: the most tokens this request may think, or None: the request's `reasoning_budget_tokens`, else the
+         config's.  0 (or less) means no budget, so a request can turn a configured one off.  ValueError (a 400) for
+@@ -3742,6 +3752,11 @@
+             req_values = {k: v for k, v in (sampling or {}).items() if v is not None}
+             sampling = {**defaults, **req_values}
+         # #123: read after the merge, so a budget shared through POST /settings is seen like the other keys
++        loop_recovery = (sampling or {}).get("reasoning_loop_recovery", self.reasoning_loop_recovery)
++        if loop_recovery not in (False, None, "stop", "recover"):
++            raise ValueError("reasoning_loop_recovery: expected stop, recover or false")
++        final_budget = self.final_output_budget(sampling)
++        final_n = 0
+         budget = self.reasoning_budget(sampling) if thinking else None
+         if budget and max_new and max_new > 0:
+             # #984: a budget at or near max_tokens never fires before the reply is cut off while still thinking, so
+@@ -3903,6 +3918,7 @@
+                                 raw_ids.append(t)
+                                 seg.append(t)
+                                 thinking_n += parser.state in ("reasoning", "rcall")
++                                final_n += parser.state == "content"
+                                 run_len = run_len + 1 if t == run_tok else 1
+                                 run_tok = t
+                                 if self.repeat_stop_tokens and run_len >= self.repeat_stop_tokens:
+@@ -3914,7 +3930,7 @@
+                                 self._note(n, evs, st, rate)
+                                 last_print = self._progress(last_print, st=st)
+                                 for ev in evs:
+-                                    if self.reasoning_loop_recovery and ev.kind == "reasoning":
++                                    if loop_recovery and ev.kind == "reasoning":
+                                         reasoning_text += ev.text or ""
+                                     if ev.kind in ("content", "tool_start", "tool_call"):
+                                         answered = True
+@@ -3927,13 +3943,15 @@
+                                 if stops is not None and stops.hit is not None:
+                                     finish = "stop"         # gen.close() below STOPs the engine, as for a stop token
+                                     break
+-                                if (self.reasoning_loop_recovery and not recovery_count and parser.state == "reasoning"
++                                if final_budget is not None and final_n >= final_budget:
++                                    break                   # final text only; finish remains "length"
++                                if (loop_recovery and not recovery_count and parser.state == "reasoning"
+                                         and n >= next_loop_check and not parser.buf and not parser.pending
+                                         and not detok.pending()):
+                                     next_loop_check = n + LOOP_CHECK_EVERY
+                                     repeat_coverage = reasoning_repeat_coverage(reasoning_text)
+                                     if repeat_coverage >= LOOP_COVERAGE:
+-                                        if self.reasoning_loop_recovery == "stop":
++                                        if loop_recovery == "stop":
+                                             looped = True        # #728: end the reply here, as for a repeated token
+                                             break
+                                         if not emb:              # "recover": not for a request with pictures
+@@ -5445,6 +5463,7 @@
+                 tools = (tools or []) + extra or None
+             if force and use_mcp:
+                 raise ValueError("a forced tool_choice with MCP tools is not supported")
++            svc.final_output_budget(req)
+             svc.reasoning_budget(req)                         # a bad value is a 400 before anything is sent
+             stop_strings(req)                                 # ... and so is a bad stop / stop_sequences
+             check_request_sampling(req)                       # ... and a sampling field of the wrong type
+@@ -5612,6 +5631,7 @@
+             if req.get("max_output_tokens") is None and "max_tokens" in svc.shared:   # the shared Chat settings
+                 req = {**req, "max_output_tokens": svc.shared["max_tokens"]}
+             try:
++                svc.final_output_budget(req)
+                 svc.reasoning_budget(req)                    # a bad value is a 400 before anything is sent
+             except ValueError as e:
+                 raise ResponsesError(str(e), "reasoning_budget_tokens") from None
+@@ -5667,6 +5687,7 @@
+                 tools = None
+             force = forced_call(req.get("tool_choice"), tools)        # "any" / {"type": "tool", "name": N}
+             max_new = int(req.get("max_tokens") or 0)                  # 0/-1: the rest of the context
++            svc.final_output_budget(req)
+             svc.reasoning_budget(req)                         # a bad value is a 400 before anything is sent
+             stop_strings(req)                                 # ... and so is a bad stop / stop_sequences
+             check_request_sampling(req)                       # ... and a sampling field of the wrong type
