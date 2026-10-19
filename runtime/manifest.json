@@ -31,14 +31,15 @@
       "base_revision": "7695859aa13afb248bdb4d36f9b2e95707db079d",
       "apply_after": "strata/evo-v0.1.43.patch",
       "environment": {
-        "STRATA_HOST_WAIT_US": "25",
+        "STRATA_HOST_WAIT_US": "100",
         "STRATA_HOST_SPIN_US": "0"
       },
       "disabled_by_default": true,
       "binary_sha256": "65795ecd062d4c28409c29fb96a7b0830f8fc9ba7e28a254747fd3b64a3eb4ad",
-      "comparison": "One matched 1024-token pair: main-thread CPU 99.4% to 42.7% of one logical CPU; total engine CPU 201.0% to 141.2%; decode 35.4 to 35.0 tok/s; identical output hash; zero swap pages. No thermal reduction established.",
+      "comparison": "One uncached 1024-token pair, 25us to 100us: main-thread CPU 42.7% to 21.1% of one logical CPU; total engine CPU 145.1% to 120.6%; decode 34.2 to 34.0 tok/s; zero swap pages. Output hashes differed; no answer-quality or sustained thermal benefit established. Vendor ROCr helper still used about one CPU.",
       "sha256": "444ddefb2286dcce641c892b46d25f1ef7a58103749df8cb8e32a9f6548561d6",
-      "bytes": 6076
+      "bytes": 6076,
+      "prior_comparison": "One matched 1024-token pair: main-thread CPU 99.4% to 42.7% of one logical CPU; total engine CPU 201.0% to 141.2%; decode 35.4 to 35.0 tok/s; identical output hash; zero swap pages. No thermal reduction established."
     },
     {
       "path": "strata/final-output-budget.patch",
