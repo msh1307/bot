@@ -248,7 +248,7 @@ def host_command(args, **kwargs):
         answer = rpc(dict(action='execute', request_id=ticket['request_id'],
                           token=ticket['token'], digest=ticket['digest']), cancelled)
         ticket = None  # Consumed atomically before execution, including failures.
-        answer['output'] = redact_sensitive_text(answer.get('output', ''))[:12000]
+        answer['output'] = redact_sensitive_text(answer.get('output', ''))
         return result(answer)
     except Exception as error:
         return result(dict(success=False, error=str(error)[:250]))

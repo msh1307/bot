@@ -14,6 +14,10 @@ def command(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
 def restore(manifest):
+    state = subprocess.run(['systemctl', 'is-enabled', 'evo-hermes.service'],
+                           capture_output=True, text=True).stdout.strip()
+    if state == 'masked':
+        raise RuntimeError('Hermes is retired and masked; refusing rollback before changing services or paths.')
     subprocess.run(['systemctl', 'disable', '--now', 'evo-omp.service'], capture_output=True)
     subprocess.run(['systemctl', 'disable', '--now', 'evo-web-python.service'], capture_output=True)
     for original, archived in reversed(manifest['paths']):

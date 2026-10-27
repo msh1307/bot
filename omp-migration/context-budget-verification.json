@@ -1,0 +1,677 @@
+{
+  "date": "2026-10-26",
+  "status": "deployed_and_verified",
+  "change": "Omit reasoning from successfully completed earlier user turns when building OMP EVO requests. Retain current and unfinished reasoning, answers, tool calls/results, attachments, original RAM transcript and compaction reasoning.",
+  "files": {
+    "provider.ts": "890dd4fce46ac683d56194ec4a613f0829ba8b539c7888dc8c94a35f04f68843",
+    "verify_provider_context.test.ts": "f7d303a018fec8c3ba84a7e7dbe183394e7402f7abd4ba92743daac2773664ce",
+    "verify_context_payload.py": "1bcbbd5ee6801feec88503e13b0aa0b04d31eb5f87b220d7e316c600e42013ea",
+    "measure_context_payload.py": "f753920fbd0eef957e0768dcabedd33afd0205c95d1daaf232c63add7b11ae03",
+    "verify_context_model.py": "e4a325c8b57b907bad1a7f474e4d0f754f7570fbf17ff2b7fc1a1c70fbb29c4f"
+  },
+  "unit_checks": {
+    "passed": 7,
+    "assertions": 22
+  },
+  "payload_audit": {
+    "passed": true,
+    "real_omp_bwrap_provider_path": true,
+    "model_inference": false,
+    "discord_posts": 0,
+    "scope": "Synthetic three-turn payload audit, not quality/latency benchmark",
+    "variants": [
+      {
+        "variant": "without_host_previews",
+        "requests": [
+          {
+            "request": 0,
+            "messages": 2,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 0,
+            "template_kwargs": {}
+          },
+          {
+            "request": 1,
+            "messages": 4,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 2206,
+            "template_kwargs": {}
+          },
+          {
+            "request": 2,
+            "messages": 6,
+            "old_reasoning_bytes": 12064,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 2206,
+            "template_kwargs": {}
+          },
+          {
+            "request": 3,
+            "messages": 8,
+            "old_reasoning_bytes": 12064,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 4414,
+            "template_kwargs": {}
+          },
+          {
+            "request": 4,
+            "messages": 10,
+            "old_reasoning_bytes": 24128,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 4414,
+            "template_kwargs": {}
+          },
+          {
+            "request": 5,
+            "messages": 12,
+            "old_reasoning_bytes": 24128,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 6621,
+            "template_kwargs": {}
+          }
+        ],
+        "tool_count": 19,
+        "tool_schema_bytes": 26543,
+        "tool_pairs_intact": true,
+        "all_user_requests_retained": true
+      },
+      {
+        "variant": "deployed",
+        "requests": [
+          {
+            "request": 0,
+            "messages": 2,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 0,
+            "template_kwargs": {}
+          },
+          {
+            "request": 1,
+            "messages": 4,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 2474,
+            "template_kwargs": {}
+          },
+          {
+            "request": 2,
+            "messages": 6,
+            "old_reasoning_bytes": 12064,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 2474,
+            "template_kwargs": {}
+          },
+          {
+            "request": 3,
+            "messages": 8,
+            "old_reasoning_bytes": 12064,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 4952,
+            "template_kwargs": {}
+          },
+          {
+            "request": 4,
+            "messages": 10,
+            "old_reasoning_bytes": 24128,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 4952,
+            "template_kwargs": {}
+          },
+          {
+            "request": 5,
+            "messages": 12,
+            "old_reasoning_bytes": 24128,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 7428,
+            "template_kwargs": {}
+          }
+        ],
+        "tool_count": 19,
+        "tool_schema_bytes": 26543,
+        "tool_pairs_intact": true,
+        "all_user_requests_retained": true
+      },
+      {
+        "variant": "completed_reasoning_trim",
+        "requests": [
+          {
+            "request": 0,
+            "messages": 2,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 0,
+            "template_kwargs": {}
+          },
+          {
+            "request": 1,
+            "messages": 4,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 2474,
+            "template_kwargs": {}
+          },
+          {
+            "request": 2,
+            "messages": 6,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 2474,
+            "template_kwargs": {}
+          },
+          {
+            "request": 3,
+            "messages": 8,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 4952,
+            "template_kwargs": {}
+          },
+          {
+            "request": 4,
+            "messages": 10,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 0,
+            "tool_result_bytes": 4952,
+            "template_kwargs": {}
+          },
+          {
+            "request": 5,
+            "messages": 12,
+            "old_reasoning_bytes": 0,
+            "current_reasoning_bytes": 6032,
+            "tool_result_bytes": 7428,
+            "template_kwargs": {}
+          }
+        ],
+        "tool_count": 19,
+        "tool_schema_bytes": 26543,
+        "tool_pairs_intact": true,
+        "all_user_requests_retained": true
+      }
+    ]
+  },
+  "tokens": {
+    "scope": "Exact deployed template/tokenizer; synthetic scripted provider requests",
+    "model_inference": false,
+    "request_tokens": {
+      "without_host_previews": [
+        {
+          "input_tokens": 7746,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 0
+        },
+        {
+          "input_tokens": 12547,
+          "reasoning_tokens": 4172,
+          "tool_result_tokens": 568
+        },
+        {
+          "input_tokens": 16748,
+          "reasoning_tokens": 8344,
+          "tool_result_tokens": 568
+        },
+        {
+          "input_tokens": 21539,
+          "reasoning_tokens": 12516,
+          "tool_result_tokens": 1143
+        },
+        {
+          "input_tokens": 25740,
+          "reasoning_tokens": 16688,
+          "tool_result_tokens": 1143
+        },
+        {
+          "input_tokens": 30569,
+          "reasoning_tokens": 20860,
+          "tool_result_tokens": 1754
+        }
+      ],
+      "deployed": [
+        {
+          "input_tokens": 7746,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 0
+        },
+        {
+          "input_tokens": 12636,
+          "reasoning_tokens": 4172,
+          "tool_result_tokens": 657
+        },
+        {
+          "input_tokens": 16837,
+          "reasoning_tokens": 8344,
+          "tool_result_tokens": 657
+        },
+        {
+          "input_tokens": 21717,
+          "reasoning_tokens": 12516,
+          "tool_result_tokens": 1321
+        },
+        {
+          "input_tokens": 25918,
+          "reasoning_tokens": 16688,
+          "tool_result_tokens": 1321
+        },
+        {
+          "input_tokens": 30842,
+          "reasoning_tokens": 20860,
+          "tool_result_tokens": 2027
+        }
+      ],
+      "completed_reasoning_trim": [
+        {
+          "input_tokens": 7746,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 0
+        },
+        {
+          "input_tokens": 12636,
+          "reasoning_tokens": 4172,
+          "tool_result_tokens": 657
+        },
+        {
+          "input_tokens": 8491,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 657
+        },
+        {
+          "input_tokens": 13371,
+          "reasoning_tokens": 4172,
+          "tool_result_tokens": 1321
+        },
+        {
+          "input_tokens": 9226,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 1321
+        },
+        {
+          "input_tokens": 14150,
+          "reasoning_tokens": 4172,
+          "tool_result_tokens": 2027
+        }
+      ]
+    },
+    "source_sha256": {
+      "vocab.json": "4ba64f0332abcfb0b600b7df1537d1e836e68009d5fb7cdb77339738dc6365c4",
+      "merges.txt": "4ba698529766c7a2f5052083ea10cdf2485577f5237a332ee291054eb11e3332",
+      "token_type.json": "5088c8c298fc06af8382ddb3b76c888703ac2634e82263b97eedcc2ad202738b",
+      "chat_template.jinja": "12827f24b742ea4e80cdc12dbcf9622227056b9f797252a3149263d4f9aaadce"
+    }
+  },
+  "synthetic_input_reduction": {
+    "before": 30842,
+    "after": 14150,
+    "percent": 54.12
+  },
+  "real_model": {
+    "passed": true,
+    "scope": "Two private synthetic three-turn Flash sessions; not broad quality or speed evidence",
+    "discord_posts": 0,
+    "model_switches": 0,
+    "rows": [
+      {
+        "variant": "baseline",
+        "turn": 0,
+        "answer": "- **revision**: rev-A17\n- **전체 건수**: 23건 (통과 17 / 실패 6)",
+        "seconds": 8.499,
+        "calls": 2,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 2864,
+              "completion_tokens": 83,
+              "total_tokens": 2947,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              }
+            },
+            "timings": {
+              "cache_n": 0,
+              "prompt_n": 2864,
+              "prompt_ms": 4562.2,
+              "prompt_per_token_ms": 1.593,
+              "prompt_per_second": 627.8,
+              "predicted_n": 83,
+              "predicted_ms": 1639.2,
+              "predicted_per_token_ms": 19.749,
+              "predicted_per_second": 50.6,
+              "draft_n": 72,
+              "draft_n_accepted": 56
+            },
+            "seconds": 6.2151551940478384
+          },
+          {
+            "usage": {
+              "prompt_tokens": 3002,
+              "completion_tokens": 80,
+              "total_tokens": 3082,
+              "prompt_tokens_details": {
+                "cached_tokens": 2946
+              }
+            },
+            "timings": {
+              "cache_n": 2946,
+              "prompt_n": 56,
+              "prompt_ms": 656.4,
+              "prompt_per_token_ms": 11.721,
+              "prompt_per_second": 85.3,
+              "predicted_n": 80,
+              "predicted_ms": 1548.5,
+              "predicted_per_token_ms": 19.356,
+              "predicted_per_second": 51.7,
+              "draft_n": 65,
+              "draft_n_accepted": 53
+            },
+            "seconds": 2.213942443020642
+          }
+        ],
+        "old_reasoning_bytes": [
+          0,
+          0
+        ]
+      },
+      {
+        "variant": "baseline",
+        "turn": 1,
+        "answer": "- **revision**: rev-B29\n- **전체 건수**: 23건",
+        "seconds": 1.478,
+        "calls": 1,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 3122,
+              "completion_tokens": 48,
+              "total_tokens": 3170,
+              "prompt_tokens_details": {
+                "cached_tokens": 3081
+              }
+            },
+            "timings": {
+              "cache_n": 3081,
+              "prompt_n": 41,
+              "prompt_ms": 468.2,
+              "prompt_per_token_ms": 11.42,
+              "prompt_per_second": 87.6,
+              "predicted_n": 48,
+              "predicted_ms": 948.9,
+              "predicted_per_token_ms": 19.769,
+              "predicted_per_second": 50.6,
+              "draft_n": 44,
+              "draft_n_accepted": 32
+            },
+            "seconds": 1.4256536329630762
+          }
+        ],
+        "old_reasoning_bytes": [
+          273
+        ]
+      },
+      {
+        "variant": "baseline",
+        "turn": 2,
+        "answer": "- **revision**: rev-B29\n- **전체 건수**: 23건\n- **파일 수정 허용**: 아니오 (읽기 전용)",
+        "seconds": 2.832,
+        "calls": 1,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 3209,
+              "completion_tokens": 122,
+              "total_tokens": 3331,
+              "prompt_tokens_details": {
+                "cached_tokens": 3169
+              }
+            },
+            "timings": {
+              "cache_n": 3169,
+              "prompt_n": 40,
+              "prompt_ms": 469.4,
+              "prompt_per_token_ms": 11.735,
+              "prompt_per_second": 85.2,
+              "predicted_n": 122,
+              "predicted_ms": 2326.0,
+              "predicted_per_token_ms": 19.066,
+              "predicted_per_second": 52.5,
+              "draft_n": 105,
+              "draft_n_accepted": 84
+            },
+            "seconds": 2.802613348932937
+          }
+        ],
+        "old_reasoning_bytes": [
+          387
+        ]
+      },
+      {
+        "variant": "candidate",
+        "turn": 0,
+        "answer": "보고서 확인 완료 (파일 수정 없음):\n\n- **Revision**: rev-A17\n- **전체 건수**: 23건 — 통과 17건, 실패 6건\n- 스코프: 읽기 전용(READ_ONLY)",
+        "seconds": 4.299,
+        "calls": 2,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 2864,
+              "completion_tokens": 81,
+              "total_tokens": 2945,
+              "prompt_tokens_details": {
+                "cached_tokens": 2859
+              }
+            },
+            "timings": {
+              "cache_n": 2859,
+              "prompt_n": 5,
+              "prompt_ms": 72.2,
+              "prompt_per_token_ms": 14.44,
+              "prompt_per_second": 69.3,
+              "predicted_n": 81,
+              "predicted_ms": 1484.2,
+              "predicted_per_token_ms": 18.323,
+              "predicted_per_second": 54.6,
+              "draft_n": 64,
+              "draft_n_accepted": 56
+            },
+            "seconds": 1.5633145198225975
+          },
+          {
+            "usage": {
+              "prompt_tokens": 3000,
+              "completion_tokens": 95,
+              "total_tokens": 3095,
+              "prompt_tokens_details": {
+                "cached_tokens": 2946
+              }
+            },
+            "timings": {
+              "cache_n": 2946,
+              "prompt_n": 54,
+              "prompt_ms": 626.7,
+              "prompt_per_token_ms": 11.606,
+              "prompt_per_second": 86.2,
+              "predicted_n": 95,
+              "predicted_ms": 2053.6,
+              "predicted_per_token_ms": 21.617,
+              "predicted_per_second": 46.3,
+              "draft_n": 90,
+              "draft_n_accepted": 57
+            },
+            "seconds": 2.685199329163879
+          }
+        ],
+        "old_reasoning_bytes": [
+          0,
+          0
+        ]
+      },
+      {
+        "variant": "candidate",
+        "turn": 1,
+        "answer": "- **Revision**: rev-B29\n- **전체 건수**: 23건 (통과 17건, 실패 6건)",
+        "seconds": 2.499,
+        "calls": 1,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 3066,
+              "completion_tokens": 74,
+              "total_tokens": 3140,
+              "prompt_tokens_details": {
+                "cached_tokens": 2859
+              }
+            },
+            "timings": {
+              "cache_n": 2859,
+              "prompt_n": 207,
+              "prompt_ms": 926.5,
+              "prompt_per_token_ms": 4.476,
+              "prompt_per_second": 223.4,
+              "predicted_n": 74,
+              "predicted_ms": 1558.4,
+              "predicted_per_token_ms": 21.059,
+              "predicted_per_second": 47.5,
+              "draft_n": 74,
+              "draft_n_accepted": 49
+            },
+            "seconds": 2.490011748857796
+          }
+        ],
+        "old_reasoning_bytes": [
+          0
+        ]
+      },
+      {
+        "variant": "candidate",
+        "turn": 2,
+        "answer": "- **Revision**: rev-B29\n- **전체 건수**: 23건\n- **파일 수정 허용**: 아니오 (읽기 전용 스코프)",
+        "seconds": 2.613,
+        "calls": 1,
+        "requests": [
+          {
+            "usage": {
+              "prompt_tokens": 3143,
+              "completion_tokens": 99,
+              "total_tokens": 3242,
+              "prompt_tokens_details": {
+                "cached_tokens": 3061
+              }
+            },
+            "timings": {
+              "cache_n": 3061,
+              "prompt_n": 82,
+              "prompt_ms": 745.3,
+              "prompt_per_token_ms": 9.089,
+              "prompt_per_second": 110.0,
+              "predicted_n": 99,
+              "predicted_ms": 1834.9,
+              "predicted_per_token_ms": 18.534,
+              "predicted_per_second": 54.0,
+              "draft_n": 86,
+              "draft_n_accepted": 66
+            },
+            "seconds": 2.5873129048850387
+          }
+        ],
+        "old_reasoning_bytes": [
+          0
+        ]
+      }
+    ],
+    "swapout_delta_pages": 0,
+    "oom_kill_delta": 0
+  },
+  "limitations": [
+    "Synthetic reasoning includes high-entropy fixture text; its percentage is not a real workload average.",
+    "Only one three-turn run per configuration; no broad quality or speed guarantee.",
+    "Removing previous reasoning can require prefix replay from a checkpoint on the next user turn. Current tool-loop reasoning remains intact.",
+    "An unrelated interrupted or incomplete turn retains its reasoning until completion/normal compaction.",
+    "Earlier-turn intentions must be represented by user messages and final answers; earlier internal deliberation is no longer model-visible after successful completion.",
+    "Baseline without_host_previews already uses the patched native 1KiB+1KiB spill. Host previews add 273 tokens in this particular synthetic fixture while preserving plain-text fields and command metadata."
+  ],
+  "final": {
+    "installed_provider_sha256": "890dd4fce46ac683d56194ec4a613f0829ba8b539c7888dc8c94a35f04f68843",
+    "postdeploy": {
+      "variant": "deployed",
+      "requests": [
+        {
+          "request": 0,
+          "messages": 2,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 0,
+          "tool_result_bytes": 0,
+          "template_kwargs": {}
+        },
+        {
+          "request": 1,
+          "messages": 4,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 6032,
+          "tool_result_bytes": 2474,
+          "template_kwargs": {}
+        },
+        {
+          "request": 2,
+          "messages": 6,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 0,
+          "tool_result_bytes": 2474,
+          "template_kwargs": {}
+        },
+        {
+          "request": 3,
+          "messages": 8,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 6032,
+          "tool_result_bytes": 4952,
+          "template_kwargs": {}
+        },
+        {
+          "request": 4,
+          "messages": 10,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 0,
+          "tool_result_bytes": 4952,
+          "template_kwargs": {}
+        },
+        {
+          "request": 5,
+          "messages": 12,
+          "old_reasoning_bytes": 0,
+          "current_reasoning_bytes": 6032,
+          "tool_result_bytes": 7428,
+          "template_kwargs": {}
+        }
+      ],
+      "tool_count": 19,
+      "tool_schema_bytes": 26543,
+      "tool_pairs_intact": true,
+      "all_user_requests_retained": true
+    },
+    "health": {
+      "status": "ok",
+      "model": "sc117-flash-next-iq3_xxs",
+      "router": true
+    },
+    "bot_active": true,
+    "sessions": 1,
+    "busy": false,
+    "hermes": "masked",
+    "vm": {
+      "pswpout": 6,
+      "oom_kill": 3
+    }
+  },
+  "deployment": {
+    "files": {
+      "provider.ts": "890dd4fce46ac683d56194ec4a613f0829ba8b539c7888dc8c94a35f04f68843"
+    },
+    "session_restored": true,
+    "history_prefix_preserved": true,
+    "model_restarted": false,
+    "code_backup": "/opt/evo-omp/backups/completed-reasoning-maintenance-1792960336629667062",
+    "conversation_backup_storage": "tmpfs"
+  },
+  "native_accounting_followup": "compaction-accounting-verification.json"
+}

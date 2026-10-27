@@ -10,9 +10,11 @@ from pathlib import Path
 import secrets
 import shutil
 import signal
+import stat
 import time
 
 from . import context
+from .tool_output import compact_result
 
 ROOT = Path('/opt/evo-omp')
 WORKSPACE = Path('/var/lib/evo-hermes/workspace')
@@ -44,7 +46,7 @@ def sandbox_argv(profile, model):
            'PI_CODING_AGENT_DIR': '/home/agent/.omp/agent',
            'TMPDIR': '/home/agent/tmp', 'GIT_TERMINAL_PROMPT': '0',
            'OPENBLAS_NUM_THREADS': '2', 'OMP_NUM_THREADS': '2', 'TZ': 'Asia/Seoul',
-           'PI_NO_TITLE': '1', 'PI_NO_PTY': '1'}
+           'PI_NO_TITLE': '1', 'PI_NO_PTY': '1', 'EVO_COMPLETED_REASONING_CONTEXT': '1'}
     for key, val in env.items():
         args += ['--setenv', key, val]
     return args + [str(ROOT / 'bin/omp-v18.11.3'), '--mode', 'rpc', '--no-ui',
@@ -55,7 +57,7 @@ def sandbox_argv(profile, model):
                    '--approval-mode', 'yolo',
                    '--model', 'evo/' + model,
                    '--tools', 'read,grep,glob,edit,write,bash',
-                   '--append-system-prompt', '/home/agent/instructions.txt']
+                   '--system-prompt', '/home/agent/instructions.txt']
 
 
 class OmpSession:
@@ -114,7 +116,16 @@ class OmpSession:
             return False
 
     async def start(self, resume_dir=None):
-        self.profile.mkdir(parents=True, mode=0o700)
+        runtime = RUNTIME.lstat()
+        if not stat.S_ISDIR(runtime.st_mode) or runtime.st_uid != os.geteuid():
+            raise PermissionError('OMP session must run as the runtime directory owner')
+        parent = self.profile.parent
+        parent.mkdir(mode=0o700, exist_ok=True)
+        metadata = parent.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid():
+            raise PermissionError('OMP profiles directory has an unexpected owner or type')
+        parent.chmod(0o700)
+        self.profile.mkdir(mode=0o700)
         agent = self.profile / '.omp/agent'
         agent.mkdir(parents=True)
         (self.profile / 'tmp').mkdir(mode=0o700)
@@ -292,6 +303,12 @@ class OmpSession:
                 result = {'content': [{'type': 'text', 'text': value if isinstance(value, str)
                                       else json.dumps(value, ensure_ascii=False)}]}
             if not turn.cancelled.is_set():
+                try:
+                    result = compact_result(event['toolName'], result, self.profile)
+                except (OSError, ValueError, RecursionError):
+                    # A storage failure must not turn a completed host action into
+                    # a tool failure that encourages executing it a second time.
+                    LOG.warning('tool_output_preview_failed tool=%s', event['toolName'])
                 await self.send({'type': 'host_tool_result', 'id': ident, 'result': result})
         except asyncio.CancelledError:
             pass
@@ -367,7 +384,9 @@ class OmpSession:
             LOG.info('compaction_start reason=%s action=%s', event.get('reason'), event.get('action'))
             self.last_event = 'compacting'
         elif kind == 'message_update' and self.last_event != 'compacting':
-            self.last_event = 'receiving model response'
+            subtype = (event.get('assistantMessageEvent') or {}).get('type')
+            self.last_event = {'thinking_delta': 'reasoning', 'text_delta': 'writing answer',
+                               'toolcall_delta': 'preparing tool'}.get(subtype, 'receiving model response')
         elif kind == 'host_tool_call':
             if self.turn is None or event.get('toolName') not in {d['name'] for d in self.definitions}:
                 await self.send({'type': 'host_tool_result', 'id': event['id'], 'isError': True,

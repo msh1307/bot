@@ -1,0 +1,544 @@
+{
+  "date": "2026-10-26",
+  "scope": "OMP host and native tool output previews; model/context/compaction unchanged",
+  "replay": {
+    "passed": true,
+    "path": "real OMP binary + bwrap + host RPC + native read/bash; scripted provider",
+    "checks": [
+      "before: native artifact middle recovered",
+      "host_command: exact full source + native ranged read",
+      "codex_task: exact full source + native ranged read",
+      "browser: exact full source + native ranged read",
+      "after: native artifact middle recovered",
+      "RAM session recovery retains exact references",
+      "storage failure returns original result, no command retry"
+    ],
+    "cases": [
+      {
+        "case": "host_command",
+        "variant": "before",
+        "bytes": 16636
+      },
+      {
+        "case": "codex_task",
+        "variant": "before",
+        "bytes": 12402
+      },
+      {
+        "case": "browser",
+        "variant": "before",
+        "bytes": 17268
+      },
+      {
+        "case": "native_bash",
+        "variant": "before",
+        "bytes": 22718
+      },
+      {
+        "case": "host_command",
+        "variant": "after",
+        "bytes": 2459
+      },
+      {
+        "case": "codex_task",
+        "variant": "after",
+        "bytes": 2462
+      },
+      {
+        "case": "browser",
+        "variant": "after",
+        "bytes": 2471
+      },
+      {
+        "case": "native_bash",
+        "variant": "after",
+        "bytes": 12284
+      }
+    ],
+    "model_inference": false,
+    "discord_posts": 0
+  },
+  "tokens": [
+    {
+      "tool": "host_command",
+      "before_tokens": 3865,
+      "after_tokens": 621,
+      "reduction_percent": 83.93
+    },
+    {
+      "tool": "codex_task",
+      "before_tokens": 3454,
+      "after_tokens": 720,
+      "reduction_percent": 79.15
+    },
+    {
+      "tool": "browser",
+      "before_tokens": 4821,
+      "after_tokens": 725,
+      "reduction_percent": 84.96
+    },
+    {
+      "tool": "native_bash",
+      "before_tokens": 6321,
+      "after_tokens": 3427,
+      "reduction_percent": 45.78
+    }
+  ],
+  "real_model": {
+    "synthetic_report": true,
+    "real_model": "sc117-flash-next-iq3_xxs",
+    "discord_posts": 0,
+    "answer": "SECTION_0317: revision `rev-delta-73`, result `failed`, error `missing build header` (빌드 헤더 누락).",
+    "calls": [
+      {
+        "tool": "codex_task",
+        "args": {
+          "action": "status"
+        }
+      }
+    ],
+    "tools": 2,
+    "rounds": 3,
+    "elapsed_seconds": 13.803,
+    "passed": true
+  },
+  "web_regression": {
+    "passed": true,
+    "path": "OMP Registry -> router /tools -> web worker; WebUI /tools",
+    "discord_message_sent": false,
+    "schema_loaded": true,
+    "calls": [
+      {
+        "tool": "internet_search",
+        "action": "read",
+        "chars": 1992,
+        "bytes": 2016,
+        "seconds": 0.9103,
+        "next_offset": null,
+        "next": {
+          "page": 1,
+          "offset": 5
+        },
+        "matches": 0
+      },
+      {
+        "tool": "internet_search",
+        "action": "read",
+        "chars": 858,
+        "bytes": 864,
+        "seconds": 0.0036,
+        "next_offset": null,
+        "next": {
+          "page": 2,
+          "offset": 0
+        },
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 2607,
+        "bytes": 2631,
+        "seconds": 1.3277,
+        "next_offset": 2163,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 2613,
+        "bytes": 2618,
+        "seconds": 0.0047,
+        "next_offset": 4293,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "find",
+        "chars": 1141,
+        "bytes": 1141,
+        "seconds": 0.005,
+        "next_offset": null,
+        "next": null,
+        "matches": 2
+      },
+      {
+        "tool": "web_read",
+        "action": "links",
+        "chars": 888,
+        "bytes": 888,
+        "seconds": 0.0029,
+        "next_offset": null,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 4909,
+        "bytes": 4938,
+        "seconds": 0.0045,
+        "next_offset": 4216,
+        "next": null,
+        "matches": 0
+      }
+    ],
+    "changed_version_rejected": true,
+    "webui_matches_omp": true,
+    "before": {
+      "available_kib": 8699280,
+      "pswpout": 6
+    },
+    "after": {
+      "available_kib": 8662184,
+      "pswpout": 6
+    },
+    "swapout_delta_pages": 0
+  },
+  "deployment": {
+    "files": {
+      "evo_omp/rpc.py": "07f226336172b53301a1026915273cfafafcabd92dce6cf1178d94090b7056e1",
+      "evo_omp/tool_output.py": "5be50a5582ed46eba6f5e141297fdef68c358d60b21a26d8f02a46e93eced809",
+      "config.yml": "a81d51bb8d8f0da2d33ee0e1b550ba24ee7dcabc26d8c0cba0d81a8dd245adc4",
+      "evo_omp/integrations/host.py": "37a03c8909ca12f8129214c169cc1c4e5fa8c956db012ce5083356d7df70dc8d"
+    },
+    "session_restored": true,
+    "history_prefix_preserved": true,
+    "model_restarted": false,
+    "code_backup": "/opt/evo-omp/backups/output-maintenance-1792952870079696062",
+    "conversation_backup_storage": "tmpfs"
+  },
+  "services": {
+    "evo-omp": {
+      "ActiveState": "active",
+      "MainPID": "1878464",
+      "MemoryCurrent": "251785216",
+      "MemorySwapCurrent": "0"
+    },
+    "evo-flash": {
+      "ActiveState": "active",
+      "MainPID": "1869418",
+      "MemoryCurrent": "23473479680",
+      "MemorySwapCurrent": "0"
+    },
+    "evo-qwen": {
+      "ActiveState": "inactive",
+      "MainPID": "0",
+      "MemoryCurrent": "[not set]",
+      "MemorySwapCurrent": "[not set]"
+    },
+    "evo-web-tools": {
+      "ActiveState": "active",
+      "MainPID": "1878472",
+      "MemoryCurrent": "54575104",
+      "MemorySwapCurrent": "0"
+    },
+    "evo-hermes": {
+      "ActiveState": "inactive",
+      "MainPID": "0",
+      "MemoryCurrent": "[not set]",
+      "MemorySwapCurrent": "[not set]"
+    }
+  },
+  "vmstat": {
+    "pswpout": 6,
+    "oom_kill": 3
+  },
+  "limitations": [
+    "Synthetic fixed-output cases, not whole-task token savings.",
+    "Only large new outputs use the new preview; existing conversation is preserved.",
+    "Reading all omitted text still costs its full tokens plus extra tool calls.",
+    "Host broker still caps capture at 32768 bytes and reports output_truncated.",
+    "Host temporary files expire at 64 files or 16 MiB and session close; native artifacts use the existing OMP limits.",
+    "Real-model follow-up checked on Flash only; 27B uses the same harness but was not switched in for this check."
+  ],
+  "post_deployment_replay": true,
+  "broker_integration_check": "Mocked non-root broker result over 12000 characters reaches preview intact; no commands executed.",
+  "native_shell_20261026": {
+    "replay": {
+      "passed": true,
+      "checks": [
+        "RAM session recovery preserves artifact references",
+        "real OMP + bwrap + provider request A/B",
+        "small output remains inline",
+        "exact full capture and native ranged reread",
+        "failure exit code retained",
+        "Unicode and wide lines remain readable"
+      ],
+      "cases": [
+        {
+          "variant": "before",
+          "case": "long",
+          "bytes": 12284
+        },
+        {
+          "variant": "before",
+          "case": "unicode_failure",
+          "bytes": 12203
+        },
+        {
+          "variant": "before",
+          "case": "small",
+          "bytes": 22
+        },
+        {
+          "variant": "before",
+          "case": "wide",
+          "bytes": 858
+        },
+        {
+          "variant": "after",
+          "case": "long",
+          "bytes": 2187
+        },
+        {
+          "variant": "after",
+          "case": "unicode_failure",
+          "bytes": 2208
+        },
+        {
+          "variant": "after",
+          "case": "small",
+          "bytes": 22
+        },
+        {
+          "variant": "after",
+          "case": "wide",
+          "bytes": 858
+        }
+      ],
+      "model_inference": false,
+      "discord_posts": 0
+    },
+    "tokens": [
+      {
+        "case": "long",
+        "before": 3427,
+        "after": 628,
+        "reduction_percent": 81.67
+      },
+      {
+        "case": "unicode_failure",
+        "before": 2705,
+        "after": 511,
+        "reduction_percent": 81.11
+      },
+      {
+        "case": "small",
+        "before": 4,
+        "after": 4,
+        "reduction_percent": 0.0
+      },
+      {
+        "case": "wide",
+        "before": 262,
+        "after": 262,
+        "reduction_percent": 0.0
+      }
+    ],
+    "real_model": {
+      "real_model": "sc117-flash-next-iq3_xxs",
+      "synthetic_report": true,
+      "discord_posts": 0,
+      "answer": "SECTION_0917 (elided middle에서 복원):\n\n- revision: `rev-cobalt-29` (다른 항목들의 `rev-NNNN` 패턴과 다름)\n- result: `failed`\n- error: `missing interface header`\n\n전체 1600개 항목 중 실패는 이 하나뿐입니다. 파일은 변경하지 않았습니다.",
+      "calls": [
+        {
+          "tool": "bash",
+          "args": {
+            "command": "cat /workspace/.omp-shell-model-txmbcv0s/report.txt"
+          }
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "omp-read \"artifact://0\" 2>/dev/null | grep -n \"SECTION_0917\" || grep -rn \"SECTION_0917\" artifact://0"
+          }
+        },
+        {
+          "tool": "read",
+          "args": {
+            "path": "artifact://0:913-923"
+          }
+        },
+        {
+          "tool": "bash",
+          "args": {
+            "command": "grep -c \"SECTION_\" \"/home/agent/sessions/2026-10-25T18-57-33-849Z_01a1746c-dc99-7071-9154-60517cb478dd/0.bash.log\"; grep -n \"result=failed\" \"/home/agent/sessions/2026-10-25T18-57-33-849Z_01a1746c-dc99-7071-9154-60517cb478dd/0.bash.log\""
+          }
+        }
+      ],
+      "elapsed_seconds": 23.443,
+      "first_output_bytes": 2186,
+      "rounds": 5,
+      "passed": true
+    },
+    "deployment": {
+      "before": {
+        "services": {
+          "evo-omp": "ActiveState=active\nMainPID=1878464\nMemorySwapCurrent=0",
+          "evo-flash": "ActiveState=active\nMainPID=1869418\nMemorySwapCurrent=0",
+          "evo-qwen": "ActiveState=inactive\nMainPID=0\nMemorySwapCurrent=[not set]",
+          "evo-web-python": "ActiveState=active\nMainPID=1309971\nMemorySwapCurrent=0",
+          "evo-web-tools": "ActiveState=inactive\nMainPID=0\nMemorySwapCurrent=[not set]",
+          "evo-hermes": "ActiveState=inactive\nMainPID=0\nMemorySwapCurrent=[not set]"
+        },
+        "vmstat": {
+          "pswpout": 6,
+          "oom_kill": 3
+        }
+      },
+      "after": {
+        "services": {
+          "evo-omp": "ActiveState=active\nMainPID=1882588\nMemorySwapCurrent=0",
+          "evo-flash": "ActiveState=active\nMainPID=1869418\nMemorySwapCurrent=0",
+          "evo-qwen": "ActiveState=inactive\nMainPID=0\nMemorySwapCurrent=[not set]",
+          "evo-web-python": "ActiveState=active\nMainPID=1309971\nMemorySwapCurrent=0",
+          "evo-web-tools": "ActiveState=active\nMainPID=1882594\nMemorySwapCurrent=0",
+          "evo-hermes": "ActiveState=inactive\nMainPID=0\nMemorySwapCurrent=[not set]"
+        },
+        "vmstat": {
+          "pswpout": 6,
+          "oom_kill": 3
+        }
+      },
+      "files": {
+        "bin/omp-v18.11.3": "fbdfff22f586b27dab1d26c92f0f31616ae706bddf71ebc58c20d43106f6f9da",
+        "runtime-build.json": "89b3a319a66f31db7ec5d7ff45fcb00813a1a947268a9a2322d7c337acea6d9c",
+        "patches/shell-output-budget.patch": "7cc5ab013b1e045cd17f95ccd9479627c8d6fc5acbca68756caf1386e7855dc2"
+      },
+      "session_restored": true,
+      "history_prefix_preserved": true,
+      "model_restarted": false,
+      "code_backup": "/opt/evo-omp/backups/native-output-maintenance-1792954787152779391",
+      "conversation_backup_storage": "tmpfs"
+    },
+    "post_deployment": {
+      "passed": true,
+      "checks": [
+        "RAM session recovery preserves artifact references",
+        "installed OMP + bwrap + provider request",
+        "small output remains inline",
+        "exact full capture and native ranged reread",
+        "failure exit code retained",
+        "Unicode and wide lines remain readable"
+      ],
+      "cases": [
+        {
+          "variant": "after",
+          "case": "long",
+          "bytes": 2187
+        },
+        {
+          "variant": "after",
+          "case": "unicode_failure",
+          "bytes": 2208
+        },
+        {
+          "variant": "after",
+          "case": "small",
+          "bytes": 22
+        },
+        {
+          "variant": "after",
+          "case": "wide",
+          "bytes": 858
+        }
+      ],
+      "model_inference": false,
+      "discord_posts": 0
+    },
+    "source_tests": {
+      "passed": 158,
+      "failed": 0,
+      "assertions": 948,
+      "regression_before_failed": true,
+      "typecheck": "passed",
+      "format_and_lint": "passed"
+    },
+    "source_change": "8 implementation lines plus regression test; existing upstream OutputSink/artifact recovery",
+    "limits": [
+      "Fixed synthetic outputs; not whole-task token savings.",
+      "The real Flash probe recovered the correct result, but tried one invalid shell read before native read.",
+      "Read/grep can retrieve omitted content; reading all content still costs its full tokens.",
+      "Changes apply to new outputs; existing conversation is preserved."
+    ],
+    "final_vmstat": {
+      "pswpout": 6,
+      "oom_kill": 3
+    },
+    "bot_status": {
+      "engine": "omp",
+      "version": "18.11.3",
+      "state": "connected",
+      "queued": 0,
+      "sessions": 1,
+      "pending_inputs": 0,
+      "active": false,
+      "rounds": 0,
+      "tools": 0,
+      "elapsed_seconds": 0,
+      "idle_seconds": 0,
+      "updated": 1792954792
+    },
+    "router": {
+      "active": "sc117-flash-next-iq3_xxs",
+      "busy": false,
+      "loading": null,
+      "error": null
+    }
+  },
+  "final_live_check": {
+    "date": "2026-10-26",
+    "hashes": {
+      "web": "86f27fc3a82561f753ddc9297c58067ce4d8fbfd730ae82edd2f8d16ff62bb47",
+      "omp": "fbdfff22f586b27dab1d26c92f0f31616ae706bddf71ebc58c20d43106f6f9da",
+      "preview": "5be50a5582ed46eba6f5e141297fdef68c358d60b21a26d8f02a46e93eced809",
+      "rpc": "07f226336172b53301a1026915273cfafafcabd92dce6cf1178d94090b7056e1"
+    },
+    "services": {
+      "evo-flash": "active",
+      "evo-qwen": "inactive",
+      "evo-omp": "active",
+      "evo-hermes": "inactive"
+    },
+    "health": {
+      "status": "ok",
+      "model": "sc117-flash-next-iq3_xxs",
+      "router": true
+    },
+    "bot": {
+      "engine": "omp",
+      "version": "18.11.3",
+      "state": "connected",
+      "queued": 0,
+      "sessions": 1,
+      "pending_inputs": 0,
+      "active": false,
+      "rounds": 0,
+      "tools": 0,
+      "elapsed_seconds": 0,
+      "idle_seconds": 0,
+      "updated": 1792954792
+    },
+    "router": {
+      "active": "sc117-flash-next-iq3_xxs",
+      "busy": false,
+      "loading": null,
+      "error": null
+    },
+    "maintenance_lease": false,
+    "vmstat": {
+      "pswpout": 6,
+      "oom_kill": 3
+    },
+    "new_swapout_pages": 0,
+    "new_oom_events": 0
+  },
+  "completed_reasoning_followup": {
+    "report": "context-budget-verification.json",
+    "status": "deployed_and_verified",
+    "scope": "Prior successfully completed reasoning omitted from future EVO requests, current reasoning retained"
+  }
+}

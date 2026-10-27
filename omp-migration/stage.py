@@ -17,7 +17,7 @@ def private_dir(path):
     os.chown(path, uid, gid)
     path.chmod(0o700)
 
-for p in (STATE, STATE / 'memory', Path('/run/evo-omp')):
+for p in (STATE, STATE / 'memory', Path('/run/evo-omp'), Path('/run/evo-omp/profiles')):
     private_dir(p)
 SECRETS.mkdir(mode=0o750, exist_ok=True)
 SECRETS.chmod(0o750)

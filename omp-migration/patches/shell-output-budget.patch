@@ -1,0 +1,100 @@
+diff --git a/packages/coding-agent/src/tools/output-meta.ts b/packages/coding-agent/src/tools/output-meta.ts
+--- a/packages/coding-agent/src/tools/output-meta.ts
++++ b/packages/coding-agent/src/tools/output-meta.ts
+@@ -495,6 +495,12 @@
+  */
+ export function resolveOutputSinkHeadBytes(s: Settings | undefined): number {
+ 	return getSpillConfig(s).headBytes;
++}
++
++/** Streaming tools retain the configured head/tail budget, capped by the spill threshold. */
++export function resolveOutputSinkInlineBytes(s: Settings | undefined): number {
++	const { threshold, headBytes, tailBytes } = getSpillConfig(s);
++	return Math.max(1, Math.min(threshold, headBytes + tailBytes));
+ }
+ 
+ /**
+diff --git a/packages/coding-agent/src/exec/bash-executor.ts b/packages/coding-agent/src/exec/bash-executor.ts
+--- a/packages/coding-agent/src/exec/bash-executor.ts
++++ b/packages/coding-agent/src/exec/bash-executor.ts
+@@ -20,6 +20,7 @@
+ 	resolveOutputMaxColumns,
+ 	resolveOutputSinkArtifactMaxBytes,
+ 	resolveOutputSinkHeadBytes,
++	resolveOutputSinkInlineBytes,
+ } from "../tools/output-meta";
+ import { quotePosixArgv } from "../utils/shell-quote";
+ import { getOrCreateSnapshot } from "../utils/shell-snapshot";
+@@ -587,6 +588,7 @@
+ 				: undefined,
+ 		artifactPath: options?.artifactPath,
+ 		artifactId: options?.artifactId,
++		spillThreshold: resolveOutputSinkInlineBytes(settings),
+ 		headBytes: resolveOutputSinkHeadBytes(settings),
+ 		artifactMaxBytes: resolveOutputSinkArtifactMaxBytes(settings),
+ 		maxColumns: resolveOutputMaxColumns(settings),
+diff --git a/packages/coding-agent/test/bash-executor.test.ts b/packages/coding-agent/test/bash-executor.test.ts
+--- a/packages/coding-agent/test/bash-executor.test.ts
++++ b/packages/coding-agent/test/bash-executor.test.ts
+@@ -20,6 +20,11 @@
+ import { $which, removeSyncWithRetries } from "@oh-my-pi/pi-utils";
+ 
+ import { cfgBashDirenvLoadTimeoutMs, cfgShellPath } from "@oh-my-pi/pi-coding-agent/exec/settings";
++import {
++	cfgToolsArtifactHeadBytes,
++	cfgToolsArtifactTailBytes,
++	cfgToolsArtifactSpillThreshold,
++} from "@oh-my-pi/pi-coding-agent/tools/settings";
+ 
+ // Matches the schema default for `tools.artifactHeadBytes` (20 KB) used by
+ // OutputSink when bash-executor pulls settings via resolveOutputSinkHeadBytes.
+@@ -144,6 +149,38 @@
+ 	] as const)("classifies persistent-shell cd routing for %j", (command, expected) => {
+ 		expect(isPersistentShellCdCommand(command)).toBe(expected);
+ 	});
++
++	it("bounds streamed shell previews without losing the saved middle or failure status", async () => {
++		cfgToolsArtifactSpillThreshold.set(Settings.instance, 12);
++		cfgToolsArtifactHeadBytes.set(Settings.instance, 1);
++		cfgToolsArtifactTailBytes.set(Settings.instance, 1);
++		const raw = Array.from(
++			{ length: 400 },
++			(_, i) => `ROW_${i.toString().padStart(4, "0")} 한글🙂 exact evidence ${"x".repeat(50)}\n`,
++		).join("");
++		const input = path.join(tempDir, "input.txt");
++		const artifact = path.join(tempDir, "capture.txt");
++		await Bun.write(input, raw);
++		const previews: string[] = [];
++		const result = await executeBash(`cat ${shellQuote(input)}; exit 7`, {
++			cwd: tempDir,
++			timeout: 5000,
++			artifactPath: artifact,
++			artifactId: "budget",
++			onPreview: text => previews.push(text),
++		});
++		expect(Buffer.byteLength(result.output)).toBeLessThan(2600);
++		expect(result.output).toContain("ROW_0000");
++		expect(result.output).toContain("ROW_0399");
++		expect(result.output).not.toContain("ROW_0200");
++		expect(result.output).not.toContain("\uFFFD");
++		expect(previews.every(text => Buffer.byteLength(text) < 2600)).toBe(true);
++		expect(await Bun.file(artifact).text()).toBe(raw);
++		expect(result.exitCode).toBe(7);
++		expect(result.artifactId).toBe("budget");
++		expect(result.cancelled).toBe(false);
++	});
++
+ 	it("returns non-zero exit codes without cancellation", async () => {
+ 		const result = await executeBash("exit 7", { cwd: tempDir, timeout: 5000 });
+ 		expect(result.exitCode).toBe(7);
+diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
+--- a/packages/coding-agent/CHANGELOG.md
++++ b/packages/coding-agent/CHANGELOG.md
+@@ -4,6 +4,7 @@
+ 
+ ### Fixed
+ 
++- Respect configured head/tail output sizes for shell results while preserving the saved output.
+ - Honor disabled model fallback during conversation compaction.
+ 
+ ## [18.11.3] - 2026-10-16

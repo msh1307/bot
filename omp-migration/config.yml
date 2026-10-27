@@ -16,9 +16,9 @@ advisor:
 telemetry:
   otlpExportEnabled: false
 tools:
-  artifactSpillThreshold: 24
-  artifactHeadBytes: 6
-  artifactTailBytes: 6
+  artifactSpillThreshold: 12
+  artifactHeadBytes: 1
+  artifactTailBytes: 1
   artifactMaxBytes: 4
 edit:
   modelVariants:
@@ -29,6 +29,7 @@ compaction:
   methodOrder: [shake, soft]
   asyncEnabled: false
   idleEnabled: false
+  thresholdTokens: 60000
   reserveTokens: 12000
   keepRecentTokens: 12000
   handoffSaveToDisk: false

@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-26",
+  "scope": "OMP Discord provider tool descriptions only. No model/runtime/router/web UI changes.",
+  "measurement": {
+    "scope": "Installed Flash tokenizer, compact serialized tools JSON; not complete rendered request or whole-task savings. No model inference.",
+    "variants": {
+      "full": {
+        "tokens_tool_json": 6021,
+        "tokens_codex_json": 1010
+      },
+      "candidate": {
+        "tokens_tool_json": 4161,
+        "tokens_codex_json": 712
+      },
+      "previous": {
+        "tokens_tool_json": 2785,
+        "tokens_codex_json": 395
+      }
+    },
+    "full_reduction_percent": 30.89,
+    "previous_increase_tokens": 1376,
+    "checks": {
+      "passed": true,
+      "model_inference": false,
+      "discord_posts": 0,
+      "real_omp_bwrap": true,
+      "full_help_matches_current_request": true,
+      "native_read_help_passed": true,
+      "all_schema_constraints_preserved": true,
+      "tool_count": 19,
+      "user_input_present": true
+    }
+  },
+  "postdeployment": {
+    "passed": true,
+    "model_inference": false,
+    "discord_posts": 0,
+    "real_omp_bwrap": true,
+    "full_help_matches_current_request": true,
+    "native_read_help_passed": true,
+    "all_schema_constraints_preserved": true,
+    "tool_count": 19,
+    "user_input_present": true,
+    "captured_schema_equals_tested_candidate": true
+  },
+  "deployment": {
+    "deployed": true,
+    "provider_sha256": "8fc156178e682ef75dffa96d493501660496ff2a54ca0125dc820029f4c6cdc6",
+    "conversation_restored": true,
+    "history_prefix_preserved": true,
+    "discord_connected": true,
+    "model_restarted": false,
+    "vmstat_delta": {
+      "pswpin": 0,
+      "pswpout": 0,
+      "oom_kill": 0
+    },
+    "conversation_backup_storage": "tmpfs",
+    "code_backup": "/opt/evo-omp/backups/tool-schema-1793024915678350544"
+  },
+  "limits": [
+    "Token counts cover compact serialized tools JSON with the installed Flash tokenizer, not a full rendered request or whole task.",
+    "The candidate saves 1860 tokens versus the complete definitions, but adds 1376 versus the previous aggressive trim.",
+    "All 19 tool names and non-description schema fields match the full definitions. Tool behavior was not exhaustively exercised.",
+    "Private actual OMP/bwrap requests and native read were tested with a scripted provider, without LLM inference or Discord posts.",
+    "Full specs cost additional tokens when read; this is on demand, not preloaded into every request.",
+    "Changed schemas and help-write errors retain full inline definitions by code inspection; the optional isolated Node test did not run because this Node build lacks TypeScript support.",
+    "End-to-end reduction in misinterpretation or task duration is unmeasured."
+  ],
+  "reproduction": "/opt/evo-omp/venv/bin/python verify_tool_schema.py REPORT_DIR FULL_PROVIDER CANDIDATE_PROVIDER PREVIOUS_PROVIDER (as evo-hermes; verify_context_payload.py alongside)"
+}

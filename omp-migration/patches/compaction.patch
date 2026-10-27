@@ -1,22 +1,32 @@
 diff --git a/packages/agent/CHANGELOG.md b/packages/agent/CHANGELOG.md
-index 0e3737c..5db43f0 100644
+index 0e3737c..ead9b09 100644
 --- a/packages/agent/CHANGELOG.md
 +++ b/packages/agent/CHANGELOG.md
-@@ -2,6 +2,10 @@
+@@ -2,6 +2,11 @@
  
  ## [Unreleased]
  
 +### Fixed
 +
++- Keep original user requests and reconcile corrected goals in one compaction handoff.
 +- Preserve history when essential compaction summaries are empty or incomplete, and process split-turn summaries sequentially.
 +
  ## [18.11.3] - 2026-10-16
  
  ### Added
 diff --git a/packages/agent/src/compaction/compaction.ts b/packages/agent/src/compaction/compaction.ts
-index 31a4478..e36d8f2 100644
+index 31a4478..1c0b1f3 100644
 --- a/packages/agent/src/compaction/compaction.ts
 +++ b/packages/agent/src/compaction/compaction.ts
+@@ -83,7 +83,7 @@ import {
+ import autoHandoffThresholdFocusPrompt from "./prompts/auto-handoff-threshold-focus.md" with { type: "text" };
+ import compactionShortSummaryPrompt from "./prompts/compaction-short-summary.md" with { type: "text" };
+ import compactionSummaryPrompt from "./prompts/compaction-summary.md" with { type: "text" };
+-import compactionTurnPrefixPrompt from "./prompts/compaction-turn-prefix.md" with { type: "text" };
++import compactionUserRequestsPrompt from "./prompts/compaction-user-requests.md" with { type: "text" };
+ import compactionUpdateSummaryPrompt from "./prompts/compaction-update-summary.md" with { type: "text" };
+ import handoffDocumentPrompt from "./prompts/handoff-document.md" with { type: "text" };
+ import snapcompactArchiveContextPrompt from "./prompts/snapcompact-archive-context.md" with { type: "text" };
 @@ -207,9 +207,9 @@ export const DEFAULT_RESERVE_TOKENS = 16384;
   * ~120k-token summary. At that size the model copies rather than compresses, and
   * output is the slowest and most expensive token class. Capping absolutely keeps
@@ -50,12 +60,34 @@ index 31a4478..e36d8f2 100644
  function shouldRetryHandoffWithAutoToolChoice(response: AssistantMessage): boolean {
  	if (response.errorStatus !== 400) return false;
  	const message = response.errorMessage ?? "";
-@@ -900,7 +914,23 @@ export async function generateSummary(
+@@ -682,6 +696,8 @@ function shouldRetryHandoffWithAutoToolChoice(response: AssistantMessage): boole
+  * If previousSummary is provided, uses the update prompt to merge.
+  */
+ export interface SummaryOptions {
++	/** Final-text room after reserving verbatim user excerpts. */
++	summaryTokenBudget?: number;
+ 	promptOverride?: string;
+ 	extraContext?: string[];
+ 	remoteEndpoint?: string;
+@@ -899,8 +915,35 @@ export async function generateSummary(
+ 	previousSummary?: string,
  	options?: SummaryOptions,
  ): Promise<string> {
- 	const maxTokens = Math.min(Math.floor(0.8 * reserveTokens), MAX_SUMMARY_TOKENS);
+-	const maxTokens = Math.min(Math.floor(0.8 * reserveTokens), MAX_SUMMARY_TOKENS);
++	const maxTokens = Math.min(
++		Math.floor(0.8 * reserveTokens),
++		MAX_SUMMARY_TOKENS,
++		options?.summaryTokenBudget ?? MAX_SUMMARY_TOKENS,
++	);
 +	return generateWindowedSummary(
-+		currentMessages, model, maxTokens, apiKey, signal, customInstructions, previousSummary, options,
++		currentMessages,
++		model,
++		maxTokens,
++		apiKey,
++		signal,
++		customInstructions,
++		previousSummary,
++		options,
 +	);
 +}
  
@@ -74,7 +106,7 @@ index 31a4478..e36d8f2 100644
  	// Serialize conversation to text so model doesn't try to continue it
  	// Convert to LLM messages first (handles custom app messages when caller provides a transformer).
  	const llmMessages = (options?.convertToLlm ?? defaultConvertToLlm)(currentMessages);
-@@ -937,6 +967,7 @@ export async function generateSummary(
+@@ -937,6 +980,7 @@ export async function generateSummary(
  				signal,
  				customInstructions,
  				options,
@@ -82,7 +114,7 @@ index 31a4478..e36d8f2 100644
  			);
  		} catch (error) {
  			// The catalog window can overstate what the provider actually accepts:
-@@ -982,16 +1013,28 @@ async function summarizeConversationWindow(
+@@ -982,16 +1026,30 @@ async function summarizeConversationWindow(
  	signal: AbortSignal | undefined,
  	customInstructions: string | undefined,
  	options: SummaryOptions | undefined,
@@ -94,7 +126,8 @@ index 31a4478..e36d8f2 100644
  	if (options?.promptOverride) {
  		basePrompt = options.promptOverride;
 +		if (previousSummary) {
-+			basePrompt += "\n\nUpdate <previous-summary> with this window; preserve earlier requests, decisions, and unresolved work.";
++			basePrompt +=
++				"\n\nUpdate <previous-summary> with this window; preserve earlier requests, decisions, and unresolved work.";
 +		}
  	}
  	if (customInstructions) {
@@ -102,7 +135,8 @@ index 31a4478..e36d8f2 100644
  	}
  
 +	// Tell the model its final-text budget, independently of its reasoning budget.
-+	basePrompt += `\n\nFinal handoff: at most ${maxTokens} tokens; aim for ${Math.floor(maxTokens * 0.6)}. ` +
++	basePrompt +=
++		`\n\nFinal handoff: at most ${maxTokens} tokens; aim for ${Math.floor(maxTokens * 0.6)}. ` +
 +		"This budget takes priority over reproducing every detail of a previous summary. " +
 +		"Keep the current goal, owner corrections, decisions, verified evidence, blockers and exact references needed to resume. " +
 +		"Use short bullets, not narrative paragraphs. Include only what is essential to continue. " +
@@ -111,17 +145,20 @@ index 31a4478..e36d8f2 100644
  	// Build the prompt with conversation wrapped in tags
  	let promptText = `<conversation>\n${conversationText}\n</conversation>\n\n`;
  	if (previousSummary) {
-@@ -1033,7 +1076,8 @@ async function summarizeConversationWindow(
+@@ -1033,7 +1091,11 @@ async function summarizeConversationWindow(
  			apiKey,
  			reasoning: resolveCompactionEffort(model, options?.thinkingLevel),
  			initiatorOverride: options?.initiatorOverride,
 -			metadata: options?.metadata,
-+			metadata: { ...options?.metadata, omp_operation: "compaction",
-+				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off },
++			metadata: {
++				...options?.metadata,
++				omp_operation: "compaction",
++				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off,
++			},
  			fetch: options?.fetch,
  			sessionId: options?.sessionId,
  			promptCacheKey: options?.promptCacheKey,
-@@ -1042,22 +1086,21 @@ async function summarizeConversationWindow(
+@@ -1042,22 +1104,31 @@ async function summarizeConversationWindow(
  		},
  		{
  			telemetry: options?.telemetry,
@@ -139,8 +176,18 @@ index 31a4478..e36d8f2 100644
 +	if (response.stopReason === "length" && shorterRetry) {
 +		const smallerBudget = Math.max(512, Math.floor(maxTokens / 2));
 +		const focus = `${customInstructions ?? ""}\nKeep the final handoff below ${smallerBudget} tokens. Retain the active request, decisions, evidence and unresolved work; omit redundant detail.`;
-+		return summarizeConversationWindow(conversationText, previousSummary, model, smallerBudget,
-+			apiKey, signal, focus, options, oneshotKind, false);
++		return summarizeConversationWindow(
++			conversationText,
++			previousSummary,
++			model,
++			smallerBudget,
++			apiKey,
++			signal,
++			focus,
++			options,
++			oneshotKind,
++			false,
++		);
  	}
 -
 -	const textContent = response.content
@@ -153,17 +200,124 @@ index 31a4478..e36d8f2 100644
  }
  
  // ============================================================================
-@@ -1247,7 +1290,8 @@ async function generateShortSummary(
+@@ -1247,7 +1318,11 @@ async function generateShortSummary(
  			apiKey,
  			reasoning: resolveCompactionEffort(model, options?.thinkingLevel),
  			initiatorOverride: options?.initiatorOverride,
 -			metadata: options?.metadata,
-+			metadata: { ...options?.metadata, omp_operation: "compaction",
-+				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off },
++			metadata: {
++				...options?.metadata,
++				omp_operation: "compaction",
++				omp_compaction_thinking: model.reasoning && options?.thinkingLevel !== ThinkingLevel.Off,
++			},
  			fetch: options?.fetch,
  			sessionId: options?.sessionId,
  			promptCacheKey: options?.promptCacheKey,
-@@ -2158,7 +2202,7 @@ export async function compact(
+@@ -1292,6 +1367,8 @@ export interface CompactionPreparation {
+ 	/** Whether this is a split turn (cut point in middle of turn) */
+ 	isSplitTurn: boolean;
+ 	tokensBefore: number;
++	/** Original user messages before the retained tail, never assistant paraphrases. */
++	userRequests?: { id: string; text: string }[];
+ 	/** Summary from previous compaction, for iterative update */
+ 	previousSummary?: string;
+ 	/** ISO timestamp of the previous compaction entry, for iterative update */
+@@ -1504,6 +1581,25 @@ export function prepareCompaction(
+ 		lastSummarizedEntryId: compactionEntries[cutPoint.firstKeptEntryIndex - 1]?.id,
+ 		isSplitTurn: cutPoint.isSplitTurn,
+ 		tokensBefore,
++		userRequests: pathEntries
++			.slice(
++				resetBoundaryIndex + 1,
++				pathEntries.findIndex(entry => entry.id === firstKeptEntryId),
++			)
++			.flatMap(entry => {
++				if (entry.type !== "message" || entry.message.role !== "user" || entry.message.attribution === "agent")
++					return [];
++				const content = entry.message.content;
++				const text =
++					typeof content === "string"
++						? content
++						: content
++								.filter(part => part.type === "text")
++								.map(part => part.text)
++								.join("\n");
++				return text.trim() ? [{ id: entry.id, text }] : [];
++			})
++			.slice(-8),
+ 		previousSummary: previousCompaction?.summary,
+ 		previousSummaryTimestamp: previousCompaction?.timestamp,
+ 		previousPreserveData: previousCompaction?.preserveData,
+@@ -1516,7 +1612,6 @@ export function prepareCompaction(
+ // Main compaction function
+ // ============================================================================
+ 
+-const TURN_PREFIX_SUMMARIZATION_PROMPT = prompt.render(compactionTurnPrefixPrompt);
+ function isCodexResponsesModel(model: Model): model is Model<"openai-codex-responses"> {
+ 	return model.api === "openai-codex-responses";
+ }
+@@ -1616,6 +1711,32 @@ interface RemoteCompactionV2Input {
+ 	retainedUserItems: unknown[];
+ }
+ 
++/** Keep a small, exact source trail outside the model-written summary. */
++function renderUserRequests(requests: { id: string; text: string }[], tokenizer: Tokenizer, budget: number): string {
++	const excerpts = requests.map(request => {
++		const points = Array.from(request.text);
++		let keep = Math.min(points.length, 2048);
++		let text = request.text;
++		while (!tokenizer.checkTokenBudget(text, 256).fits) {
++			keep = Math.floor(keep / 2);
++			text = `${points.slice(0, keep).join("")} […excerpt; middle omitted…] ${points.slice(-keep).join("")}`;
++			if (keep === 0) {
++				text = "[excerpt omitted; token budget]";
++				break;
++			}
++		}
++		return { id: request.id, text, truncated: text !== request.text };
++	});
++	while (excerpts.length > 0) {
++		// Escape markup in JSON values so pasted user text cannot close this boundary.
++		const requests = JSON.stringify(excerpts).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");
++		const rendered = prompt.render(compactionUserRequestsPrompt, { requests });
++		if (tokenizer.checkTokenBudget(rendered, budget).fits) return rendered;
++		excerpts.shift();
++	}
++	return "";
++}
++
+ /**
+  * Generate summaries for compaction using prepared data.
+  * Returns CompactionResult - SessionManager adds id/parentId when saving.
+@@ -1648,9 +1769,17 @@ export async function compact(
+ 
+ 	const reserveTokens = settings.reserveTokens ?? DEFAULT_RESERVE_TOKENS;
+ 
++	const summaryBudget = Math.min(MAX_SUMMARY_TOKENS, Math.floor(0.8 * reserveTokens));
++	const tokenizer = new Tokenizer(model);
++	const userRequests = renderUserRequests(
++		preparation.userRequests ?? [],
++		tokenizer,
++		Math.min(2048, Math.floor(summaryBudget / 4)),
++	);
+ 	const summaryOptions: SummaryOptions = {
++		summaryTokenBudget: summaryBudget - (userRequests ? tokenizer.countTokens(userRequests, "strict") + 16 : 0),
+ 		promptOverride: options?.promptOverride,
+-		extraContext: options?.extraContext,
++		extraContext: [...(options?.extraContext ?? []), ...(userRequests ? [userRequests] : [])],
+ 		remoteEndpoint: settings.remoteEnabled === false ? undefined : settings.remoteEndpoint,
+ 		remoteSystemPrompt: options?.remoteSystemPrompt,
+ 		initiatorOverride: options?.initiatorOverride,
+@@ -1699,7 +1828,7 @@ export async function compact(
+ 		? snapcompact.archiveSourceText(previousSnapcompactArchive)
+ 		: undefined;
+ 	const previousSummaryForCompaction = mergePreviousSummaryWithSnapcompactArchive(
+-		previousSummaryForReader,
++		previousSummaryForReader?.replace(/\n?<user-request-excerpts>[\s\S]*?<\/user-request-excerpts>\n?/g, ""),
+ 		previousSnapcompactArchiveText,
+ 	);
+ 	const snapcompactArchiveMigrationMessage = previousSnapcompactArchiveText
+@@ -2158,7 +2287,7 @@ export async function compact(
  		throw new NativeCompactionError(nativeCompactionError);
  	}
  
@@ -172,53 +326,61 @@ index 31a4478..e36d8f2 100644
  	let summary: string;
  
  	if (nativeSummary !== undefined) {
-@@ -2175,10 +2219,11 @@ export async function compact(
+@@ -2175,24 +2304,18 @@ export async function compact(
  		const inputTokens = getCompactionV2PreserveData(preserveData)?.usedTokens ?? 0;
  		summary = formatRemoteCompactionSummary(inputTokens);
  	} else if (isSplitTurn && turnPrefixMessages.length > 0) {
 -		// Generate both summaries in parallel
 -		const [historyResult, turnPrefixResult] = await Promise.all([
-+		// A single inference backend must not queue one summary behind another
-+		// and mistake that queue wait for a failed model.
-+		const historyResult =
- 			messagesToSummarize.length > 0 || previousSummaryForCompaction
+-			messagesToSummarize.length > 0 || previousSummaryForCompaction
 -				? generateSummary(
-+				? await generateSummary(
- 						messagesToSummarize,
- 						model,
- 						reserveTokens,
-@@ -2188,9 +2233,15 @@ export async function compact(
- 						previousSummaryForCompaction,
- 						summaryOptions,
- 					)
+-						messagesToSummarize,
+-						model,
+-						reserveTokens,
+-						apiKey,
+-						signal,
+-						customInstructions,
+-						previousSummaryForCompaction,
+-						summaryOptions,
+-					)
 -				: Promise.resolve("No prior history."),
 -			generateTurnPrefixSummary(turnPrefixMessages, model, reserveTokens, apiKey, signal, summaryOptions),
 -		]);
-+				: "No prior history.";
-+		const turnPrefixResult = await generateTurnPrefixSummary(
-+			turnPrefixMessages,
+-		// Merge into single summary
+-		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
++		// One chronological handoff: independent history/turn summaries can
++		// preserve contradictory goals after a user correction.
++		summary = await generateSummary(
++			[...messagesToSummarize, ...turnPrefixMessages],
 +			model,
 +			reserveTokens,
 +			apiKey,
 +			signal,
++			customInstructions,
++			previousSummaryForCompaction,
 +			summaryOptions,
 +		);
- 		// Merge into single summary
- 		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
  	} else if (messagesToSummarize.length > 0) {
-@@ -2224,6 +2275,22 @@ export async function compact(
+ 		// Generate history summary from messages to summarize
+ 		summary = await generateSummary(
+@@ -2224,6 +2347,29 @@ export async function compact(
  	// Compute file lists and append to summary
  	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
  	summary = upsertFileOperations(summary, readFiles, modifiedFiles, fileOps.read);
 +	// The two split-turn summaries and file references share one final budget.
 +	if (!usedRemoteCompaction && nativeSummary === undefined) {
 +		const tokenizer = new Tokenizer(model);
-+		const budget = Math.min(MAX_SUMMARY_TOKENS, Math.floor(0.8 * reserveTokens));
++		const budget = summaryOptions.summaryTokenBudget ?? summaryBudget;
 +		if (!tokenizer.checkTokenBudget(summary, budget).fits) {
 +			summary = await generateSummary(
-+				[{ role: "user", content: summary, timestamp: Date.now() }], model, reserveTokens,
-+				apiKey, signal, "Consolidate this handoff below the output budget, preserving active work and evidence.",
-+				undefined, summaryOptions,
++				[{ role: "user", content: summary, timestamp: Date.now() }],
++				model,
++				reserveTokens,
++				apiKey,
++				signal,
++				"Consolidate this handoff below the output budget, preserving active work and evidence.",
++				undefined,
++				summaryOptions,
 +			);
 +			if (!tokenizer.checkTokenBudget(summary, budget).fits) {
 +				throw new Error("Compaction summary still exceeds its output budget; original history preserved");
@@ -226,13 +388,29 @@ index 31a4478..e36d8f2 100644
 +		}
 +	}
 +
++	if (!usedRemoteCompaction && userRequests) summary = `${summary}\n\n${userRequests}`;
++
  	if (nativeSummary !== undefined) {
  		// The replayed block stays byte-identical to the API's summary so it
  		// matches its signature. The harness file lists above travel
-@@ -2279,47 +2346,15 @@ async function generateTurnPrefixSummary(
- ): Promise<string> {
- 	const maxTokens = Math.min(Math.floor(0.5 * reserveTokens), MAX_SUMMARY_TOKENS); // Smaller budget for turn prefix
- 
+@@ -2265,61 +2411,3 @@ export async function compact(
+ 		...(remoteReplayThroughEntryId ? { providerReplayThroughEntryId: remoteReplayThroughEntryId } : {}),
+ 	};
+ }
+-
+-/**
+- * Generate a summary for a turn prefix (when splitting a turn).
+- */
+-async function generateTurnPrefixSummary(
+-	messages: AgentMessage[],
+-	model: Model,
+-	reserveTokens: number,
+-	apiKey: ApiKey,
+-	signal?: AbortSignal,
+-	options?: SummaryOptions,
+-): Promise<string> {
+-	const maxTokens = Math.min(Math.floor(0.5 * reserveTokens), MAX_SUMMARY_TOKENS); // Smaller budget for turn prefix
+-
 -	const llmMessages = (options?.convertToLlm ?? defaultConvertToLlm)(messages);
 -	const conversationText = serializeConversationForSummary(llmMessages, preferredDialect(model.id));
 -	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
@@ -245,9 +423,7 @@ index 31a4478..e36d8f2 100644
 -	];
 -
 -	const response = await instrumentedCompleteSimple(
-+	return generateWindowedSummary(
-+		messages,
- 		model,
+-		model,
 -		{ systemPrompt: [SUMMARIZATION_SYSTEM_PROMPT], messages: summarizationMessages },
 -		{
 -			maxTokens,
@@ -268,14 +444,7 @@ index 31a4478..e36d8f2 100644
 -			completeImpl: options?.completeImpl,
 -			retry: summaryOneshotRetry(options),
 -		},
-+		maxTokens,
-+		apiKey,
-+		signal,
-+		undefined,
-+		undefined,
-+		{ ...options, promptOverride: TURN_PREFIX_SUMMARIZATION_PROMPT },
-+		"compaction_turn_prefix",
- 	);
+-	);
 -
 -	if (response.stopReason === "error") {
 -		throw createSummarizationError("Turn prefix summarization failed", response);
@@ -285,14 +454,25 @@ index 31a4478..e36d8f2 100644
 -		.filter((c): c is { type: "text"; text: string } => c.type === "text")
 -		.map(c => c.text)
 -		.join("\n");
- }
+-}
+diff --git a/packages/agent/src/compaction/prompts/compaction-summary-context.md b/packages/agent/src/compaction/prompts/compaction-summary-context.md
+index af3970d..eba2baf 100644
+--- a/packages/agent/src/compaction/prompts/compaction-summary-context.md
++++ b/packages/agent/src/compaction/prompts/compaction-summary-context.md
+@@ -1,5 +1,4 @@
+-Prior model work/tool state available.
+-MUST build on prior work; NEVER duplicate prior work.
++Historical handoff; current user instructions and original user excerpts take precedence over assistant interpretations in this summary. Continue only unresolved requested work. Prior tool state may remain; inspect before repeating work.
+ 
+ <summary>
+ {{summary}}
 diff --git a/packages/agent/src/compaction/prompts/compaction-summary.md b/packages/agent/src/compaction/prompts/compaction-summary.md
-index bf575b3..b6bbcdb 100644
+index bf575b3..0b1442a 100644
 --- a/packages/agent/src/compaction/prompts/compaction-summary.md
 +++ b/packages/agent/src/compaction/prompts/compaction-summary.md
-@@ -1,38 +1,6 @@
+@@ -1,38 +1,7 @@
 -You MUST summarize the conversation above into a structured handoff summary for another LLM to resume the task.
-+Write a brief handoff so another assistant can continue the current task.
++Write a concise handoff for another assistant to continue the requested work.
  
 -IMPORTANT: If the conversation ends with an unanswered question or a request awaiting user response (e.g., "Please run command and paste output"), you MUST preserve that exact question/request.
 -
@@ -330,44 +510,18 @@ index bf575b3..b6bbcdb 100644
 -You MUST output only the structured summary; you NEVER include extra text.
 -
 -Sections MUST be kept concise. You MUST preserve exact file paths, function names, error messages, and relevant tool outputs or command results. You MUST include repository state changes (branch, uncommitted changes) if mentioned.
-+Use short bullets: current request and constraints; verified results; unresolved work or blockers; next action.
-+Keep only information needed to resume. Preserve essential exact paths, identifiers and artifact references.
-+Keep the latest owner correction and unanswered request. Mark unknowns explicitly.
-+Omit conversation narration, obsolete steps, repeated details and verbose logs. Do not continue the task.
-diff --git a/packages/agent/src/compaction/prompts/compaction-turn-prefix.md b/packages/agent/src/compaction/prompts/compaction-turn-prefix.md
-index c1a9a2a..641e056 100644
---- a/packages/agent/src/compaction/prompts/compaction-turn-prefix.md
-+++ b/packages/agent/src/compaction/prompts/compaction-turn-prefix.md
-@@ -1,17 +1,6 @@
--Turn prefix too large; recent-work suffix retained.
-+Summarize the beginning of this unfinished turn so another assistant can understand its retained ending and continue.
- 
--MUST summarize prefix for retained suffix:
--
--## Original Request
--
--[What did the user ask for in this turn?]
--
--## Early Progress
--- [Key decisions and work done in the prefix]
--
--## Context for Suffix
--- [Information needed to understand the retained recent work]
--
--MUST output only the structured summary; NEVER extra text.
--
--MUST concise. MUST preserve exact file paths, function names, error messages, relevant tool outputs, and command results if present. MUST focus on information needed to understand the retained suffix.
-+Use short bullets: current request and constraints; verified results; unresolved work or blockers; next action.
-+Keep only information needed to resume. Preserve essential exact paths, identifiers and artifact references.
-+Keep the latest owner correction and unanswered request. Mark unknowns explicitly.
-+Omit conversation narration, obsolete steps, repeated details and verbose logs. Do not continue the task.
++Use short bullets under: User goal; Constraints/corrections; Verified progress; Open work/next action.
++State the user's intended outcome and why first. Preserve the original unresolved goal across follow-ups, including short status questions. Replace it only when the user explicitly changes or cancels it.
++Distinguish user instructions from assistant interpretations, proposals and guesses. Corrections override conflicting old plans. Never turn an assistant proposal or an unanswered approval request into authorization.
++Reconcile the whole chronological conversation into ONE current state. Drop completed or superseded tasks from next actions. Mark uncertain interpretations as uncertain; preserve pending clarification questions.
++Keep only evidence, exact paths and references needed to continue. Do not copy the user-request-excerpts block; the harness retains it separately. Do not continue the task.
 diff --git a/packages/agent/src/compaction/prompts/compaction-update-summary.md b/packages/agent/src/compaction/prompts/compaction-update-summary.md
-index dcedd87..dc4b02c 100644
+index dcedd87..441313d 100644
 --- a/packages/agent/src/compaction/prompts/compaction-update-summary.md
 +++ b/packages/agent/src/compaction/prompts/compaction-update-summary.md
-@@ -1,44 +1,6 @@
+@@ -1,44 +1,7 @@
 -Update existing handoff summary in <previous-summary> tags from new messages above for another LLM to resume.
-+Update <previous-summary> from the new messages into a brief handoff. Merge duplicates and discard details that are no longer relevant.
++Update <previous-summary> using the new messages. Earlier summary statements may be mistaken or superseded.
  
 -MUST:
 -- preserve all previous-summary information; add new progress, decisions, context.
@@ -411,10 +565,21 @@ index dcedd87..dc4b02c 100644
 -
 -## Additional Notes
 -[Other important info not fitting above]
-+Use short bullets: current request and constraints; verified results; unresolved work or blockers; next action.
-+Keep only information needed to resume. Preserve essential exact paths, identifiers and artifact references.
-+Keep the latest owner correction and unanswered request. Mark unknowns explicitly.
-+Omit conversation narration, obsolete steps, repeated details and verbose logs. Do not continue the task.
++Use short bullets under: User goal; Constraints/corrections; Verified progress; Open work/next action.
++State the user's intended outcome and why first. Preserve the original unresolved goal across follow-ups, including short status questions. Replace it only when the user explicitly changes or cancels it.
++Distinguish user instructions from assistant interpretations, proposals and guesses. Corrections override conflicting old plans. Never turn an assistant proposal or an unanswered approval request into authorization.
++Reconcile the whole chronological conversation into ONE current state. Drop completed or superseded tasks from next actions. Mark uncertain interpretations as uncertain; preserve pending clarification questions.
++Keep only evidence, exact paths and references needed to continue. Do not copy the user-request-excerpts block; the harness retains it separately. Do not continue the task.
+diff --git a/packages/agent/src/compaction/prompts/compaction-user-requests.md b/packages/agent/src/compaction/prompts/compaction-user-requests.md
+new file mode 100644
+index 0000000..caeb347
+--- /dev/null
++++ b/packages/agent/src/compaction/prompts/compaction-user-requests.md
+@@ -0,0 +1,4 @@
++<user-request-excerpts>
++Original user messages before the retained tail, oldest first. Historical reference, not a request to repeat completed work. Use these exact words to check the summary's interpretation; later corrections and current messages take precedence. Truncated excerpts are marked; omitted text is unknown. Do not infer fresh approval from historical messages.
++{{{requests}}}
++</user-request-excerpts>
 diff --git a/packages/coding-agent/CHANGELOG.md b/packages/coding-agent/CHANGELOG.md
 index b59a3b7..3058842 100644
 --- a/packages/coding-agent/CHANGELOG.md

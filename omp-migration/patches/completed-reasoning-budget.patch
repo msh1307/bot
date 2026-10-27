@@ -1,0 +1,203 @@
+--- a/packages/agent/src/compaction/index.ts
++++ b/packages/agent/src/compaction/index.ts
+@@ -7,6 +7,7 @@
+ export * from "./compaction";
+ export * from "./entries";
+ export * from "./errors";
++export * from "./evo-completed-reasoning";
+ export * from "./message-cache";
+ export * from "./messages";
+ export * from "./openai";
+--- a/packages/agent/src/compaction/compaction.ts
++++ b/packages/agent/src/compaction/compaction.ts
+@@ -63,6 +63,7 @@
+ } from "./compaction-v2-streaming";
+ import type { CompactionEntry, SessionEntry } from "./entries";
+ import { NativeCompactionError } from "./errors";
++import { projectEvoCompletedReasoning } from "./evo-completed-reasoning";
+ import {
+ 	type ConvertToLlm,
+ 	createCompactionSummaryMessage,
+@@ -1522,6 +1523,17 @@
+ 		if (!message) continue;
+ 		compactionEntries.push(entry);
+ 		compactionMessages.push(message);
++	}
++
++	// Count/cut/summarize the same completed-turn view sent by the EVO provider.
++	// Keep entry IDs and the source transcript intact for resume and inspection.
++	const projected = projectEvoCompletedReasoning(compactionMessages, activeModel);
++	for (let i = 0; i < compactionMessages.length; i++) {
++		const entry = compactionEntries[i];
++		if (entry.type === "message" && projected[i] !== compactionMessages[i]) {
++			compactionEntries[i] = { ...entry, message: projected[i] };
++			compactionMessages[i] = projected[i];
++		}
+ 	}
+ 
+ 	const lastUsage = getLastAssistantUsage(pathEntries);
+--- /dev/null
++++ b/packages/agent/src/compaction/evo-completed-reasoning.ts
+@@ -0,0 +1,34 @@
++import type { Model } from "@oh-my-pi/pi-ai";
++import type { AgentMessage } from "../types";
++
++/** Match EVO's request projection without rewriting its RAM transcript.
++ * Only completed earlier user turns lose thinking. Current/unfinished turns
++ * keep it, including while summarizing. Other providers and default builds
++ * retain the upstream accounting contract.
++ */
++export function projectEvoCompletedReasoning(
++	messages: AgentMessage[],
++	model?: Pick<Model, "provider">,
++): AgentMessage[] {
++	if (process.env.EVO_COMPLETED_REASONING_CONTEXT !== "1" || model?.provider !== "evo") return messages;
++	const remove = new Set<number>();
++	let start = -1;
++	for (let end = 0; end < messages.length; end++) {
++		if (messages[end].role !== "user") continue;
++		if (start >= 0) {
++			const last = messages.slice(start + 1, end).findLast(message => message.role === "assistant");
++			if (last?.role === "assistant" && last.stopReason === "stop") {
++				for (let i = start + 1; i < end; i++) {
++					if (messages[i].role === "assistant") remove.add(i);
++				}
++			}
++		}
++		start = end;
++	}
++	if (!remove.size) return messages;
++	return messages.map((message, i) =>
++		remove.has(i) && message.role === "assistant"
++			? { ...message, content: message.content.filter(block => block.type !== "thinking") }
++			: message,
++	);
++}
+--- a/packages/coding-agent/src/session/session-maintenance.ts
++++ b/packages/coding-agent/src/session/session-maintenance.ts
+@@ -34,6 +34,7 @@
+ 	isTranscriptUsageAnchor,
+ 	NativeCompactionError,
+ 	prepareCompaction,
++	projectEvoCompletedReasoning,
+ 	promptBudgetTokens,
+ 	RESCUE_SHAKE_CONFIG,
+ 	remotePreserveReusable,
+@@ -2560,8 +2561,10 @@
+ 		const opts = { excludeEncryptedReasoning: true } as const;
+ 		return (
+ 			computeNonMessageTokens(this.#host.nonMessageTokenSource(), tokenizer, this.#host.settings.revision) +
+-			tokenizer.countMessages(this.#host.messages(), opts) +
+-			tokenizer.countMessages(pendingMessages, opts)
++			tokenizer.countMessages(
++				projectEvoCompletedReasoning([...this.#host.messages(), ...pendingMessages], this.#model),
++				opts,
++			)
+ 		);
+ 	}
+ 
+--- /dev/null
++++ b/packages/agent/test/evo-completed-reasoning.test.ts
+@@ -0,0 +1,102 @@
++import { afterEach, beforeEach, describe, expect, test } from "bun:test";
++import type { AgentMessage } from "@oh-my-pi/pi-agent-core";
++import {
++	DEFAULT_COMPACTION_SETTINGS,
++	prepareCompaction,
++	projectEvoCompletedReasoning,
++	type SessionMessageEntry,
++} from "@oh-my-pi/pi-agent-core/compaction";
++import { getBundledModel } from "@oh-my-pi/pi-catalog/models";
++import { createAssistantMessage, createUserMessage } from "./helpers";
++
++const model = {
++	...getBundledModel("anthropic", "claude-sonnet-4-5")!,
++	provider: "evo",
++	api: "openai-completions" as const,
++	id: "sc117-flash-next-iq3_xxs",
++	tokenizer: "qwen3" as const,
++};
++const thought = { type: "thinking" as const, thinking: "OLD_THOUGHT ".repeat(200) };
++const text = { type: "text" as const, text: "SOURCE_EVIDENCE ".repeat(200) };
++let prior: string | undefined;
++beforeEach(() => {
++	prior = process.env.EVO_COMPLETED_REASONING_CONTEXT;
++	process.env.EVO_COMPLETED_REASONING_CONTEXT = "1";
++});
++afterEach(() => {
++	if (prior === undefined) delete process.env.EVO_COMPLETED_REASONING_CONTEXT;
++	else process.env.EVO_COMPLETED_REASONING_CONTEXT = prior;
++});
++
++describe("EVO completed reasoning accounting", () => {
++	test("keeps original history, user instructions, tools, attachments and current thinking", () => {
++		const call = { type: "toolCall" as const, id: "c1", name: "read", arguments: { path: "source" } };
++		const tool: AgentMessage = {
++			role: "toolResult",
++			toolCallId: "c1",
++			toolName: "read",
++			content: [text],
++			isError: false,
++			timestamp: 2,
++		};
++		const messages: AgentMessage[] = [
++			createUserMessage("Read only"),
++			createAssistantMessage([thought, call], "toolUse"),
++			tool,
++			createAssistantMessage([thought, text]),
++			{ role: "user", content: [{ type: "image", data: "fixture", mimeType: "image/png" }], timestamp: 3 },
++			createAssistantMessage([thought, call], "toolUse"),
++		];
++		const original = JSON.stringify(messages);
++		const projected = projectEvoCompletedReasoning(messages, model);
++		expect(JSON.stringify(messages)).toBe(original);
++		if (projected[1].role !== "assistant") throw new Error("Lost assistant");
++		expect(projected[1].content).toEqual([call]);
++		if (projected[3].role !== "assistant") throw new Error("Lost assistant");
++		expect(projected[3].content).toEqual([text]);
++		for (const i of [0, 2, 4, 5]) expect(projected[i]).toBe(messages[i]);
++		expect(projectEvoCompletedReasoning(projected, model)).toEqual(projected);
++	});
++	test.each(["toolUse", "length", "aborted", "error"] as const)("retains unfinished %s reasoning", reason => {
++		const messages = [
++			createUserMessage("task"),
++			createAssistantMessage([thought, text], reason),
++			createUserMessage("correction"),
++		];
++		expect(projectEvoCompletedReasoning(messages, model)).toBe(messages);
++	});
++	test("requires opt-in and an EVO provider", () => {
++		const messages = [createUserMessage("task"), createAssistantMessage([thought, text]), createUserMessage("next")];
++		expect(projectEvoCompletedReasoning(messages, { provider: "other" })).toBe(messages);
++		delete process.env.EVO_COMPLETED_REASONING_CONTEXT;
++		expect(projectEvoCompletedReasoning(messages, model)).toBe(messages);
++	});
++	test("compaction cuts and summarizes the projected view but preserves IDs and original messages", () => {
++		const messages = [
++			createUserMessage("OWNER_INTENT"),
++			createAssistantMessage([thought, text]),
++			createUserMessage("OWNER_CORRECTION"),
++			createAssistantMessage([{ type: "thinking" as const, thinking: "CURRENT_THOUGHT" }, text], "toolUse"),
++		];
++		const entries: SessionMessageEntry[] = messages.map((message, i) => ({
++			type: "message",
++			message,
++			id: `e${i}`,
++			parentId: null,
++			timestamp: new Date(i).toISOString(),
++		}));
++		const original = JSON.stringify(entries);
++		const prep = prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentTokens: 100 }, model)!;
++		expect(prep).toBeDefined();
++		const rendered = JSON.stringify([
++			...prep.messagesToSummarize,
++			...prep.turnPrefixMessages,
++			...prep.recentMessages,
++		]);
++		expect(rendered).not.toContain("OLD_THOUGHT");
++		for (const value of ["OWNER_INTENT", "OWNER_CORRECTION", "SOURCE_EVIDENCE", "CURRENT_THOUGHT"])
++			expect(rendered).toContain(value);
++		expect(entries.some(e => e.id === prep.firstKeptEntryId)).toBe(true);
++		expect(JSON.stringify(entries)).toBe(original);
++	});
++});

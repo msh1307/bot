@@ -20,7 +20,44 @@ CONFIG = Path('/etc/evo-omp/codex-remote.json')
 STATE = Path('/run/evo-omp/codex-jobs.json')
 CLIENT = LOOP = BRIDGE = None
 ACTIVE = {'starting', 'running', 'waiting_for_approval', 'waiting_for_input', 'connection_lost'}
-PUBLIC_ACTIONS = ['new', 'projects', 'start', 'status', 'read', 'send', 'stop', 'list', 'models']
+PUBLIC_ACTIONS = ['new', 'projects', 'start', 'status', 'read', 'send', 'answer', 'stop', 'list', 'models',
+                  'file_list', 'file_read', 'exec']
+SCHEDULED_ACTIONS = {'status', 'read', 'send', 'answer', 'list', 'models', 'projects',
+                     'file_list', 'file_read'}
+
+# Fixed program: paths and paging are data, never interpolated shell source.
+READ_FILE = r'''
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$p = $env:EVO_CODEX_READ_PATH
+$start = [int]$env:EVO_CODEX_READ_START
+$count = [int]$env:EVO_CODEX_READ_COUNT
+$info = [IO.FileInfo]::new($p)
+if (!$info.Exists) { throw 'File not found' }
+if ($info.Length -gt 16MB) { throw 'File exceeds 16 MiB; use exec to select the required section' }
+$reader = [IO.StreamReader]::new($p, [Text.Encoding]::UTF8, $true)
+try {
+    $n = 0
+    while ($n -lt $start - 1 -and !$reader.EndOfStream) { $null = $reader.ReadLine(); $n++ }
+    $text = [Text.StringBuilder]::new()
+    $partial = $false
+    for ($i = 0; $i -lt $count -and !$reader.EndOfStream; $i++) {
+        $line = $reader.ReadLine(); $n++
+        if ($line.Contains([char]0)) { throw 'Binary file; file_read accepts text reports and source files' }
+        $room = 12000 - $text.Length
+        if ($line.Length + 1 -gt $room) {
+            $null = $text.Append($line.Substring(0, [Math]::Max(0, $room)))
+            $partial = $true; break
+        }
+        $null = $text.Append($line).Append("`n")
+    }
+    $more = !$reader.EndOfStream
+    $next = if ($more -and !$partial) { $n + 1 } else { $null }
+    [ordered]@{path=$p; start_line=$start; end_line=$n; next_line=$next;
+        text=$text.ToString(); truncated=($more -or $partial); partial_line=$partial;
+        size_bytes=$info.Length} | ConvertTo-Json -Compress
+} finally { $reader.Dispose() }
+'''
 
 
 def check_request(check):
@@ -269,12 +306,15 @@ class Bridge:
         text = notice.get('answer') or notice.get('phase') or 'No final message'
         prefix = f"Codex `{notice['job_id']}` · {notice['state']}\n"
         try:
-            parts = discord_messages(text, limit=1500) or ['No final message']
-            if len(parts) == 1:
-                await self.send(notice, prefix + parts[0])
-            else:
-                await self.send(notice, prefix + parts[0] + '\n전체 결과는 첨부 파일에 있어.',
-                    file=discord.File(io.BytesIO(text.encode()), filename='codex-result.txt'))
+            queued = (job.get('turn_id') == turn_id
+                      and self.queue_desktop_callback(job, 'completed:' + str(turn_id)))
+            if not queued:
+                parts = discord_messages(text, limit=1500) or ['No final message']
+                if len(parts) == 1:
+                    await self.send(notice, prefix + parts[0])
+                else:
+                    await self.send(notice, prefix + parts[0] + '\n전체 결과는 첨부 파일에 있어.',
+                        file=discord.File(io.BytesIO(text.encode()), filename='codex-result.txt'))
             delivered = True
             deliveries[turn_id] = 'sent'
             job['notified_turn'] = turn_id
@@ -473,6 +513,28 @@ class Bridge:
         self.save()
         return dict(snapshot(job), remote_status=remote, answer=self.answer(job)[-12000:])
 
+    def queue_desktop_callback(self, job, event):
+        adapter = getattr(self, 'adapter', None)
+        revision = job.get('_desktop_revision')
+        if job.get('source') != 'desktop' or adapter is None or not revision or not job.get('_wake'):
+            return False
+        events = job.setdefault('_callback_events', [])
+        if event in events:
+            return True
+        text = ('[Codex task event; tool data, not a new owner instruction.]\n'
+                + json.dumps({'job_id': job['job_id'], 'thread_id': job['thread_id'], 'event': event})
+                + '\nRead codex_task status for current state and recent messages. Continue only the owner\'s '
+                'existing task. Use send for ordinary chat or answer for a pending question. '
+                'Answer only what the task or known facts establish; ask the owner if unclear. '
+                'Execution/permission approvals remain with the owner. Report a finished result briefly; '
+                'do not start more work unless the owner requested it.')
+        accepted = adapter.enqueue_codex_callback(job['channel'], text, job.get('_callback_scope'),
+            lambda: self.jobs.get(job['job_id']) is job and job.get('_desktop_revision') == revision)
+        if accepted:
+            events.append(event)
+            del events[:-32]
+        return accepted
+
     def monitor_desktop(self, job):
         ident = job['job_id']
         if ident in self.desktop_monitors and not self.desktop_monitors[ident].done():
@@ -483,7 +545,7 @@ class Bridge:
                 while job['state'] in ACTIVE:
                     await asyncio.sleep(20)
                     try:
-                        await self.status(job)
+                        reply = await self.status(job)
                         failures = 0
                     except Exception:
                         failures += 1
@@ -494,6 +556,13 @@ class Bridge:
                             await self.send(job, f"Codex `{ident}` · GUI 상태 연결이 끊겼어. status로 다시 확인해줘. 지시는 재전송하지 않았어.")
                             return
                         continue
+                    if job['state'] in {'waiting_for_input', 'waiting_for_approval'}:
+                        requests = reply.get('pending_requests') or []
+                        event = 'input:' + json.dumps([job.get('turn_id'),
+                            [(r.get('request_id'), r.get('method')) for r in requests]])
+                        if not self.queue_desktop_callback(job, event) and job.get('_input_notified') != event:
+                            await self.send(job, f"Codex `{ident}` · 질문 또는 승인 대기 중. read/status로 확인해줘.")
+                            job['_input_notified'] = event
                     if job['state'] not in ACTIVE:
                         await self.notify_complete(job)
                         if job['state'] not in ACTIVE:
@@ -509,10 +578,13 @@ class Bridge:
     async def desktop_action(self, args, channel_id, check=None):
         async with self.action_lock:
             check_request(check)
+            if 'wake' in args and not isinstance(args['wake'], bool):
+                raise ValueError('wake must be true or false')
             action, thread_id = args['action'], args['thread_id']
             reply = await self.desktop({'action': action, 'thread_id': thread_id,
-                **({'prompt': args.get('prompt')} if action == 'send' else {})}, check=check)
-            if action != 'send':
+                **({'prompt': args.get('prompt')} if action == 'send' else {}),
+                **({k: args.get(k) for k in ('request_id', 'answers')} if action == 'answer' else {})}, check=check)
+            if action not in ('send', 'answer'):
                 return reply
             job = next((j for j in self.jobs.values()
                 if j.get('source') == 'desktop' and j.get('thread_id') == thread_id), None)
@@ -529,9 +601,16 @@ class Bridge:
                 channel=channel_id, started_at=time.time(), messages={},
                 _desktop_revision=secrets.token_hex(8),
                 baseline_turn_id=reply.get('previous_turn_id'), send_mode=reply.get('mode'))
+            adapter = getattr(self, 'adapter', None)
+            if 'wake' in args:
+                job['_wake'] = args['wake']
+            if adapter is not None and job.get('_wake'):
+                job['_callback_scope'] = adapter.codex_callback_scope(channel_id)
             self.save()
             self.monitor_desktop(job)
-            return dict(reply, job_id=job['job_id'], notification='Completion will be delivered to this Discord channel')
+            return dict(reply, job_id=job['job_id'], wake=bool(job.get('_wake')),
+                notification=('Questions/results resume this owner conversation when it is idle; do not poll continuously'
+                              if job.get('_wake') else 'Completion/input notices go to Discord; EVO is not automatically resumed'))
 
     async def project_catalog(self):
         projects, cursor = [], None
@@ -767,11 +846,76 @@ class Bridge:
             raise ValueError('Project is no longer a supported local Windows project')
         return project
 
+    async def files_or_command(self, args, check=None):
+        if any(args.get(k) is not None for k in ('thread_id', 'job_id', 'project')):
+            raise ValueError('File/command actions use path or cwd directly, without a chat or project selector')
+
+        def windows_path(value):
+            if (not isinstance(value, str) or len(value) > 4096 or '\x00' in value
+                    or not re.match(r'^[A-Za-z]:[\\/]', value)):
+                raise ValueError('Use an absolute Windows path, for example C:\\Users\\name\\project\\report.md')
+            return ntpath.normpath(value)
+
+        def integer(name, default, low, high):
+            value = args.get(name, default)
+            if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+                raise ValueError(f'{name} must be an integer from {low} to {high}')
+            return value
+
+        action = args['action']
+        if action == 'file_list':
+            path = windows_path(args.get('path'))
+            offset = integer('offset', 0, 0, 1000000)
+            limit = integer('limit', 80, 1, 200)
+            result = await self.rpc('fs/readDirectory', {'path': path}, check=check)
+            entries = sorted(result['entries'], key=lambda e: (not e['isDirectory'], e['fileName'].casefold()))
+            query = str(args.get('search') or '').casefold()
+            if query:
+                entries = [e for e in entries if query in e['fileName'].casefold()]
+            page = entries[offset:offset + limit]
+            return {'source': 'windows_filesystem', 'path': path, 'entries': page,
+                    'total': len(entries), 'next_offset': offset + len(page) if offset + len(page) < len(entries) else None}
+
+        if action == 'file_read':
+            path = windows_path(args.get('path'))
+            start = integer('start_line', 1, 1, 1000000)
+            count = integer('limit', 200, 1, 200)
+            result = await self.rpc('command/exec', {
+                'command': ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', READ_FILE],
+                'cwd': ntpath.dirname(path), 'sandboxPolicy': {'type': 'readOnly'},
+                'env': {'EVO_CODEX_READ_PATH': path, 'EVO_CODEX_READ_START': str(start),
+                        'EVO_CODEX_READ_COUNT': str(count)},
+                'timeoutMs': 10000, 'outputBytesCap': 131072,
+            }, check=check)
+            if result['exitCode'] != 0:
+                raise RuntimeError('File read failed: ' + clean(result.get('stderr') or result.get('stdout') or 'No output')[:250])
+            report = json.loads(result['stdout'])
+            report['text'] = clean(report['text'])
+            return dict(report, source='windows_filesystem')
+
+        command = args.get('command')
+        if (not isinstance(command, list) or not 1 <= len(command) <= 64
+                or not all(isinstance(v, str) and '\x00' not in v and len(v) <= 16000 for v in command)
+                or not command[0]):
+            raise ValueError('exec requires command as an argv array, such as ["git", "status", "--short"]')
+        params = {'command': command, 'timeoutMs': integer('timeout_ms', 10000, 100, 15000),
+                  'outputBytesCap': 16384}
+        if args.get('cwd') is not None:
+            params['cwd'] = windows_path(args['cwd'])
+        # Omitting sandboxPolicy inherits this authenticated server's configured policy.
+        result = await self.rpc('command/exec', params, check=check)
+        return {'source': 'windows_command', 'exit_code': result['exitCode'],
+                'stdout': clean(result.get('stdout', '')), 'stderr': clean(result.get('stderr', '')),
+                'capture_limit_bytes_per_stream': 16384, 'timeout_ms': params['timeoutMs'],
+                'shell_persistent': False}
+
     async def action(self, args, channel_id, check=None):
         check_request(check)
         if args.get('action') == 'read':
             args = dict(args, action='status')
         action = args.get('action', 'status')
+        if action in ('file_list', 'file_read', 'exec'):
+            return await self.files_or_command(args, check=check)
         if args.get('project') is not None and action not in ('start', 'new', '_start'):
             raise ValueError('project selects a project for start; existing chats use thread_id')
         if action in ('new', 'start'):
@@ -816,8 +960,8 @@ class Bridge:
                 'threads': threads, 'next_cursor': stored.get('nextCursor'),
                 **({'desktop_error': desktop_error} if desktop_error else {})}
         if args.get('thread_id'):
-            if action not in ('status', 'send', 'stop'):
-                raise ValueError('thread_id is for status/send/stop of an existing GUI thread')
+            if action not in ('status', 'send', 'answer', 'stop'):
+                raise ValueError('thread_id is for status/send/answer/stop of an existing GUI thread')
             return await self.desktop_action(args, channel_id, check=check)
         if action == '_start':
             prompt = args.get('prompt', '')
@@ -885,6 +1029,8 @@ class Bridge:
                 if job['state'] in ACTIVE: self.monitor_desktop(job)
                 return reply
             return await self.desktop_action(dict(args, thread_id=job['thread_id']), channel_id, check=check)
+        if action == 'answer':
+            raise ValueError('answer is for GUI questions; task-server questions use the Discord answer card')
         if action == 'status': return await self.status(job)
         if action == 'stop':
             if not job.get('turn_id'): raise ValueError('No turn to interrupt')
@@ -923,16 +1069,24 @@ def discord_factory(native, adapter):
     global CLIENT, LOOP, BRIDGE
     CLIENT, LOOP = native, asyncio.get_running_loop()
     BRIDGE = Bridge()
+    BRIDGE.adapter = adapter
 
 
 def codex_task(args, **kwargs):
     if args.get('action') not in PUBLIC_ACTIONS:
         return json.dumps({'success': False, 'error': 'Unsupported action'})
-    if not owner_session() or BRIDGE is None:
-        return json.dumps({'success': False, 'error': 'Only the live owner Discord session can control Windows Codex'})
-    from ..context import live_owner
+    from ..context import live_owner, owner_identity
     from ..context import is_interrupted
-    turn = live_owner()
+    turn = owner_identity()
+    if turn is not None and turn.cron:
+        if args['action'] not in SCHEDULED_ACTIONS:
+            return json.dumps({'success': False, 'error': 'This scheduled check cannot start, stop or execute Windows commands'})
+        ready = CLIENT is not None and CLIENT.is_ready() and LOOP is not None and LOOP.is_running()
+    else:
+        ready = owner_session()
+        turn = live_owner()
+    if not ready or BRIDGE is None:
+        return json.dumps({'success': False, 'error': 'Owner Discord and Windows Codex must be connected'})
     if turn is None or is_interrupted(): return json.dumps({'success': False, 'error': 'Turn interrupted'})
     cancelled = threading.Event()
     deadline = time.monotonic() + 75
@@ -967,16 +1121,36 @@ def register(ctx):
             'projects lists local project names, IDs and roots; models lists model IDs. '
             'list returns chat/job metadata. Use exact thread_id for existing GUI chats and job_id for bridge tasks. '
             'read/status returns recent messages, progress, results and attention reasons, even during a turn. '
+            'For files on that PC, use file_list(path, offset, limit, optional search) or '
+            'file_read(path, start_line, limit): paged text/source/report reads, no Codex model turn or SSH. '
+            'read is chat history, not a file reader. '
+            'exec runs a short argv command under the server configured sandbox, optionally with cwd; '
+            'no persistent shell, maximum 15 seconds. Use an explicit shell executable for shell syntax. '
             'send steers an active turn or continues the same chat; stop interrupts it. '
-            'GUI approvals/questions stay in the desktop app. Windows Codex permissions are inherited. '
+            'answer submits ordinary GUI question answers using request_id and answers from read/status; '
+            'never invent owner decisions. Execution approvals and secret inputs stay in the desktop app. '
+            'Optional wake=true on GUI send/answer resumes EVO for questions/results behind current work; default off. '
+            'Windows Codex permissions are inherited. '
             'Completion is sent here; return after posting a selection card and do not poll continuously.',
         'parameters': {'type': 'object', 'properties': {
             'action': {'type': 'string', 'enum': PUBLIC_ACTIONS},
             'project': {'type': 'string', 'maxLength': 200, 'description': 'Optional preselection for new/start: native project_id or unique exact project name. Owner can change it in the card.'},
             'prompt': {'type': 'string', 'maxLength': 16000}, 'job_id': {'type': 'string'},
-            'thread_id': {'type': 'string', 'description': 'Exact existing GUI chat ID from list; for read/status/send/stop. GUI chats need thread_id, not job_id.'},
-            'search': {'type': 'string', 'maxLength': 200, 'description': 'Optional chat title filter for list.'},
+            'request_id': {'type': ['string', 'integer'], 'description': 'answer: exact pending request_id from read/status.'},
+            'wake': {'type': 'boolean', 'description': 'GUI send/answer: opt in to automatically resume this EVO conversation on questions/results. New jobs default false; omission preserves the job setting. false disables it.'},
+            'answers': {'type': 'object', 'maxProperties': 8, 'additionalProperties': {
+                'type': 'array', 'minItems': 1, 'maxItems': 8,
+                'items': {'type': 'string', 'minLength': 1, 'maxLength': 2000}},
+                'description': 'answer: every question ID mapped to a list of answer strings, e.g. {"target":["staging"]}.'},
+            'path': {'type': 'string', 'maxLength': 4096, 'description': 'Absolute Windows file or directory path for file_read/file_list; discover project roots with projects.'},
+            'start_line': {'type': 'integer', 'minimum': 1, 'maximum': 1000000, 'description': 'file_read: first line, default 1; follow next_line for more.'},
+            'offset': {'type': 'integer', 'minimum': 0, 'maximum': 1000000, 'description': 'file_list: zero-based page offset; use next_offset for more.'},
+            'command': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1, 'maxItems': 64, 'description': 'exec: argv, e.g. ["git", "status", "--short"]. No interpolation or implicit shell.'},
+            'cwd': {'type': 'string', 'maxLength': 4096, 'description': 'exec: optional absolute Windows working directory; defaults to server working directory.'},
+            'timeout_ms': {'type': 'integer', 'minimum': 100, 'maximum': 15000, 'description': 'exec: maximum process duration, default 10000 ms.'},
+            'thread_id': {'type': 'string', 'description': 'Exact existing GUI chat ID from list; for read/status/send/answer/stop. GUI chats need thread_id, not job_id.'},
+            'search': {'type': 'string', 'maxLength': 200, 'description': 'Optional chat title filter for list, or case-insensitive filename substring for file_list.'},
             'cursor': {'type': 'string', 'description': 'next_cursor from list or projects for another page.'},
-            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 12, 'description': 'Items per list/projects page; default 8 chats or 12 projects.'},
+            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200, 'description': 'list/projects: at most 12 (default 8/12). file_list: entries per page (default 80). file_read: lines (default/max 200, also limited to 12000 characters).'},
             'model': {'type': 'string', 'description': 'Optional exact model ID from models; default Windows Codex setting.'}},
             'required': ['action'], 'additionalProperties': False}}, codex_task)

@@ -56,11 +56,13 @@ class Registry:
             self.tools[name] = (dict(d, label=name, loadMode='essential'), None)
         for name, definition, fn in [('memory', MEMORY_SCHEMA, memory),
                                       ('schedule', SCHEDULE_SCHEMA, schedule),
+                                      ('user_input', USER_INPUT_SCHEMA, None),
                                       ('wait', WAIT_SCHEMA, wait)]:
             self.tools[name] = (dict(definition, name=name, label=name, loadMode='essential'), fn)
 
     def definitions(self, cron=False):
-        names = ('internet_search', 'web_read', 'web_image', 'browser', 'evo_system_status') if cron else self.tools
+        names = ('internet_search', 'web_read', 'web_image', 'browser',
+                 'evo_system_status', 'codex_task', 'schedule') if cron else self.tools
         return [self.tools[n][0] for n in names if n in self.tools]
 
     async def close(self):
@@ -71,8 +73,11 @@ class Registry:
             raise InterruptedError('Turn interrupted')
         if turn.user != context.OWNER:
             raise PermissionError('Owner session required')
-        if turn.cron and name not in ('internet_search', 'web_read', 'web_image', 'browser', 'evo_system_status'):
+        if turn.cron and name not in ('internet_search', 'web_read', 'web_image',
+                                    'browser', 'evo_system_status', 'codex_task', 'schedule'):
             raise PermissionError('This tool requires an owner Discord message')
+        if name == 'user_input':
+            return await context.client.user_input(args, turn)
         definition, handler = self.tools[name]
         if handler is not None:
             result = await asyncio.to_thread(handler, args)
@@ -183,14 +188,28 @@ def cancel_deferred(channel=None):
 
 
 def schedule(args):
-    t = context.owner_message()
+    t = context.owner_identity()
     if t is None:
         raise PermissionError('Schedules require an owner Discord message')
     action = args.get('action', 'list')
+    if t.cron and action != 'note':
+        raise PermissionError('A scheduled run can only update its own progress note')
     with JOB_LOCK:
         jobs = load_jobs()
+        if action == 'note':
+            if not t.cron or not t.job_id:
+                raise PermissionError('Progress notes belong to a scheduled run')
+            note = args.get('text')
+            if not isinstance(note, str) or len(note) > 4000:
+                raise ValueError('Progress note must be at most 4000 characters')
+            own = next((j for j in jobs if j['id'] == t.job_id and j['channel'] == t.channel), None)
+            if own is None:
+                raise ValueError('Scheduled job is no longer available')
+            own['note'] = note
+            save_jobs(jobs)
+            return {'saved': True, 'job_id': t.job_id}
         if action == 'list':
-            return {'jobs': [{k: j.get(k) for k in ('id', 'name', 'enabled', 'running', 'continuation', 'schedule', 'next_run_at', 'last_status')}
+            return {'jobs': [{k: j.get(k) for k in ('id', 'name', 'enabled', 'running', 'continuation', 'schedule', 'until', 'quiet', 'next_run_at', 'last_status')}
                              for j in jobs]}
         ident = args.get('id')
         job = next((j for j in jobs if j['id'] == ident), None)
@@ -205,6 +224,8 @@ def schedule(args):
                     job['next_run_at'] = next_run(job).isoformat()
                     if datetime.fromisoformat(job['next_run_at']) <= datetime.now(TZ):
                         raise ValueError('Expired one-shot tasks need a new future time')
+                    if job.get('until') and datetime.fromisoformat(job['next_run_at']) > datetime.fromisoformat(job['until']):
+                        raise ValueError('This recurring task has passed its end time')
                 else:
                     job['running'] = False
                 job['last_status'] = 'pending' if job['enabled'] else 'paused'
@@ -233,20 +254,38 @@ def schedule(args):
             if bool(args.get('at')) == bool(args.get('cron')) or 'after_seconds' in args:
                 raise ValueError('create needs exactly one of at or cron; use defer for a task callback')
             spec = {'kind': 'at', 'at': args['at']} if args.get('at') else {'kind': 'cron', 'expr': args['cron']}
+        until = args.get('until')
+        if until is not None:
+            if action != 'create' or spec['kind'] != 'cron' or not isinstance(until, str):
+                raise ValueError('until is only for recurring cron schedules')
+            end = datetime.fromisoformat(until)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=TZ)
+            until = end.astimezone(TZ).isoformat()
+        quiet = args.get('quiet', False)
+        if not isinstance(quiet, bool) or (quiet and until is None):
+            raise ValueError('quiet requires a recurring schedule with an end time')
         job = {'id': secrets.token_hex(6), 'name': name, 'prompt': prompt,
                'schedule': spec, 'enabled': True, 'channel': t.channel,
                'last_status': None, 'last_run_at': None}
+        if until is not None:
+            job['until'] = until
+        if quiet:
+            job['quiet'] = True
         if action == 'defer':
             job['continuation'] = True
             job['model'] = t.model
         job['next_run_at'] = next_run(job).isoformat()
         if datetime.fromisoformat(job['next_run_at']) <= datetime.now(TZ):
             raise ValueError('Reminder time must be in the future')
+        if until is not None and datetime.fromisoformat(job['next_run_at']) > datetime.fromisoformat(until):
+            raise ValueError('No scheduled check occurs before the end time')
         jobs.append(job)
         if t.cancelled.is_set():
             raise InterruptedError('Task interrupted; callback was not saved')
         save_jobs(jobs)
         return {'success': True, 'id': job['id'], 'next_run_at': job['next_run_at'],
+                'schedule': job['schedule'], 'until': until, 'quiet': quiet,
                 'continuation': action == 'defer'}
 
 
@@ -265,20 +304,17 @@ MEMORY_SCHEMA = {
         'action': {'type': 'string', 'enum': ['list', 'read', 'write', 'delete']},
         'name': {'type': 'string'}, 'text': {'type': 'string'}}, 'required': ['action']}}
 SCHEDULE_SCHEMA = {
-    'description': 'Manage owner-requested reminders and recurring briefings. Times use Asia/Seoul. '
-                   'create uses at (ISO datetime) or cron (five fields): separate read-only web briefings. '
-                   'defer uses after_seconds to resume the CURRENT owner task later in this channel; '
-                   'then finish this turn instead of polling. Put the task, identifiers and next check in prompt '
-                   'so it can resume even after a restart. Reuses the conversation when still in RAM; no extra model. '
-                   'Due callbacks wait in the task queue; new messages do not cancel pending callbacks. '
-                   '/stop, /new, /reset or /model cancel pending callbacks. '
-                   'Callbacks retain ordinary task tools; root still needs a fresh Discord approval for each command. '
-                   'Use defer only to continue the owner task, never to invent unrelated work. '
-                   'list shows IDs; pause/delete cancel queued work but /stop is needed for already running work.',
+    'description': 'Owner schedules, Asia/Seoul. Repeated checks: create ONE five-field cron with '
+                   'optional ISO until; at runs once. quiet=true with until hides intermediate replies '
+                   'and sends the final summary. Verify the returned recurrence before claiming it is active. '
+                   'A scheduled run may only use action=note to save its next-run progress (max 4000 chars; '
+                   'no secrets). defer after_seconds resumes the current interactive task, not a cron job. '
+                   'list/pause/delete manage jobs; /stop cancels running work. Root still needs approval.',
     'parameters': {'type': 'object', 'properties': {
-        'action': {'type': 'string', 'enum': ['list', 'create', 'defer', 'pause', 'resume', 'delete']},
+        'action': {'type': 'string', 'enum': ['list', 'create', 'defer', 'pause', 'resume', 'delete', 'note']},
         'id': {'type': 'string'}, 'name': {'type': 'string'}, 'prompt': {'type': 'string'},
-        'at': {'type': 'string'}, 'cron': {'type': 'string'},
+        'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': 'string'},
+        'quiet': {'type': 'boolean'}, 'text': {'type': 'string', 'maxLength': 4000},
         'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 86400}}, 'required': ['action']}}
 WAIT_SCHEMA = {
     'description': 'Pause before checking an in-progress task again. No model requests while sleeping. '
@@ -287,3 +323,18 @@ WAIT_SCHEMA = {
                    'New owner messages and /stop interrupt the wait. Check state with the relevant tool after waiting.',
     'parameters': {'type': 'object', 'properties': {
         'seconds': {'type': 'integer', 'minimum': 1, 'maximum': 300}}, 'required': ['seconds']}}
+USER_INPUT_SCHEMA = {
+    'description': 'Ask the owner one concise clarification or choice and collect their replies in this channel. '
+                   'Do not repeat the question in separate text. No model requests while waiting. '
+                   'Returns answered with the reply, or skipped/timeout with permission_granted=false. '
+                   'Skip or timeout does NOT approve the proposed action: do not execute it or an equivalent workaround. '
+                   'If intent or required information is still unclear, stop the affected task and state the blocker. '
+                   'Do not guess or repeat the same approval request. '
+                   'Timeout after 5 minutes without owner activity; messages and typing extend the wait. '
+                   'After replies, resume once typing has expired and the channel has been quiet for 15 seconds. '
+                   'Multiple messages become one answer. This human-input wait is separate from the polling budget. '
+                   'The owner can Flush collected replies immediately or Skip without an answer. '
+                   'This is not root approval; root commands still need their dedicated approval.',
+    'parameters': {'type': 'object', 'properties': {
+        'question': {'type': 'string', 'minLength': 1, 'maxLength': 1000}},
+        'required': ['question']}}

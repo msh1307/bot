@@ -6,7 +6,7 @@
   },
   "patch": {
     "file": "patches/compaction.patch",
-    "sha256": "dc37e042150d81df9071a8ca723ac160d90c15dfe9b99938256a99568a2f717b"
+    "sha256": "94d666ed99be9b3ccfe0f4a4688bea34f3857c2c5b8869c7d73a8890fbad1d77"
   },
   "build": {
     "bun": "1.4.3",
@@ -15,7 +15,27 @@
   },
   "binary": {
     "name": "omp-v18.11.3",
-    "sha256": "9bc987b97e01508ce6a6ef2e79cf5d1ee791ef588306b56ad80927c19b54533e",
-    "bytes": 263579616
-  }
+    "sha256": "3122fd3c94b9794ac56aaaf3f2db617ddf55c64484a19bab2301668f5f2dfef1",
+    "bytes": 263591904
+  },
+  "previous_binary": {
+    "name": "omp-v18.11.3",
+    "sha256": "d975ad654486f2323d64b876cd3b67ee80a9f6e342ca625437875b9b9bf30835",
+    "bytes": 263591904
+  },
+  "additional_patches": [
+    {
+      "file": "patches/shell-output-budget.patch",
+      "sha256": "7cc5ab013b1e045cd17f95ccd9479627c8d6fc5acbca68756caf1386e7855dc2"
+    },
+    {
+      "file": "patches/completed-reasoning-budget.patch",
+      "sha256": "ece2127b700bdb6326eeb88178809ac208bef3d90ce70a41ee4c3f41b14d2aea",
+      "opt_in": "EVO_COMPLETED_REASONING_CONTEXT=1; EVO provider only"
+    },
+    {
+      "file": "patches/grep-task-availability.patch",
+      "sha256": "f4b2fab89e0f19b2c883574019dce937360739d7786503b79b2e3dbebf27b2f7"
+    }
+  ]
 }

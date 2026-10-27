@@ -23,13 +23,19 @@ class Session:
     key = '77'
     abort_reason = ''
     transport_alive = True
+    compacting = False
+    last_progress = pending_text = ''
+    on_progress = None
     def __init__(self):
         self.stop = asyncio.Event(); self.started = asyncio.Event(); self.inputs = []
-        self.closed = 0
+        self.closed = self.aborts = 0
     async def prompt(self, text, turn, images=None):
         self.inputs.append(text)
         self.started.set()
-        if text == 'long': await self.stop.wait()
+        if text == 'long':
+            await self.stop.wait()
+            if turn.cancelled.is_set():
+                raise RuntimeError('Interrupted by user')
         if text == 'failure': raise RuntimeError('verification failure')
         if text == 'timeout':
             self.abort_reason = 'timeout'
@@ -39,7 +45,10 @@ class Session:
             self.transport_alive = False
             raise ConnectionError('verification transport lost')
         return 'answer:' + text
-    async def abort(self): self.stop.set()
+    async def abort(self):
+        self.aborts += 1
+        self.stop.set()
+    def flush_progress(self): pass
     async def reusable_after_error(self): return self.transport_alive
     async def close(self): self.closed += 1; self.stop.set()
 
@@ -62,20 +71,33 @@ async def main():
                 assert (node.module or '').split('.')[0] not in ('agent', 'gateway', 'tools'), p
     print('PASS no legacy agent imports or environment-session compatibility in runtime')
     b = CaptureBot()
+    b.sessions['77'] = b.fake
     worker = asyncio.create_task(b.work_loop())
+    reactions = []
+    async def add_reaction(emoji): reactions.append(emoji)
     def message(text, user=OWNER):
         return SimpleNamespace(author=SimpleNamespace(bot=False, id=int(user)), content=text,
-            channel=b.channel, attachments=[], id=1)
+            channel=b.channel, attachments=[], id=1, add_reaction=add_reaction)
     try:
         await b.on_message(message('long'))
         await asyncio.wait_for(b.fake.started.wait(), 2)
+        b.fake.compacting = True
         await asyncio.wait_for(b.on_message(message('correction')), 3)
         await asyncio.wait_for(b.queue.join(), 3)
         assert b.fake.inputs == ['long', 'correction'], b.fake.inputs
         assert 'answer:long' not in b.channel.messages
         assert b.channel.messages[-1] == 'answer:correction', b.channel.messages
-        assert len([m for m in b.channel.messages if '중단' in m]) == 1
-        print('PASS new owner message interrupts, reports once, and continues with correction')
+        assert reactions == ['↪️'], reactions
+        assert b.fake.aborts == 1, b.fake.aborts
+        assert not any('작업 실패' in m for m in b.channel.messages), b.channel.messages
+        b.fake.compacting = False
+        print('PASS active compaction interrupts once, acknowledges once, and continues with correction')
+        b.active = None
+        b.fake.compacting = True
+        await b.interrupt_compaction('77')
+        assert b.fake.aborts == 2
+        b.fake.compacting = False
+        print('PASS manual compaction still aborts before admission lock')
         before = list(b.fake.inputs)
         await b.on_message(message('unauthorized', '1'))
         assert b.fake.inputs == before and b.queue.empty()

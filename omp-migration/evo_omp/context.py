@@ -21,6 +21,7 @@ class Turn:
     platform: str = 'discord'
     cron: bool = False
     deferred: bool = False
+    job_id: str = ''
     model: str = ''
     id: str = field(default_factory=lambda: secrets.token_hex(12))
     cancelled: threading.Event = field(default_factory=threading.Event)

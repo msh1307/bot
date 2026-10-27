@@ -1,0 +1,95 @@
+{
+  "date": "2026-10-26",
+  "status": "deployed_and_verified",
+  "change": "Grep mentions Task/scout only when the task tool is active, or the inventory is unavailable. No added tool or prompt guidance.",
+  "native_tests": {
+    "passed": 40,
+    "failed": 0,
+    "assertions": 128,
+    "typecheck": "passed"
+  },
+  "candidate": {
+    "passed": true,
+    "real_omp_bwrap": true,
+    "model_inference": false,
+    "tool_count": 19,
+    "missing_task_guidance_removed": true,
+    "native_grep_and_ranged_read_passed": true,
+    "tool_pairs_intact": true,
+    "discord_posts": 0,
+    "live_bot_restarted": false
+  },
+  "postdeploy": {
+    "passed": true,
+    "real_omp_bwrap": true,
+    "model_inference": false,
+    "tool_count": 19,
+    "missing_task_guidance_removed": true,
+    "native_grep_and_ranged_read_passed": true,
+    "tool_pairs_intact": true,
+    "discord_posts": 0,
+    "live_bot_restarted": false
+  },
+  "deployment": {
+    "files": {
+      "bin/omp-v18.11.3": "3122fd3c94b9794ac56aaaf3f2db617ddf55c64484a19bab2301668f5f2dfef1"
+    },
+    "session_restored": true,
+    "history_prefix_preserved": true,
+    "model_restarted": false,
+    "code_backup": "/opt/evo-omp/backups/tool-inventory-maintenance-1792962767426030923",
+    "conversation_backup_storage": "tmpfs"
+  },
+  "tokens": {
+    "scope": "Exact deployed template/tokenizer; synthetic scripted provider requests",
+    "model_inference": false,
+    "request_tokens": {
+      "before": [
+        {
+          "input_tokens": 7742,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 0
+        }
+      ],
+      "after": [
+        {
+          "input_tokens": 7728,
+          "reasoning_tokens": 0,
+          "tool_result_tokens": 0
+        }
+      ]
+    },
+    "source_sha256": {
+      "vocab.json": "4ba64f0332abcfb0b600b7df1537d1e836e68009d5fb7cdb77339738dc6365c4",
+      "merges.txt": "4ba698529766c7a2f5052083ea10cdf2485577f5237a332ee291054eb11e3332",
+      "token_type.json": "5088c8c298fc06af8382ddb3b76c888703ac2634e82263b97eedcc2ad202738b",
+      "chat_template.jinja": "12827f24b742ea4e80cdc12dbcf9622227056b9f797252a3149263d4f9aaadce"
+    }
+  },
+  "final": {
+    "bot_connected": true,
+    "sessions": 1,
+    "busy": false,
+    "router_busy": false,
+    "active_model": "sc117-flash-next-iq3_xxs",
+    "hermes": "masked",
+    "pswpout": 6,
+    "oom_kill": 3,
+    "binary_sha256": "3122fd3c94b9794ac56aaaf3f2db617ddf55c64484a19bab2301668f5f2dfef1"
+  },
+  "invariants": [
+    "All 19 tool names and parameter schemas unchanged",
+    "No capacity, compaction threshold, model weights or sampling changes",
+    "No model restart; idle Discord conversation restored byte-for-byte as history prefix"
+  ],
+  "limitations": [
+    "14 input tokens removed on the fixed request; this is primarily an inconsistent tool-instruction fix. No measured speed improvement or reduction in model mistakes is claimed.",
+    "Scripted native-tool tests, no new model inference in this check.",
+    "pswpout=6 and oom_kill=3 are historical totals, unchanged during this check."
+  ],
+  "evidence_sha256": "260d2f30f7f7bbfedf049ac361a34056d07e857e55b89ab7fc9a8ead33f14015",
+  "files": {
+    "patches/grep-task-availability.patch": "f4b2fab89e0f19b2c883574019dce937360739d7786503b79b2e3dbebf27b2f7",
+    "verify_tool_inventory.py": "c813efd9b147e7d0aedf328d671d50a071e5a7b8760b0b4184c1c3114fcd92f3"
+  }
+}

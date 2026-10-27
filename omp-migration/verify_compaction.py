@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 import threading
+import yaml
 
 from evo_omp import context
 from evo_omp.rpc import OmpSession, WORKSPACE
@@ -19,9 +20,9 @@ async def main():
     run=Path(__file__).resolve().parent
     cfg=Path(tempfile.mkdtemp(prefix='compact-config-',dir='/run/evo-omp'))
     (cfg/'models.yml').write_text((run/'models.yml').read_text().replace(':8080/v1',':18089/v1'))
-    config = (run/'config.yml').read_text().replace('methodOrder: [soft]', 'methodOrder: [shake, soft]')
-    (cfg/'config.yml').write_text(config.replace('methodOrder: [shake, soft]',
-        'methodOrder: [shake, soft]\n  thresholdTokens: 42000'))
+    config = yaml.safe_load((run/'config.yml').read_text())
+    config['compaction'].update(methodOrder=['shake', 'soft'], thresholdTokens=42000)
+    (cfg/'config.yml').write_text(yaml.safe_dump(config, sort_keys=False))
     server=ThreadingHTTPServer(('127.0.0.1',18089),Handler)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     async def host(name,args,turn):

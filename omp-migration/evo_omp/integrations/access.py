@@ -29,6 +29,53 @@ def admin(payload):
             if len(output)>16384: raise ValueError('Admin response too large')
         return json.loads(output)
 
+def runtime_status(mem):
+    def read_int(path):
+        try: return int(path.read_text().strip())
+        except (OSError, ValueError): return None
+
+    def read_json(path):
+        try:
+            value=json.loads(Path(path).read_text())
+            return value if isinstance(value,dict) else {}
+        except (OSError,ValueError): return {}
+
+    inventory=read_json('/etc/evo-llm/hardware.json')
+    physical=inventory.get('physical_memory_bytes')
+    if not isinstance(physical,int) or isinstance(physical,bool) or physical<=0: physical=None
+    gpu=[]
+    for card in sorted(Path('/sys/class/drm').glob('card[0-9]*')):
+        if not card.name[4:].isdigit(): continue
+        values={name:read_int(card/'device'/('mem_info_'+name))
+                for name in ('vram_total','vram_used','gtt_total','gtt_used')}
+        if any(value is not None for value in values.values()):
+            gpu.append({'card':card.name,**{name+'_gib':round(value/2**30,3)
+                        if value is not None else None for name,value in values.items()}})
+    policies={}
+    for path in sorted(Path('/sys/devices/system/cpu/cpufreq').glob('policy*')):
+        try:
+            key=((path/'scaling_governor').read_text().strip(),
+                 (path/'energy_performance_preference').read_text().strip(),
+                 read_int(path/'scaling_max_freq'))
+        except OSError: continue
+        policies[key]=policies.get(key,0)+1
+    power=read_json('/run/evo-power/profile.json')
+    return {'memory':{
+                'physical_total_gib':round(physical/2**30,2) if physical is not None else None,
+                'physical_source':inventory.get('source') if physical is not None else None,
+                'physical_observed_at':inventory.get('observed_at') if physical is not None else None,
+                'kernel_managed_total_gib':round(mem['MemTotal']/2**30,2),
+                'available_gib':round(mem['MemAvailable']/2**30,2),
+                'swap_total_gib':round(mem['SwapTotal']/2**30,2),
+                'accounting':'MemTotal excludes firmware-reserved RAM. GPU carveout is separate; '
+                             'GTT is backed by system RAM. Do not add GTT as extra physical RAM.'},
+            'gpu_memory':gpu,
+            'power':{'last_applied':{key:power[key] for key in ('profile','stapm_w','fast_w','slow_w')
+                                     if key in power},
+                     'current_cpu_policies':[{'governor':key[0],'epp':key[1],
+                         'max_mhz':key[2]/1000 if key[2] is not None else None,'policy_count':count}
+                         for key,count in policies.items()]}}
+
 def system_status():
     mem={line.split(':')[0]:int(line.split()[1])*1024 for line in Path('/proc/meminfo').read_text().splitlines()
          if len(line.split())>2 and line.split()[1].isdigit()}
@@ -49,18 +96,23 @@ def system_status():
             model=json.load(response)
     except OSError: pass
     model_swap={}
+    model_swap_max={}
     for unit in ('evo-flash','evo-qwen'):
-        file=Path('/sys/fs/cgroup/system.slice')/(unit+'.service')/'memory.swap.current'
+        group=Path('/sys/fs/cgroup/system.slice')/(unit+'.service')
+        file=group/'memory.swap.current'
         if file.exists():
             try: model_swap[unit]=int(file.read_text())
             except (OSError,ValueError): pass
+        try: model_swap_max[unit]=(group/'memory.swap.max').read_text().strip()
+        except OSError: pass
     try: access=admin({'action':'status'})
     except (OSError,ValueError): access={'listening':None}
     return {'success':True,'sampled_at':int(time.time()),'temperatures_c':sensors,
             'ram_temperature_available':bool(sensors.get('ram')),
             'ram_available_gib':round(mem['MemAvailable']/2**30,2),
             'system_swap_mib':round((mem['SwapTotal']-mem['SwapFree'])/2**20,2),
-            'model_swap_bytes':model_swap,'model':model,'access':access}
+            'model_swap_bytes':model_swap,'model_swap_max':model_swap_max,
+            'model':model,'access':access,**runtime_status(mem)}
 
 def temp_text(result):
     sensors=result['temperatures_c']
@@ -230,7 +282,7 @@ def discord_factory(native,adapter):
                     if not result.get('success'): panel+='\n'+text
                     await interaction.edit_original_response(content=panel,view=AccessView())
                     if result.get('success') and action=='select':
-                        await interaction.followup.send(content=text,view=reply_view,ephemeral=True)
+                        await interaction.followup.send(content=text,view=(reply_view if reply_view is not None else discord.utils.MISSING),ephemeral=True)
                 else:
                     await interaction.edit_original_response(content=text,view=reply_view)
                 if result.get('success') and action=='status':
@@ -319,5 +371,5 @@ def register(ctx):
             'mode':{'type':'string','enum':['api','web'],'description':'Omit to retain the current mode.'},
             'delta_minutes':{'type':'integer','enum':[-180,180],'description':'Required for adjust: remove or add three hours.'}},'required':['action']}},manage)
     ctx.register_tool('evo_system_status','evo_access',{
-        'name':'evo_system_status','description':'Read live CPU/GPU/RAM/SSD temperatures when sensors are available, available RAM, system/model swap and model/access status. No inference or changes.',
+        'name':'evo_system_status','description':'Read EVO temperatures, physical RAM inventory (if available), kernel-managed RAM, GPU carveout/GTT, available RAM, system/model swap and limits, last-applied power profile, current CPU policy and model/access status. Missing measurements are unknown. Infrastructure status only; conversation history is not inspected. Read-only; no root approval or inference.',
         'parameters':{'type':'object','properties':{}}},status_tool)

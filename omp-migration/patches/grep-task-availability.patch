@@ -1,0 +1,50 @@
+diff --git a/packages/coding-agent/src/tools/grep.ts b/packages/coding-agent/src/tools/grep.ts
+index 062afc5..e7589e2 100644
+--- a/packages/coding-agent/src/tools/grep.ts
++++ b/packages/coding-agent/src/tools/grep.ts
+@@ -424,7 +424,8 @@ export class GrepTool implements AgentTool<typeof searchSchema, GrepToolDetails>
+ 		const isHlMode = displayMode.hashLines;
+ 		const isLineNumberMode = !displayMode.hashLines && displayMode.lineNumbers;
+ 		const hasFind = this.session.isToolActive?.("find") ?? isFindEnabled(this.session);
+-		const eagerDelegation = sessionDelegationBias(this.session) === "eager";
++		const eagerDelegation =
++			this.session.isToolActive?.("task") !== false && sessionDelegationBias(this.session) === "eager";
+ 		const scoutAvailable = isScoutSpawnable(
+ 			cfgTaskDisabledAgents.get(this.session.settings),
+ 			this.session.getSessionSpawns?.() ?? "*",
+diff --git a/packages/coding-agent/test/grep-task-availability.test.ts b/packages/coding-agent/test/grep-task-availability.test.ts
+new file mode 100644
+index 0000000..2ad0e74
+--- /dev/null
++++ b/packages/coding-agent/test/grep-task-availability.test.ts
+@@ -0,0 +1,30 @@
++import { describe, expect, it } from "bun:test";
++import { Settings } from "../src/config/settings";
++import type { ToolSession } from "../src/tools";
++import { GrepTool } from "../src/tools/grep";
++
++function session(active?: (name: string) => boolean): ToolSession {
++	return { cwd: "/tmp", settings: Settings.isolated(), isToolActive: active } as ToolSession;
++}
++
++describe("grep delegation availability", () => {
++	it("does not require a task tool absent from the active inventory", () => {
++		const tool = new GrepTool(session(() => false));
++		expect(tool.description).not.toContain("Task");
++		expect(tool.description).not.toContain("scout");
++		expect(tool.description).toContain("skip");
++	});
++	it("keeps existing behavior when task is active or inventory is unknown", () => {
++		expect(new GrepTool(session(name => name === "task")).description).toContain("Task + scout");
++		expect(new GrepTool(session()).description).toContain("Task + scout");
++	});
++	it("refreshes its cached description when task availability changes", () => {
++		let active = false;
++		const tool = new GrepTool(session(name => active && name === "task"));
++		expect(tool.description).not.toContain("Task");
++		active = true;
++		expect(tool.description).toContain("Task + scout");
++		active = false;
++		expect(tool.description).not.toContain("Task");
++	});
++});

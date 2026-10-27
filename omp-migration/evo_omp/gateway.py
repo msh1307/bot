@@ -17,12 +17,31 @@ from . import context
 from .discord_text import messages as discord_messages, units as discord_units
 from .rpc import OmpSession, WORKSPACE
 from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run, image_content, cancel_deferred
+from .user_input import PendingInput, QuestionView
 
 LOG = logging.getLogger('evo-omp')
 DEFAULT_MODEL = 'sc117-flash-next-iq3_xxs'
 MODELS = {'flash': DEFAULT_MODEL, '27b': 'qwen3.8-27b-uncensored'}
 STATUS_INTERVAL = 30
-PROGRESS_INTERVAL = 120
+PROGRESS_INTERVAL = 60
+IGNORE_PATH = STATE / 'ignored_channels.json'
+
+
+def load_ignored_channels():
+    if not IGNORE_PATH.exists():
+        return set()
+    channels = json.loads(IGNORE_PATH.read_text())
+    if not isinstance(channels, list) or any(not isinstance(value, str) or not value.isdigit()
+                                             for value in channels):
+        raise ValueError('Invalid ignored channels file')
+    return set(channels)
+
+
+def save_ignored_channels(channels):
+    temporary = IGNORE_PATH.with_suffix('.tmp')
+    temporary.write_text(json.dumps(sorted(channels)) + '\n')
+    temporary.chmod(0o600)
+    temporary.replace(IGNORE_PATH)
 
 
 async def context_footer(session):
@@ -30,7 +49,7 @@ async def context_footer(session):
         state = await session.request('get_state', timeout=5)
         percent = (state.get('contextUsage') or {}).get('percent')
         if isinstance(percent, (int, float)) and 0 <= percent <= 100:
-            return f'[context {100 - percent:.0f}% 남음]'
+            return f'[context {percent:.0f}%]'
     except Exception as error:
         LOG.warning('context_usage_unavailable class=%s', type(error).__name__)
     return ''
@@ -40,7 +59,9 @@ def progress_text(session, seconds, include_text=True):
     seconds = max(0, int(seconds))
     elapsed = f'{seconds // 60}분 {seconds % 60}초' if seconds >= 60 else f'{seconds}초'
     phase = {'waiting for model': '모델 응답 대기',
-             'receiving model response': '모델 응답 중', 'compacting': '대화 압축 중',
+             'receiving model response': '모델 응답 중',
+             'reasoning': '추론 중', 'writing answer': '답변 작성 중',
+             'preparing tool': '도구 요청 준비 중', 'compacting': '대화 압축 중',
              'finishing': '마무리 중', 'idle': '마무리 중'}.get(session.last_event)
     if phase is None:
         phase = '도구 실행 중: ' + session.last_event.removeprefix('tool: ')
@@ -57,6 +78,7 @@ class Bot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.typing = True
         super().__init__(command_prefix='!', intents=intents,
                          allowed_mentions=discord.AllowedMentions.none(), max_messages=64)
         self.registry = Registry()
@@ -72,6 +94,8 @@ class Bot(commands.Bot):
         self.initialized = False
         self.shutting_down = False
         self.worker_failure = None
+        self.questions = {}
+        self.ignored_channels = load_ignored_channels()
 
     async def _check_slash_authorization(self, interaction, command):
         if str(interaction.user.id) == context.OWNER:
@@ -85,7 +109,7 @@ class Bot(commands.Bot):
         for factory in self.registry.factories:
             factory(self, self)
         for name in ('help', 'status', 'context', 'stop', 'new', 'reset', 'compact',
-                     'model', 'memory', 'alarms', 'approve', 'deny', 'whoami'):
+                     'model', 'memory', 'alarms', 'approve', 'deny', 'whoami', 'ignore'):
             self.tree.add_command(discord.app_commands.Command(name=name,
                 description=DESCRIPTIONS[name], callback=self.slash_callback(name)), override=True)
         try:
@@ -176,13 +200,24 @@ class Bot(commands.Bot):
         context.cancel_all()
         self.write_status('disconnected')
 
+    async def on_raw_typing(self, payload):
+        # Raw events also work when the channel/member is absent from Discord's cache.
+        if str(payload.user_id) != context.OWNER:
+            return
+        if str(payload.channel_id) in self.ignored_channels:
+            return
+        question = self.questions.get(str(payload.channel_id))
+        if question and question['input'].accepting and not question['turn'].cancelled.is_set():
+            question['input'].typing()
+
     async def on_message(self, message):
         if message.author.bot or str(message.author.id) != context.OWNER:
             return
         text = message.content.strip()
+        ignored = str(message.channel.id) in self.ignored_channels
         if text.startswith(('/', '!')):
             name, _, args = text[1:].partition(' ')
-            if name in DESCRIPTIONS or name in ('temp', 'access', 'compress'):
+            if (not ignored or name == 'ignore') and (name in DESCRIPTIONS or name in ('temp', 'access', 'compress')):
                 try:
                     result = await self.command(message.channel, name, args)
                     if result:
@@ -190,8 +225,15 @@ class Bot(commands.Bot):
                 except Exception as e:
                     await self.deliver(message.channel, '실패: ' + context.redact_sensitive_text(str(e))[:500])
                 return
+        if ignored:
+            return
         if not text and not message.attachments:
             return
+        channel = str(message.channel.id)
+        question = self.questions.get(channel)
+        if question and (not question['input'].accepting or question['turn'].cancelled.is_set()):
+            question = None
+        ticket = question['input'].begin_message() if question else None
         images = []
         try:
             for attachment in message.attachments[:2]:
@@ -216,18 +258,75 @@ class Bot(commands.Bot):
                     text += '\nAttached file: /workspace/downloads/' + p.name
             if images and sum(len(i['data']) for i in images) > 700_000:
                 raise ValueError('큰 이미지는 한 장씩 올려주세요.')
-            channel = str(message.channel.id)
+            if question:
+                if self.questions.get(channel) is question and not question['turn'].cancelled.is_set():
+                    question['input'].finish_message(ticket, text, images)
+                    ticket = None
+                return
             await self.interrupt_compaction(channel)
+            interrupted = False
             async with self.admission_lock:
                 if self.queue.full():
                     raise ValueError('요청 대기열이 찼습니다. 잠시 뒤 다시 보내주세요.')
                 if self.active and (self.active['channel'] == channel
                                     or self.active['turn'].cron or self.active['turn'].deferred):
                     await self.stop_active()
-                    await self.deliver(message.channel, '진행 중 작업을 중단하고 새 메시지를 처리합니다.')
+                    interrupted = True
                 self.enqueue(channel, text or '첨부 이미지를 확인해줘.', images)
+            if interrupted:
+                with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
+                    await asyncio.wait_for(message.add_reaction('↪️'), 3)
         except Exception as e:
             await self.deliver(message.channel, context.redact_sensitive_text(str(e))[:500])
+        finally:
+            if ticket is not None:
+                question['input'].discard_message(ticket)
+
+    async def user_input(self, args, turn):
+        question = args.get('question')
+        if not isinstance(question, str) or not 1 <= len(question.strip()) <= 1000:
+            raise ValueError('question must contain 1..1000 characters')
+        if turn.channel in self.questions:
+            raise ValueError('A question is already pending in this channel')
+        if not self.active or self.active['turn'] is not turn or turn.cancelled.is_set():
+            raise InterruptedError('No active owner task')
+        item = {'turn': turn, 'input': PendingInput()}
+        self.questions[turn.channel] = item
+        view = QuestionView(item['input'], lambda: self.questions.get(turn.channel) is item
+                            and not turn.cancelled.is_set())
+        message, label = None, '질문 취소됨'
+        self.write_status('working')
+        try:
+            channel = self.get_channel(int(turn.channel)) or await self.fetch_channel(int(turn.channel))
+            preview = context.redact_sensitive_text(question.strip())
+            message = await asyncio.wait_for(channel.send(preview, view=view,
+                allowed_mentions=discord.AllowedMentions.none()), 10)
+            reply = await item['input'].read()
+            if turn.cancelled.is_set():
+                raise InterruptedError('Question cancelled')
+            label = {'answered': '답변 전달됨', 'skipped': '건너뜀',
+                     'timeout': '무활동 5분 · 답변 없이 재개'}[reply['status']]
+            images = reply.pop('images', [])
+            if images:
+                return {'content': [{'type': 'text', 'text': json.dumps(reply, ensure_ascii=False)}, *images]}
+            return reply
+        finally:
+            item['input'].cancel()
+            if self.questions.get(turn.channel) is item:
+                self.questions.pop(turn.channel, None)
+            self.write_status('working' if self.active else 'connected')
+            view.stop()
+            for button in view.children:
+                button.disabled = True
+            if message is not None:
+                with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
+                    await asyncio.wait_for(message.edit(content=preview + '\n\n' + label, view=view,
+                        allowed_mentions=discord.AllowedMentions.none()), 3)
+
+    def cancel_questions(self, channel=None):
+        for key, item in list(self.questions.items()):
+            if channel is None or channel == key:
+                item['input'].cancel()
 
     async def session(self, key, cron=False):
         model = self.models.get(key, DEFAULT_MODEL)
@@ -289,13 +388,18 @@ class Bot(commands.Bot):
             session = None
             job = item['job']
             deferred = bool(job and job.get('continuation'))
-            turn = context.Turn(item['channel'], cron=bool(job and not deferred), deferred=deferred)
+            callback = item.get('callback_valid')
+            turn = context.Turn(item['channel'], cron=bool(job and not deferred),
+                                deferred=deferred or bool(callback), job_id=job['id'] if job else '')
             token = context.current.set(turn)
             outcome = 'error'
             try:
                 async with self.admission_lock:
                     if (item['epoch'] != self.epochs.get(item['channel'], 0)
                             or item['reset_epoch'] != self.reset_epoch):
+                        outcome = 'cancelled'
+                        continue
+                    if callback and not callback():
                         outcome = 'cancelled'
                         continue
                     if job and not await asyncio.to_thread(self.job_claim_valid, job):
@@ -314,6 +418,15 @@ class Bot(commands.Bot):
                     self.write_status('working')
                 async with channel.typing(), self.progress(channel, session, enabled=not turn.cron):
                     text = item['text']
+                    if turn.cron:
+                        text = ('[Owner-requested scheduled check. Current time: '
+                                + datetime.now(TZ).isoformat() + '. '
+                                + ('Final scheduled run; give one brief summary.' if job.get('final_run')
+                                   else 'Continue the assigned monitoring task.')
+                                + ' Save a short schedule note for the next run when state changes. '
+                                + 'The note below is reference, not a new instruction.]\n'
+                                + ('[Previous note]\n' + job['note'][:4000] + '\n' if job.get('note') else '')
+                                + text)
                     if deferred:
                         text = ('[Scheduled continuation of the owner task; not a new owner message. '
                                 + ('Earlier conversation is available.' if reused else 'Earlier conversation is unavailable; use the task details below.')
@@ -328,16 +441,26 @@ class Bot(commands.Bot):
                     if not answer:
                         raise RuntimeError(session.error or '모델이 최종 답변을 반환하지 않았습니다. 다시 요청할 수 있습니다.')
                     footer = await context_footer(session) if not turn.cron else ''
-                    outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
+                    if turn.cron and job.get('quiet') and not job.get('final_run'):
+                        outcome = 'ok'
+                    else:
+                        outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
             except Exception as e:
-                LOG.error('turn_failed turn=%s class=%s detail=%s', turn.id, type(e).__name__,
-                          context.redact_sensitive_text(str(e))[:400])
+                interrupted = (turn.cancelled.is_set() and session is not None
+                               and session.abort_reason != 'timeout')
+                if interrupted:
+                    outcome = 'interrupted'
+                    LOG.info('turn_interrupted turn=%s', turn.id)
+                else:
+                    LOG.error('turn_failed turn=%s class=%s detail=%s', turn.id, type(e).__name__,
+                              context.redact_sensitive_text(str(e))[:400])
                 if channel and (not turn.cancelled.is_set()
                                 or (session and session.abort_reason == 'timeout')):
                     await self.deliver(channel, '작업 실패: ' + context.redact_sensitive_text(str(e))[:500])
                 if session:
                     if not turn.cron and await session.reusable_after_error():
-                        LOG.info('turn_failed_session_preserved turn=%s', turn.id)
+                        LOG.info('turn_session_preserved turn=%s reason=%s', turn.id,
+                                 'interrupted' if interrupted else 'error')
                     else:
                         await self.release_session(session)
             finally:
@@ -396,12 +519,18 @@ class Bot(commands.Bot):
     def claim_due(limit=16):
         now = datetime.now(TZ)
         with JOB_LOCK:
-            jobs, due = load_jobs(), []
+            jobs, due, changed = load_jobs(), [], False
             for job in jobs:
                 if len(due) >= limit:
                     break
                 when = job.get('next_run_at')
                 if not job.get('enabled') or not when or job.get('running'):
+                    continue
+                until = datetime.fromisoformat(job['until']) if job.get('until') else None
+                if until and datetime.fromisoformat(when) > until:
+                    job['enabled'] = False
+                    job['last_status'] = 'expired'
+                    changed = True
                     continue
                 if datetime.fromisoformat(when).astimezone(TZ) <= now:
                     job['running'] = True
@@ -411,8 +540,11 @@ class Bot(commands.Bot):
                         job['enabled'] = False
                     else:
                         job['next_run_at'] = next_run(job).isoformat()
-                    due.append(dict(job))
-            if due:
+                        if until and datetime.fromisoformat(job['next_run_at']) > until:
+                            job['enabled'] = False
+                    due.append(dict(job, final_run=not job['enabled']))
+                    changed = True
+            if changed:
                 save_jobs(jobs)
             return due
 
@@ -454,6 +586,14 @@ class Bot(commands.Bot):
                 await asyncio.sleep(STATUS_INTERVAL)
                 self.write_status('working')
                 now = time.monotonic()
+                if str(channel.id) in self.questions:
+                    # The question itself is visible; avoid a second working notice.
+                    last_update = now
+                    if notice is not None:
+                        with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
+                            await asyncio.wait_for(notice.delete(), 3)
+                        notice = None
+                    continue
                 compacting = session.last_event == 'compacting'
                 interval = STATUS_INTERVAL if compacting else PROGRESS_INTERVAL
                 if now - last_update < interval and not (compacting and last_phase != 'compacting'):
@@ -517,14 +657,30 @@ class Bot(commands.Bot):
                 return False
         return True
 
-    def enqueue(self, channel, text, images, job=None):
+    def codex_callback_scope(self, channel):
+        session = self.sessions.get(channel)
+        return (self.reset_epoch, self.epochs.get(channel, 0), id(session)) if session else None
+
+    def enqueue_codex_callback(self, channel, text, scope, valid):
+        # Queue behind existing work; never interrupt the owner or revive a reset
+        # conversation. Only identifiers are queued, not another chat's history.
+        def current():
+            return self.codex_callback_scope(channel) == scope and valid()
+        if scope is None or self.shutting_down or self.queue.full() or not current():
+            return False
+        self.enqueue(channel, text, [], callback_valid=current)
+        return True
+
+    def enqueue(self, channel, text, images, job=None, *, callback_valid=None):
         self.queue.put_nowait({'channel': channel, 'text': text, 'images': images, 'job': job,
-            'epoch': self.epochs.get(channel, 0), 'reset_epoch': self.reset_epoch})
+            'epoch': self.epochs.get(channel, 0), 'reset_epoch': self.reset_epoch,
+            'callback_valid': callback_valid})
 
     async def stop_active(self):
         active = self.active
         if not active:
             return
+        self.cancel_questions(active['channel'])
         active['turn'].cancelled.set()
         await active['session'].abort()
         try:
@@ -535,8 +691,11 @@ class Bot(commands.Bot):
 
     async def interrupt_compaction(self, key=None):
         # Abort before waiting for admission: manual compaction holds that lock.
+        # Active turns are aborted once by stop_active after admission.
+        active_session = self.active['session'] if self.active else None
         for channel, session in list(self.sessions.items()):
-            if session.compacting and (key is None or channel == key):
+            if (session is not active_session and session.compacting
+                    and (key is None or channel == key)):
                 await session.abort()
 
     def write_status(self, state):
@@ -545,6 +704,7 @@ class Bot(commands.Bot):
         a = self.active
         data = {'engine': 'omp', 'version': '18.11.3', 'state': state,
                 'queued': self.queue.qsize(), 'sessions': len(self.sessions),
+                'pending_inputs': len(self.questions),
                 'active': bool(a), 'rounds': a['session'].rounds if a else 0,
                 'tools': a['session'].tools if a else 0,
                 'elapsed_seconds': int(time.monotonic() - a['start']) if a else 0,
@@ -565,7 +725,29 @@ class Bot(commands.Bot):
             if name in self.registry.commands:
                 return await self.registry.commands[name](args)
             if name == 'help':
-                return '/status · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access\n새 메시지를 보내면 같은 채널의 진행 중 작업을 중단하고 이어서 처리합니다.'
+                return '/status · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access · /ignore\n새 메시지를 보내면 같은 채널의 진행 중 작업을 중단하고 이어서 처리합니다.'
+            if name == 'ignore':
+                mode = args.strip().lower()
+                if mode not in ('', 'on', 'off', 'status'):
+                    return '사용법: /ignore [on|off|status]'
+                enabled = key in self.ignored_channels
+                if mode == 'status':
+                    return '이 채널 무시 중' if enabled else '이 채널 응답 중'
+                enable = not enabled if not mode else mode == 'on'
+                if enable:
+                    self.ignored_channels.add(key)
+                else:
+                    self.ignored_channels.discard(key)
+                try:
+                    save_ignored_channels(self.ignored_channels)
+                except OSError:
+                    if enable:
+                        self.ignored_channels.discard(key)
+                    else:
+                        self.ignored_channels.add(key)
+                    raise
+                return ('이 채널의 일반 메시지를 무시합니다. /ignore로 해제할 수 있습니다.'
+                        if enable else '이 채널의 일반 메시지에 다시 응답합니다.')
             if name == 'whoami':
                 return '오너 · 관리자 권한 · OMP 18.11.3 · root는 매번 Allow Once 승인'
             if name in ('status', 'context'):
@@ -577,6 +759,8 @@ class Bot(commands.Bot):
                         return f"OMP · {s.model}\nContext: " + json.dumps(state.get('contextUsage'), ensure_ascii=False)
                     return '열린 대화가 없습니다.'
                 if a:
+                    if a['channel'] in self.questions:
+                        return '답변 대기 중 · 무활동 5분 후 재개 · 타이핑하면 대기 연장'
                     s = a['session']
                     return f"OMP · {s.model}\n" + progress_text(s, time.monotonic() - a['start']) + f"\n대기 {self.queue.qsize()}개"
                 if any(s.compacting for s in self.sessions.values()):
@@ -653,6 +837,7 @@ class Bot(commands.Bot):
             return
         self.shutting_down = True
         context.cancel_all()
+        self.cancel_questions()
         if self.active:
             self.active['turn'].cancelled.set()
         for name in ('worker', 'scheduler', 'reaper'):
@@ -682,7 +867,8 @@ DESCRIPTIONS = {'help': '사용 가능한 명령', 'status': '현재 작업·모
     'reset': '대화와 공용 workspace 초기화 · 기억·알람 유지', 'compact': '현재 대화 압축 · args에 보존할 내용 지정 가능',
     'model': '이 대화 모델 선택 · flash 또는 27b', 'memory': '장기기억 문서 조회·삭제',
     'alarms': '예약 작업 목록', 'approve': '현재 채널의 root 명령 한 번 승인',
-    'deny': '현재 채널의 root 명령 거절', 'whoami': '오너 권한 확인'}
+    'deny': '현재 채널의 root 명령 거절', 'whoami': '오너 권한 확인',
+    'ignore': '이 채널 일반 메시지 무시 또는 해제'}
 
 
 async def main():

@@ -1,0 +1,106 @@
+{
+  "audit": {
+    "baseline": {
+      "normal_turns": 7,
+      "normal_compaction_starts": 2,
+      "first_normal_tokens": 7751,
+      "last_normal_tokens": 12345,
+      "max_normal_tokens": 12545
+    },
+    "candidate": {
+      "normal_turns": 10,
+      "normal_compaction_starts": 0,
+      "first_normal_tokens": 7751,
+      "last_normal_tokens": 12981,
+      "max_normal_tokens": 12981
+    }
+  },
+  "postdeploy": {
+    "normal_turns": 10,
+    "normal_events": [],
+    "large_current_input_compacted": true,
+    "current_intent_preserved": true
+  },
+  "model": {
+    "passed": true,
+    "scope": "One private synthetic Flash conversation; not broad quality evidence",
+    "answers": [
+      "- **Revision**: rev-A17\n- **전체 건수**: 23건 (passed 17건, failed 6건)\n\n읽기 전용 범위(report: owner_scope=READ_ONLY)라 파일/코드는 건드리지 않았습니다.",
+      "- **Revision**: rev-B29\n- **전체 건수**: 23건 (passed 17건, failed 6건)",
+      "- **Revision**: rev-B29\n- **전체 건수**: 23건 (passed 17건, failed 6건)\n- **파일 수정 허용**: 아니오 — 읽기 전용(READ_ONLY)으로, 코드·파일 수정 없음"
+    ],
+    "compaction_seconds": 52.76509739505127,
+    "compaction_calls": 2,
+    "compaction_thinking": [
+      {
+        "enable_thinking": true
+      },
+      {
+        "enable_thinking": true
+      }
+    ],
+    "compaction_final_budget": [
+      8006,
+      512
+    ],
+    "cancelled": false,
+    "discord_posts": 0,
+    "model_switches": 0,
+    "swapout_delta_pages": 0,
+    "oom_kill_delta": 0
+  },
+  "deployment": {
+    "files": {
+      "evo_omp/rpc.py": "fedb3501344ed45772e479d8e4d7d129a5589fb20d57b9b6f9bfab5144d896d8",
+      "bin/omp-v18.11.3": "d975ad654486f2323d64b876cd3b67ee80a9f6e342ca625437875b9b9bf30835"
+    },
+    "session_restored": true,
+    "history_prefix_preserved": true,
+    "model_restarted": false,
+    "code_backup": "/opt/evo-omp/backups/reasoning-accounting-maintenance-1792961939345370216",
+    "conversation_backup_storage": "tmpfs"
+  },
+  "final": {
+    "active_model": "sc117-flash-next-iq3_xxs",
+    "busy": false,
+    "bot_connected": true,
+    "sessions": 1,
+    "hermes": "masked",
+    "pswpout": 6,
+    "oom_kill": 3
+  },
+  "date": "2026-10-26",
+  "status": "deployed_and_verified",
+  "change": "Native OMP accounting and compaction preparation use the same completed-turn reasoning view as the EVO provider. Original RAM transcript, current/unfinished reasoning, user messages, answers, tools and attachments remain. Capacity and thresholds unchanged.",
+  "native_tests": {
+    "passed": 55,
+    "failed": 0,
+    "assertions": 198,
+    "typecheck_packages": [
+      "pi-agent-core",
+      "pi-coding-agent"
+    ],
+    "lint_errors": 0,
+    "format_errors": 0
+  },
+  "files": {
+    "patches/completed-reasoning-budget.patch": "ece2127b700bdb6326eeb88178809ac208bef3d90ce70a41ee4c3f41b14d2aea",
+    "evo_omp/rpc.py": "fedb3501344ed45772e479d8e4d7d129a5589fb20d57b9b6f9bfab5144d896d8",
+    "verify_context_budget.py": "563891be86f90c6eeb1eab5136a827feaa9207d8e4339d24f82655d2f34f37a5",
+    "verify_budget_model.py": "032097945526489507dddcfa8c2f97abf3702df9af11e4f9877a4d2090d97c22"
+  },
+  "reproduction": [
+    "Apply runtime-build.json patches in order and build the pinned OMP revision.",
+    "As bot user: verify_context_budget.py REPORT_DIR [CANDIDATE_BINARY]; requires verify_context_payload.py alongside. Only this private sandbox mounts the candidate.",
+    "measure_context_payload.py STRATA_SOURCE PACK/tokenizer REPORT_DIR counts exact input tokens.",
+    "verify_budget_model.py CANDIDATE_BINARY REPORT_DIR while Flash and bot are idle; requires verify_context_model.py alongside. No Discord posts."
+  ],
+  "limitations": [
+    "The ten-turn test uses synthetic reasoning and a scripted endpoint; it measures accounting, not real-world compaction frequency.",
+    "The real-model check is one synthetic Flash conversation. Broader quality and Qwen end-to-end compaction are not established by it.",
+    "Current/interrupted reasoning still uses context. Actual large input still triggers compaction.",
+    "Six tests in previously modified compaction suites fail identically on pre-change source (summary-cap: 1, oversized-input: 1, thinking-level: 4). Baseline logs retain these failures; the entire upstream suite is not claimed to pass.",
+    "Final pswpout=6 and oom_kill=3 are cumulative historical counters. This real-model check added zero swapout pages or OOM kills."
+  ],
+  "evidence_sha256": "7aa10edf1a387a16d2eb11c13c7195b7fd02948a8d396c6e4ca6ed60c7eb1b42"
+}

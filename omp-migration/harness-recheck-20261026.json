@@ -1,0 +1,184 @@
+{
+  "model_inference": false,
+  "discord_posts": 0,
+  "service_restarts": 0,
+  "checks": [
+    {
+      "name": "verify_tool_output.py",
+      "exit_code": 0,
+      "seconds": 0.065
+    },
+    {
+      "name": "verify_tool_inventory.py",
+      "exit_code": 0,
+      "seconds": 1.222
+    },
+    {
+      "name": "verify_context_budget.py",
+      "exit_code": 0,
+      "seconds": 1.324
+    }
+  ],
+  "passed": true,
+  "date": "2026-10-25T22:19:46.558404+00:00",
+  "scope": "Recheck already deployed OMP harness token savings. No production code/config changes in this run.",
+  "inventory": {
+    "passed": true,
+    "real_omp_bwrap": true,
+    "model_inference": false,
+    "tool_count": 19,
+    "missing_task_guidance_removed": true,
+    "native_grep_and_ranged_read_passed": true,
+    "tool_pairs_intact": true,
+    "discord_posts": 0,
+    "live_bot_restarted": false
+  },
+  "compaction": {
+    "model_inference": false,
+    "discord_posts": 0,
+    "normal_events": [],
+    "normal_requests": 20,
+    "large_current_input_compacted": true,
+    "current_intent_preserved": true,
+    "threshold_changed": false,
+    "live_bot_restarted": false,
+    "normal_turns": 10
+  },
+  "live_sha256": {
+    "/opt/evo-omp/evo_omp/tool_output.py": "5be50a5582ed46eba6f5e141297fdef68c358d60b21a26d8f02a46e93eced809",
+    "/opt/evo-omp/provider.ts": "890dd4fce46ac683d56194ec4a613f0829ba8b539c7888dc8c94a35f04f68843",
+    "/opt/evo-omp/evo_omp/rpc.py": "fedb3501344ed45772e479d8e4d7d129a5589fb20d57b9b6f9bfab5144d896d8",
+    "/opt/evo-omp/bin/omp-v18.11.3": "3122fd3c94b9794ac56aaaf3f2db617ddf55c64484a19bab2301668f5f2dfef1",
+    "/var/lib/evo-hermes/hermes/plugins/evo-web/__init__.py": "86f27fc3a82561f753ddc9297c58067ce4d8fbfd730ae82edd2f8d16ff62bb47"
+  },
+  "services": {
+    "evo-omp": [
+      "ActiveState=active",
+      "MainPID=1926178"
+    ],
+    "evo-flash": [
+      "ActiveState=active",
+      "MainPID=1932811"
+    ],
+    "evo-qwen": [
+      "ActiveState=inactive",
+      "MainPID=0"
+    ],
+    "evo-hermes": [
+      "ActiveState=inactive",
+      "MainPID=0"
+    ]
+  },
+  "vmstat_cumulative": {
+    "pswpout": 6,
+    "oom_kill": 3
+  },
+  "limits": [
+    "Checks use scripted local model responses; they do not establish universal task quality or savings.",
+    "Earlier measured response savings are per fixture, not total conversation savings.",
+    "Reading all retained text still consumes its full token cost plus pagination overhead.",
+    "Original conversations and current or interrupted reasoning remain; retained source references have expiry and size limits."
+  ],
+  "live_web_recheck": {
+    "date": "2026-10-25T22:47:50.903657+00:00",
+    "source_sha256": "865b539ccf8122b02f994096ca61a489edb0b12b2d6bbe3c19e19d3e867b043d",
+    "result": {
+      "passed": true,
+      "path": "OMP Registry -> router /tools -> web worker; WebUI /tools",
+      "discord_message_sent": false,
+      "schema_loaded": true,
+      "calls": [
+        {
+          "tool": "internet_search",
+          "action": "read",
+          "chars": 1951,
+          "bytes": 1975,
+          "seconds": 0.9055,
+          "next_offset": null,
+          "next": {
+            "page": 1,
+            "offset": 5
+          },
+          "matches": 0
+        },
+        {
+          "tool": "internet_search",
+          "action": "read",
+          "chars": 1837,
+          "bytes": 1849,
+          "seconds": 0.003,
+          "next_offset": null,
+          "next": {
+            "page": 2,
+            "offset": 0
+          },
+          "matches": 0
+        },
+        {
+          "tool": "web_read",
+          "action": "read",
+          "chars": 2607,
+          "bytes": 2631,
+          "seconds": 1.2047,
+          "next_offset": 2163,
+          "next": null,
+          "matches": 0
+        },
+        {
+          "tool": "web_read",
+          "action": "read",
+          "chars": 2613,
+          "bytes": 2618,
+          "seconds": 0.0059,
+          "next_offset": 4293,
+          "next": null,
+          "matches": 0
+        },
+        {
+          "tool": "web_read",
+          "action": "find",
+          "chars": 1141,
+          "bytes": 1141,
+          "seconds": 0.0045,
+          "next_offset": null,
+          "next": null,
+          "matches": 2
+        },
+        {
+          "tool": "web_read",
+          "action": "links",
+          "chars": 889,
+          "bytes": 889,
+          "seconds": 0.0028,
+          "next_offset": null,
+          "next": null,
+          "matches": 0
+        },
+        {
+          "tool": "web_read",
+          "action": "read",
+          "chars": 4909,
+          "bytes": 4938,
+          "seconds": 0.0046,
+          "next_offset": 4216,
+          "next": null,
+          "matches": 0
+        }
+      ],
+      "changed_version_rejected": true,
+      "webui_matches_omp": true,
+      "before": {
+        "available_kib": 8179380,
+        "pswpout": 6
+      },
+      "after": {
+        "available_kib": 8121008,
+        "pswpout": 6
+      },
+      "swapout_delta_pages": 0
+    },
+    "production_code_changes": false,
+    "live_bot_restarted": false,
+    "note": "Initial transient test launcher could not read its private upload; installed the same verifier in its bot-owned temporary directory and reran successfully. No production service change."
+  }
+}

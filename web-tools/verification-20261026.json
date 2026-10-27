@@ -1,0 +1,533 @@
+{
+  "date": "2026-10-26",
+  "status": "deployed and verified",
+  "module_sha256": "86f27fc3a82561f753ddc9297c58067ce4d8fbfd730ae82edd2f8d16ff62bb47",
+  "baseline_sha256": "c420e37deaf3577d1a68b6c3e209e0671149870a881abbd5ba3c372a5f73ffff",
+  "changes": {
+    "search_default_results": 5,
+    "search_default_snippet_chars": 200,
+    "search_reply_max_utf8_bytes": 6000,
+    "read_default_chars": 2400,
+    "read_max_chars": 6000,
+    "read_max_utf8_bytes": 10000,
+    "read_min_utf8_budget": 4096,
+    "default_read_links": 0,
+    "source_cache_entries": 16,
+    "source_cache_max_chars_per_page": 200000,
+    "cache_storage": "process RAM; no new disk cache",
+    "snapshot_version": "content + links + source URL; survives omitted fetch options while cache remains",
+    "query_without_action": "find; explicit conflicting action returns an error",
+    "default_rendering": "unchanged; HTML rendered",
+    "model_context_capacity": "unchanged",
+    "system_prompt": "unchanged",
+    "compaction_threshold": "unchanged"
+  },
+  "token_measurements": {
+    "tokenizer": "installed Strata pack, qwen35 byte BPE; parse_special=False",
+    "sha256": {
+      "vocab.json": "4ba64f0332abcfb0b600b7df1537d1e836e68009d5fb7cdb77339738dc6365c4",
+      "merges.txt": "4ba698529766c7a2f5052083ea10cdf2485577f5237a332ee291054eb11e3332",
+      "token_type.json": "5088c8c298fc06af8382ddb3b76c888703ac2634e82263b97eedcc2ad202738b"
+    },
+    "cases": [
+      {
+        "case": "page_limit_2400",
+        "before_tokens": 998,
+        "after_tokens": 456,
+        "reduction_percent": 54.31
+      },
+      {
+        "case": "page_limit_6000",
+        "before_tokens": 2048,
+        "after_tokens": 1506,
+        "reduction_percent": 26.46
+      },
+      {
+        "case": "page_limit_18000",
+        "before_tokens": 5381,
+        "after_tokens": 1506,
+        "reduction_percent": 72.01
+      },
+      {
+        "case": "search_long_urls",
+        "before_tokens": 2733,
+        "after_tokens": 782,
+        "reduction_percent": 71.39
+      },
+      {
+        "case": "tool_schemas",
+        "before_tokens": 1295,
+        "after_tokens": 1147,
+        "reduction_percent": 11.43
+      },
+      {
+        "case": "python_en_default",
+        "before_tokens": 1723,
+        "after_tokens": 845,
+        "reduction_percent": 50.96
+      },
+      {
+        "case": "python_en_large_request",
+        "before_tokens": 5114,
+        "after_tokens": 1574,
+        "reduction_percent": 69.22
+      },
+      {
+        "case": "python_ko_default",
+        "before_tokens": 1929,
+        "after_tokens": 1004,
+        "reduction_percent": 47.95
+      },
+      {
+        "case": "python_ko_large_request",
+        "before_tokens": 5606,
+        "after_tokens": 1769,
+        "reduction_percent": 68.44
+      },
+      {
+        "case": "kernel_text_default",
+        "before_tokens": 1565,
+        "after_tokens": 1010,
+        "reduction_percent": 35.46
+      },
+      {
+        "case": "kernel_text_large_request",
+        "before_tokens": 4203,
+        "after_tokens": 1561,
+        "reduction_percent": 62.86
+      },
+      {
+        "case": "pwn2own_js_default",
+        "before_tokens": 1340,
+        "after_tokens": 1329,
+        "reduction_percent": 0.82
+      },
+      {
+        "case": "pwn2own_js_large_request",
+        "before_tokens": 1340,
+        "after_tokens": 1329,
+        "reduction_percent": 0.82
+      },
+      {
+        "case": "search_english",
+        "before_tokens": 727,
+        "after_tokens": 484,
+        "reduction_percent": 33.43
+      },
+      {
+        "case": "search_pdf",
+        "before_tokens": 718,
+        "after_tokens": 452,
+        "reduction_percent": 37.05
+      },
+      {
+        "case": "search_korean",
+        "before_tokens": 936,
+        "after_tokens": 680,
+        "reduction_percent": 27.35
+      }
+    ]
+  },
+  "frozen_public_source_checks": [
+    {
+      "capture": "fetch_public",
+      "seconds": 0.099,
+      "ok": true
+    },
+    {
+      "capture": "render_public",
+      "seconds": 1.392,
+      "ok": true
+    },
+    {
+      "case": "python_en",
+      "old_success": true,
+      "new_success": true,
+      "find_matches": 3,
+      "source_capped": false,
+      "next_offset": 2163,
+      "continued": true,
+      "same_extracted_source": true,
+      "source_chars_old": 56881,
+      "source_chars_new": 56881
+    },
+    {
+      "capture": "fetch_public",
+      "seconds": 0.028,
+      "ok": true
+    },
+    {
+      "capture": "render_public",
+      "seconds": 0.858,
+      "ok": true
+    },
+    {
+      "case": "python_ko",
+      "old_success": true,
+      "new_success": true,
+      "find_matches": 3,
+      "source_capped": false,
+      "next_offset": 2181,
+      "continued": true,
+      "same_extracted_source": true,
+      "source_chars_old": 49975,
+      "source_chars_new": 49975
+    },
+    {
+      "capture": "fetch_public",
+      "seconds": 0.206,
+      "ok": true
+    },
+    {
+      "case": "kernel_text",
+      "old_success": true,
+      "new_success": true,
+      "find_matches": 3,
+      "source_capped": false,
+      "next_offset": 2133,
+      "continued": true,
+      "same_extracted_source": true,
+      "source_chars_old": 53460,
+      "source_chars_new": 53460
+    },
+    {
+      "capture": "fetch_public",
+      "seconds": 0.848,
+      "ok": true
+    },
+    {
+      "capture": "render_public",
+      "seconds": 10.105,
+      "ok": true
+    },
+    {
+      "case": "pwn2own_js",
+      "old_success": true,
+      "new_success": true,
+      "find_matches": 2,
+      "source_capped": false,
+      "next_offset": null,
+      "same_extracted_source": true,
+      "source_chars_old": 2020,
+      "source_chars_new": 2020
+    },
+    {
+      "capture": "local_search",
+      "seconds": 0.776,
+      "ok": true
+    },
+    {
+      "case": "search_english",
+      "success": true,
+      "returned": 5,
+      "next": {
+        "page": 1,
+        "offset": 5
+      },
+      "backend": "searxng",
+      "error": null
+    },
+    {
+      "capture": "local_search",
+      "seconds": 0.777,
+      "ok": true
+    },
+    {
+      "case": "search_pdf",
+      "success": true,
+      "returned": 5,
+      "next": {
+        "page": 1,
+        "offset": 5
+      },
+      "backend": "searxng",
+      "error": null
+    },
+    {
+      "capture": "local_search",
+      "seconds": 0.779,
+      "ok": true
+    },
+    {
+      "case": "search_korean",
+      "success": true,
+      "returned": 5,
+      "next": {
+        "page": 1,
+        "offset": 5
+      },
+      "backend": "searxng",
+      "error": null
+    }
+  ],
+  "regressions": {
+    "passed": true,
+    "cases": [
+      {
+        "case": "page_limit_2400",
+        "before_chars": 6501,
+        "after_chars": 2600,
+        "before_bytes": 6501,
+        "after_bytes": 2600
+      },
+      {
+        "case": "page_limit_6000",
+        "before_chars": 10101,
+        "after_chars": 6200,
+        "before_bytes": 11413,
+        "after_bytes": 7512
+      },
+      {
+        "case": "page_limit_18000",
+        "before_chars": 22102,
+        "after_chars": 6200,
+        "before_bytes": 27350,
+        "after_bytes": 7512
+      },
+      {
+        "case": "search_long_urls",
+        "before_chars": 18917,
+        "after_chars": 5298,
+        "before_bytes": 18917,
+        "after_bytes": 5298
+      },
+      {
+        "case": "tool_schemas",
+        "before_chars": 4846,
+        "after_chars": 3980,
+        "before_bytes": 4848,
+        "after_bytes": 3980
+      }
+    ],
+    "reassembled_pages": 38,
+    "search_results_preserved": 20,
+    "links_preserved": 30,
+    "source_versions_enforced": true,
+    "snapshot_options_optional": true,
+    "query_implies_find": true,
+    "static_and_rendered_paths": true,
+    "public_url_rejections": 5,
+    "cache_storage": "process RAM"
+  },
+  "live_path": {
+    "passed": true,
+    "path": "OMP Registry -> router /tools -> web worker; WebUI /tools",
+    "discord_message_sent": false,
+    "schema_loaded": true,
+    "calls": [
+      {
+        "tool": "internet_search",
+        "action": "read",
+        "chars": 1992,
+        "bytes": 2016,
+        "seconds": 1.1556,
+        "next_offset": null,
+        "next": {
+          "page": 1,
+          "offset": 5
+        },
+        "matches": 0
+      },
+      {
+        "tool": "internet_search",
+        "action": "read",
+        "chars": 858,
+        "bytes": 864,
+        "seconds": 0.0027,
+        "next_offset": null,
+        "next": {
+          "page": 2,
+          "offset": 0
+        },
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 2607,
+        "bytes": 2631,
+        "seconds": 1.2189,
+        "next_offset": 2163,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 2613,
+        "bytes": 2618,
+        "seconds": 0.0053,
+        "next_offset": 4293,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "find",
+        "chars": 1141,
+        "bytes": 1141,
+        "seconds": 0.0047,
+        "next_offset": null,
+        "next": null,
+        "matches": 2
+      },
+      {
+        "tool": "web_read",
+        "action": "links",
+        "chars": 888,
+        "bytes": 888,
+        "seconds": 0.0048,
+        "next_offset": null,
+        "next": null,
+        "matches": 0
+      },
+      {
+        "tool": "web_read",
+        "action": "read",
+        "chars": 4909,
+        "bytes": 4938,
+        "seconds": 0.0037,
+        "next_offset": 4216,
+        "next": null,
+        "matches": 0
+      }
+    ],
+    "changed_version_rejected": true,
+    "webui_matches_omp": true,
+    "before": {
+      "available_kib": 8305816,
+      "pswpout": 6
+    },
+    "after": {
+      "available_kib": 8267996,
+      "pswpout": 6
+    },
+    "swapout_delta_pages": 0
+  },
+  "real_model": {
+    "calls": [
+      {
+        "tool": "web_read",
+        "args": {
+          "url": "https://docs.python.org/3/library/asyncio-task.html",
+          "query": "KeyboardInterrupt TaskGroup",
+          "max_matches": 5,
+          "context_lines": 12
+        },
+        "chars": 269,
+        "bytes": 269,
+        "seconds": 0.927,
+        "success": true
+      },
+      {
+        "tool": "web_read",
+        "args": {
+          "ref": "rde4a-1",
+          "query": "TaskGroup",
+          "action": "find",
+          "max_matches": 5,
+          "context_lines": 6
+        },
+        "chars": 2802,
+        "bytes": 2813,
+        "seconds": 0.006,
+        "success": true
+      },
+      {
+        "tool": "web_read",
+        "args": {
+          "action": "find",
+          "context_lines": 10,
+          "max_matches": 5,
+          "query": "ExceptionGroup",
+          "ref": "rde4a-1"
+        },
+        "chars": 2787,
+        "bytes": 2789,
+        "seconds": 0.004,
+        "success": true
+      },
+      {
+        "tool": "web_read",
+        "args": {
+          "action": "find",
+          "context_lines": 14,
+          "max_matches": 2,
+          "query": "cancels all remaining tasks",
+          "ref": "rde4a-1"
+        },
+        "chars": 269,
+        "bytes": 269,
+        "seconds": 0.004,
+        "success": true
+      },
+      {
+        "tool": "web_read",
+        "args": {
+          "ref": "rde4a-1",
+          "offset": 13600,
+          "char_limit": 4000
+        },
+        "chars": 4192,
+        "bytes": 4198,
+        "seconds": 0.005,
+        "success": true
+      }
+    ],
+    "discord_message_sent": false,
+    "path": "OmpSession -> real Flash -> Registry -> router -> web worker",
+    "rounds": 6,
+    "tools": 5,
+    "context": {
+      "tokens": 7829,
+      "contextWindow": 131072,
+      "percent": 5.973052978515625
+    },
+    "elapsed_seconds": 41.08,
+    "checks": {
+      "read_actual_source": true,
+      "web_replies_bounded": true,
+      "all_calls_successful": true,
+      "names_original_exception": true
+    },
+    "passed": true
+  },
+  "answer_assessment": "Correct core fact: TaskGroup cancels and awaits remaining tasks, then re-raises the original KeyboardInterrupt instead of forming an exception group.",
+  "bugs_found_in_model_trials": [
+    "Pinned full-mode reads failed if a later call omitted mode/backend. Snapshot lookup now uses URL and returned version.",
+    "A query without action was silently ignored, repeating the first page. Query now implies find."
+  ],
+  "deployment": {
+    "original_discord_history_restored": true,
+    "history_prefix_verified": true,
+    "models_restarted_by_deploy": false,
+    "hermes_state": "inactive",
+    "web_worker_memory_mib": 53.13,
+    "web_worker_swap_bytes": 0,
+    "system_swapout_delta_pages": 0,
+    "oom_delta": 0,
+    "available_gib_after_model_trials": 7.921
+  },
+  "limits": [
+    "Percentages compare individual responses on frozen public inputs, not total task context or every site.",
+    "First-page defaults return less text and fewer hits; all retained source text/results remain pageable. Reading everything adds pagination overhead.",
+    "Exact phrase search can return no matches; the model still decides when to refine or read more.",
+    "Old conversation content is not retroactively compressed.",
+    "Raw source extraction limits (200,000 characters, 60 links) are unchanged and truncation is indicated.",
+    "Cached snapshots expire, can be evicted, and disappear on worker cleanup/restart.",
+    "Actual Discord transport and 27B model inference were not replayed; the OMP Registry/router path and a real Flash session were exercised.",
+    "Native bash/read output limits and Codex/host response formatting remain separate work."
+  ],
+  "reproduce": [
+    "verify_search.py BASELINE.py evo_web.py OUTPUT",
+    "verify_public.py BASELINE.py evo_web.py OUTPUT",
+    "measure_tokens.py STRATA/tools PACK/tokenizer OUTPUT",
+    "verify_live.py OUTPUT",
+    "verify_model.py OUTPUT"
+  ],
+  "related_followup": {
+    "report": "../omp-migration/output-budget-verification.json",
+    "status": "Long host and native shell output previews were subsequently deployed and verified separately.",
+    "web_module_hash_rechecked": true
+  }
+}
