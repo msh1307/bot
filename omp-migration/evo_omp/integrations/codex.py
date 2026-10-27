@@ -1,5 +1,6 @@
 """Owner Discord -> Windows Codex app-server; bounded progress in RAM."""
 import asyncio
+import base64
 import io
 import json
 import ntpath
@@ -681,6 +682,84 @@ class Bridge:
             'pending_requests': [], 'conversation_view': {'source': 'stored_history_tail', 'complete_history': False,
                 'live_status_available': False, 'description': 'Stored recent messages; send loads this same chat in the app. Pending live requests are unavailable until loaded.'}}
 
+    async def read_history(self, thread_id, cursor=None, check=None):
+        """Page visible messages, including long answers, without loading a chat."""
+        native_cursor, expected_turn, index, offset = None, None, 0, 0
+        if cursor is not None:
+            try:
+                if not isinstance(cursor, str) or len(cursor) > 4096 or not cursor.startswith('h1:'):
+                    raise ValueError()
+                data = json.loads(base64.urlsafe_b64decode(cursor[3:] + '=' * (-len(cursor[3:]) % 4)))
+                saved_id, native_cursor, expected_turn, index, offset = data
+                if (saved_id != thread_id or not isinstance(expected_turn, (str, type(None)))
+                        or not isinstance(native_cursor, (str, type(None)))
+                        or type(index) is not int or type(offset) is not int or min(index, offset) < 0):
+                    raise ValueError()
+            except (ValueError, TypeError, UnicodeError):
+                raise ValueError('Use next_cursor from read of this same chat') from None
+        params = {'threadId': thread_id, 'limit': 1, 'sortDirection': 'desc', 'itemsView': 'summary'}
+        if native_cursor is not None:
+            params['cursor'] = native_cursor
+        metadata, page = await asyncio.gather(
+            self.rpc('thread/read', {'threadId': thread_id, 'includeTurns': False}, check=check),
+            self.rpc('thread/turns/list', params, check=check))
+        thread = metadata['thread']
+        turns = page.get('data', [])
+        turn = turns[0] if turns else {}
+        if expected_turn is not None and expected_turn != turn.get('id'):
+            raise ValueError('History changed while paging; read again without cursor')
+        messages = []
+        for item in turn.get('items', []):
+            kind = item.get('type')
+            if kind == 'agentMessage':
+                text = item.get('text', '')
+            elif kind == 'userMessage':
+                text = '\n'.join(c.get('text', '') for c in item.get('content', []) if c.get('type') == 'text')
+            else:
+                continue
+            if text:
+                # Redact before slicing so paging cannot expose parts of a secret.
+                messages.append({'role': 'user' if kind == 'userMessage' else 'assistant',
+                                 'phase': item.get('phase'), 'text': clean(text)})
+        if index > len(messages) or (index < len(messages) and offset > len(messages[index]['text'])):
+            raise ValueError('History changed while paging; read again without cursor')
+        recent, room = [], 6000
+        while index < len(messages) and room and len(recent) < 8:
+            message = messages[index]
+            text = message['text'][offset:offset + room]
+            end = offset + len(text)
+            recent.append(dict(message, text=text, continued=offset > 0, truncated=end < len(message['text'])))
+            room -= len(text)
+            if end < len(message['text']):
+                offset = end
+                break
+            index, offset = index + 1, 0
+        if index < len(messages):
+            continuation = [thread_id, native_cursor, turn['id'], index, offset]
+        elif page.get('nextCursor'):
+            continuation = [thread_id, page['nextCursor'], None, 0, 0]
+        else:
+            continuation = None
+        next_cursor = ('h1:' + base64.urlsafe_b64encode(json.dumps(continuation).encode()).decode().rstrip('=')
+                       if continuation is not None else None)
+        result = {'thread_id': thread_id, 'title': clean(thread.get('name') or thread.get('title') or ''),
+            'cwd': thread.get('cwd'), 'source': 'stored_history', 'turn_id': turn.get('id'),
+            'turn_status': turn.get('status'), 'recent_messages': recent, 'next_cursor': next_cursor,
+            'history_order': 'newest turn first; messages within each turn are chronological',
+            'gui_attached': False, 'live_status_available': False}
+        if cursor is None:
+            try:
+                live = await self.desktop({'action': 'status', 'thread_id': thread_id}, check=check)
+                result.update({key: live[key] for key in ('gui_attached', 'runtime_status', 'runtime_flags',
+                    'phase', 'pending_requests', 'activity') if key in live})
+                result['live_status_available'] = True
+            except DesktopError as error:
+                if error.code != 'no_gui_owner':
+                    result['live_error'] = clean(str(error))[:350]
+            except RuntimeError as error:
+                result['live_error'] = clean(str(error))[:350]
+        return result
+
     async def project_catalog(self):
         projects, cursor = [], None
         for _ in range(5):
@@ -981,6 +1060,13 @@ class Bridge:
     async def action(self, args, channel_id, check=None):
         check_request(check)
         if args.get('action') == 'read':
+            thread_id = args.get('thread_id')
+            if not thread_id and args.get('job_id'):
+                job = self.jobs.get(args['job_id'], {})
+                if job.get('source') == 'desktop':
+                    thread_id = job.get('thread_id')
+            if thread_id:
+                return await self.read_history(thread_id, args.get('cursor'), check=check)
             args = dict(args, action='status')
         action = args.get('action', 'status')
         if action in ('file_list', 'file_read', 'exec'):
@@ -1195,8 +1281,9 @@ def register(ctx):
             'Project chats persist; temporary chats disappear when the task server restarts, but files remain. '
             'These are separate chats, not subagents. No GUI tab is opened automatically. '
             'projects lists local project names, IDs and roots; models lists model IDs. '
-            'list returns chat/job metadata. Use exact thread_id for any existing chat and job_id for bridge tasks. '
-            'read/status returns recent messages, progress, results and attention reasons, even during a turn. '
+            'Find existing chats with list(search), follow next_cursor for more, then use the returned thread_id; do not ask the owner for IDs. '
+            'read pages visible user/assistant messages (6000 characters per call, newest turn first); follow its next_cursor for older/remaining text. '
+            'status returns the current tail, progress and pending questions, even during a turn. '
             'Closed chats are read from stored history without opening; send loads that same chat in the app before submitting. '
             'For files on that PC, use file_list(path, offset, limit, optional search) or '
             'file_read(path, start_line, limit): paged text/source/report reads, no Codex model turn or SSH. '
@@ -1227,7 +1314,7 @@ def register(ctx):
             'timeout_ms': {'type': 'integer', 'minimum': 100, 'maximum': 15000, 'description': 'exec: maximum process duration, default 10000 ms.'},
             'thread_id': {'type': 'string', 'description': 'Exact existing chat ID from list, open or closed; for read/status/send/answer/stop. Use thread_id, not job_id.'},
             'search': {'type': 'string', 'maxLength': 200, 'description': 'Optional chat title filter for list, or case-insensitive filename substring for file_list.'},
-            'cursor': {'type': 'string', 'description': 'next_cursor from list or projects for another page.'},
+            'cursor': {'type': 'string', 'maxLength': 4096, 'description': 'next_cursor from list/projects/read for another page of the same query/chat.'},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200, 'description': 'list/projects: at most 12 (default 8/12). file_list: entries per page (default 80). file_read: lines (default/max 200, also limited to 12000 characters).'},
             'model': {'type': 'string', 'description': 'Optional exact model ID from models; default Windows Codex setting.'}},
             'required': ['action'], 'additionalProperties': False}}, codex_task)
