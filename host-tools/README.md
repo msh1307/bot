@@ -9,3 +9,5 @@
 Install broker/runner under `/usr/local/lib/evo-host/`; use `evo-host.service`.
 Copy `policy.example.json` to private `/etc/evo-host/policy.json` and adapt locally.
 Integration: [host.py](../omp-migration/evo_omp/integrations/host.py).
+
+Windows Codex bridge sources are in `codex-bridge/`. They use the existing private server settings, token and certificate. `Update-DesktopBridge.ps1` updates an idle bridge without stopping the GUI. `Verify-Desktop-*.js` and `Verify-Snapshot-Tail.js` check protocol handling without sending live messages.

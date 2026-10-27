@@ -65,6 +65,12 @@ def check_request(check):
         check()
 
 
+class DesktopError(RuntimeError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def clean(text):
     from ..context import redact_sensitive_text
     return redact_sensitive_text(str(text))
@@ -189,7 +195,7 @@ class Bridge:
             except (ValueError, UnicodeDecodeError):
                 raise RuntimeError('Desktop endpoint unavailable; check the Windows server status')
             if not result.get('success'):
-                raise RuntimeError(clean(result.get('error', 'Desktop request failed'))[:350])
+                raise DesktopError(result.get('error_code'), clean(result.get('error', 'Desktop request failed'))[:350])
             # Includes title/answer from the GUI, so redact before a model or Discord sees it.
             result.pop('success', None)
             def redact(value):
@@ -581,9 +587,27 @@ class Bridge:
             if 'wake' in args and not isinstance(args['wake'], bool):
                 raise ValueError('wake must be true or false')
             action, thread_id = args['action'], args['thread_id']
-            reply = await self.desktop({'action': action, 'thread_id': thread_id,
+            request = {'action': action, 'thread_id': thread_id,
                 **({'prompt': args.get('prompt')} if action == 'send' else {}),
-                **({k: args.get(k) for k in ('request_id', 'answers')} if action == 'answer' else {})}, check=check)
+                **({k: args.get(k) for k in ('request_id', 'answers')} if action == 'answer' else {})}
+            try:
+                reply = await self.desktop(request, check=check)
+            except DesktopError as error:
+                # no_gui_owner is returned before any instruction is submitted.
+                # Never replay after a timeout, disconnected IPC or ambiguous error.
+                if error.code != 'no_gui_owner':
+                    raise
+                if action == 'status':
+                    return await self.stored_history(thread_id)
+                if action != 'send':
+                    raise
+                prompt = args.get('prompt')
+                if not isinstance(prompt, str) or not 1 <= len(prompt) <= 16000:
+                    raise ValueError('Provide prompt (1–16000 characters)')
+                # Validate a real stored ID before asking the GUI to load it.
+                await self.rpc('thread/read', {'threadId': thread_id, 'includeTurns': False}, check=check)
+                await self.desktop({'action': 'open', 'thread_id': thread_id}, check=check)
+                reply = await self.desktop(request, check=check)
             if action not in ('send', 'answer'):
                 return reply
             job = next((j for j in self.jobs.values()
@@ -611,6 +635,51 @@ class Bridge:
             return dict(reply, job_id=job['job_id'], wake=bool(job.get('_wake')),
                 notification=('Questions/results resume this owner conversation when it is idle; do not poll continuously'
                               if job.get('_wake') else 'Completion/input notices go to Discord; EVO is not automatically resumed'))
+
+    async def stored_history(self, thread_id):
+        """Read a small stored tail without acquiring/resuming a GUI conversation."""
+        thread = (await self.rpc('thread/read', {'threadId': thread_id, 'includeTurns': False}))['thread']
+        page = await self.rpc('thread/turns/list', {'threadId': thread_id, 'limit': 3,
+            'sortDirection': 'desc', 'itemsView': 'summary'})
+        turns = page.get('data', [])
+        messages = []
+        for turn in reversed(turns):
+            for item in turn.get('items', []):
+                kind = item.get('type')
+                if kind == 'agentMessage':
+                    text = item.get('text', '')
+                elif kind == 'userMessage':
+                    text = '\n'.join(c.get('text', '') for c in item.get('content', []) if c.get('type') == 'text')
+                else:
+                    continue
+                if not text:
+                    continue
+                messages.append({'turn_id': turn['id'], 'role': 'user' if kind == 'userMessage' else 'assistant',
+                    'phase': item.get('phase'), 'text': clean(text[:2000]), 'truncated': len(text) > 2000})
+        latest_user = next((m for m in reversed(messages) if m['role'] == 'user'), None)
+        selected = messages[-8:]
+        if latest_user is not None and not any(m is latest_user for m in selected):
+            selected = [latest_user, *selected[-7:]]
+        recent, budget = [], 6000
+        reserved = len(latest_user['text']) if latest_user is not None else 0
+        for message in reversed(selected):
+            room = budget if message is latest_user else max(0, budget - reserved)
+            if not room:
+                continue
+            text = message['text'][:room]
+            recent.insert(0, dict(message, text=text, truncated=message['truncated'] or len(text) < len(message['text'])))
+            budget -= len(text)
+            if message is latest_user:
+                reserved = 0
+        latest = turns[0] if turns else {}
+        error = clean((latest.get('error') or {}).get('message', ''))[:500]
+        return {'thread_id': thread_id, 'title': thread.get('name') or thread.get('title'), 'cwd': thread.get('cwd'),
+            'source': 'stored_history', 'gui_attached': False, 'runtime_status': thread.get('status', {}).get('type'),
+            'turn_id': latest.get('id'), 'turn_status': latest.get('status'), 'phase': latest.get('status', 'idle'),
+            'recent_messages': recent, 'answer': next((m['text'] for m in reversed(recent) if m['role'] == 'assistant'), ''),
+            'answer_is_partial': latest.get('status') == 'inProgress', 'turn_error': error or None,
+            'pending_requests': [], 'conversation_view': {'source': 'stored_history_tail', 'complete_history': False,
+                'live_status_available': False, 'description': 'Stored recent messages; send loads this same chat in the app. Pending live requests are unavailable until loaded.'}}
 
     async def project_catalog(self):
         projects, cursor = [], None
@@ -952,7 +1021,9 @@ class Bridge:
                     update = by_id.get(thread['thread_id'], {})
                     if update.get('gui_attached'):
                         thread.update(update)
-                    elif update.get('error_code') != 'no_gui_owner':
+                    elif update.get('error_code') == 'no_gui_owner':
+                        thread['history_available'] = True
+                    else:
                         thread['gui_error'] = update.get('error', 'GUI inspection unavailable')
             except Exception as error:
                 desktop_error = clean(str(error))[:350]
@@ -961,7 +1032,7 @@ class Bridge:
                 **({'desktop_error': desktop_error} if desktop_error else {})}
         if args.get('thread_id'):
             if action not in ('status', 'send', 'answer', 'stop'):
-                raise ValueError('thread_id is for status/send/answer/stop of an existing GUI thread')
+                raise ValueError('thread_id is for status/send/answer/stop of an existing chat')
             return await self.desktop_action(args, channel_id, check=check)
         if action == '_start':
             prompt = args.get('prompt', '')
@@ -1025,7 +1096,12 @@ class Bridge:
         job = self.jobs[ident]
         if job.get('source') == 'desktop':
             if action == 'status':
-                reply = await self.status(job)
+                try:
+                    reply = await self.status(job)
+                except DesktopError as error:
+                    if error.code != 'no_gui_owner':
+                        raise
+                    return dict(await self.stored_history(job['thread_id']), job_id=ident)
                 if job['state'] in ACTIVE: self.monitor_desktop(job)
                 return reply
             return await self.desktop_action(dict(args, thread_id=job['thread_id']), channel_id, check=check)
@@ -1119,8 +1195,9 @@ def register(ctx):
             'Project chats persist; temporary chats disappear when the task server restarts, but files remain. '
             'These are separate chats, not subagents. No GUI tab is opened automatically. '
             'projects lists local project names, IDs and roots; models lists model IDs. '
-            'list returns chat/job metadata. Use exact thread_id for existing GUI chats and job_id for bridge tasks. '
+            'list returns chat/job metadata. Use exact thread_id for any existing chat and job_id for bridge tasks. '
             'read/status returns recent messages, progress, results and attention reasons, even during a turn. '
+            'Closed chats are read from stored history without opening; send loads that same chat in the app before submitting. '
             'For files on that PC, use file_list(path, offset, limit, optional search) or '
             'file_read(path, start_line, limit): paged text/source/report reads, no Codex model turn or SSH. '
             'read is chat history, not a file reader. '
@@ -1148,7 +1225,7 @@ def register(ctx):
             'command': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1, 'maxItems': 64, 'description': 'exec: argv, e.g. ["git", "status", "--short"]. No interpolation or implicit shell.'},
             'cwd': {'type': 'string', 'maxLength': 4096, 'description': 'exec: optional absolute Windows working directory; defaults to server working directory.'},
             'timeout_ms': {'type': 'integer', 'minimum': 100, 'maximum': 15000, 'description': 'exec: maximum process duration, default 10000 ms.'},
-            'thread_id': {'type': 'string', 'description': 'Exact existing GUI chat ID from list; for read/status/send/answer/stop. GUI chats need thread_id, not job_id.'},
+            'thread_id': {'type': 'string', 'description': 'Exact existing chat ID from list, open or closed; for read/status/send/answer/stop. Use thread_id, not job_id.'},
             'search': {'type': 'string', 'maxLength': 200, 'description': 'Optional chat title filter for list, or case-insensitive filename substring for file_list.'},
             'cursor': {'type': 'string', 'description': 'next_cursor from list or projects for another page.'},
             'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200, 'description': 'list/projects: at most 12 (default 8/12). file_list: entries per page (default 80). file_read: lines (default/max 200, also limited to 12000 characters).'},

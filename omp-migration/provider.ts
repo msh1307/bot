@@ -26,8 +26,8 @@ const TOOL_PROSE: Record<string, any> = {
     "description": "EVO host outside bwrap; owner Discord only. Workspace work uses bash. Unprivileged paths may be masked: check execution_context. root requires fresh Allow Once per command; use run_as, not sudo. Changes persist; never print credentials. Jobs: 512MiB/no swap, max120s; children end with job."
   },
   "codex_task": {
-    "schema_sha256": "939f3076ceb5f275268b77e470c0e31ee939c8121e6fb98b6dc4953b42879628",
-    "description": "Owner Windows Codex through Discord. Scheduled owner checks may list/read/status/send/answer and read files; they cannot start/stop chats or execute commands. Interactive turns may also use new/start cards and exec. answer uses real owner replies; execution approvals and secrets stay in desktop. Completion is notified here.",
+    "schema_sha256": "0c9a768bb40479674a922b0eb0bd55bc8c8812605ff29c05a47602353fb660d8",
+    "description": "Owner Windows Codex through Discord. read/status reads a recent tail even for closed chats; send loads that same chat in the app if needed. Scheduled checks may list/read/status/send/answer and read files, not start/stop chats or exec. Interactive turns also have new/start cards and exec. answer uses real replies; approvals/secrets stay in desktop. Completion notified here.",
     "properties": {
       "project": "new/start: project ID or unique exact name; owner may change the selection card.",
       "request_id": "answer: exact pending ID from read/status.",
@@ -39,7 +39,7 @@ const TOOL_PROSE: Record<string, any> = {
       "command": "exec: argv, e.g. [\"git\",\"status\"]. Shell syntax requires an explicit shell executable.",
       "cwd": "exec: absolute Windows directory; default server cwd.",
       "timeout_ms": "exec duration; default 10000ms.",
-      "thread_id": "Existing GUI chat ID from list; use this instead of job_id for read/status/send/answer/stop.",
+      "thread_id": "Existing chat ID from list, open or closed; use instead of job_id for read/status/send/answer/stop.",
       "search": "list: title filter. file_list: case-insensitive filename substring.",
       "cursor": "Returned next_cursor for list/projects.",
       "limit": "list/projects: max12, defaults8/12. file_list: default80 entries. file_read: default/max200 lines, 12000 chars.",

@@ -87,6 +87,16 @@
 !/host-tools/evo-host.service
 !/host-tools/policy.example.json
 !/host-tools/README.md
+!/host-tools/codex-bridge/
+/host-tools/codex-bridge/*
+!/host-tools/codex-bridge/server.js
+!/host-tools/codex-bridge/desktop-ipc.js
+!/host-tools/codex-bridge/snapshot-tail.js
+!/host-tools/codex-bridge/Launcher.cs
+!/host-tools/codex-bridge/Update-DesktopBridge.ps1
+!/host-tools/codex-bridge/Verify-Desktop-Actions.js
+!/host-tools/codex-bridge/Verify-Desktop-Frames.js
+!/host-tools/codex-bridge/Verify-Snapshot-Tail.js
 
 __pycache__/
 *.py[cod]

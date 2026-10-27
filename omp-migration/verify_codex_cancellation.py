@@ -217,7 +217,7 @@ async def owner_scope():
 
     codex.BRIDGE = SimpleNamespace(action=action)
     try:
-        for turn in (context.Turn('77', user='1'), context.Turn('77', cron=True),
+        for turn in (context.Turn('77', user='1'), context.Turn('77', cron=True, user='1'),
                      context.Turn('77', platform='web'), context.Turn('77')):
             if turn.platform == 'discord' and turn.user == context.OWNER and not turn.cron:
                 turn.cancelled.set()
@@ -229,9 +229,18 @@ async def owner_scope():
             finally:
                 context.current.reset(token)
         assert not calls
+        token = context.current.set(context.Turn('77', cron=True))
+        try:
+            result = json.loads(await asyncio.to_thread(codex.codex_task,
+                {'action': 'send', 'thread_id': 'existing', 'prompt': 'authorized scheduled check'}))
+            assert result['success'] is True and len(calls) == 1
+            result = json.loads(await asyncio.to_thread(codex.codex_task, {'action': 'exec', 'command': ['whoami']}))
+            assert result['success'] is False and len(calls) == 1
+        finally:
+            context.current.reset(token)
     finally:
         codex.BRIDGE, codex.CLIENT, codex.LOOP, context.client = previous
-    print('PASS Codex control remains restricted to a live owner Discord request')
+    print('PASS owner Discord scope; scheduled sends allowed, scheduled exec denied')
 
 
 if __name__ == '__main__':
