@@ -26,9 +26,10 @@ const TOOL_PROSE: Record<string, any> = {
     "description": "EVO host outside bwrap; owner Discord only. Workspace work uses bash. Unprivileged paths may be masked: check execution_context. root requires fresh Allow Once per command; use run_as, not sudo. Changes persist; never print credentials. Jobs: 512MiB/no swap, max120s; children end with job."
   },
   "codex_task": {
-    "schema_sha256": "8a06ac86a52a5fb450dd6cae0d2b076fb8cb151a85158c6cfac71c4344bf481f",
-    "description": "Owner Windows Codex through Discord. Find chats with list(search), follow next_cursor, then use the returned thread_id without asking the owner for IDs. read pages visible history (6000 chars); follow next_cursor for remaining/older text. status shows live tail/questions. send(prompt) steers or continues that same chat, loading it in the app if closed. answer uses real replies; approvals/secrets stay in desktop. Scheduled checks allow list/read/status/send/answer and file reads, not start/stop/exec. Completion notified here.",
+    "schema_sha256": "6434ae4fa380595e60030d0a425bf449497036f6a4580ffce6111b06e07d4558",
+    "description": "Owner Windows servers through Discord. servers lists targets; keep server ID for its chats/files (default msh-desktop). Find chats with list(search), then use returned thread_id without asking the owner. read pages visible history (6000 chars); next_cursor reads remaining/older text. status shows live tail/questions. send(prompt) steers or continues that chat, loading it if closed. answer uses real replies; approvals/secrets stay in desktop. Scheduled checks allow servers/list/read/status/send/answer and file reads, not start/stop/exec. Completion notified here.",
     "properties": {
+      "server": "Server ID from servers; keep it for that server's chats/jobs/files. Omit for default.",
       "project": "new/start: project ID or unique exact name; owner may change the selection card.",
       "request_id": "answer: exact pending ID from read/status.",
       "wake": "GUI send/answer callbacks: true resumes EVO on questions/results, false disables. Omission keeps the setting; new jobs default false.",

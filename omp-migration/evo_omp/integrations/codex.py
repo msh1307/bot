@@ -20,46 +20,12 @@ OWNER = '543004181842362379'
 CONFIG = Path('/etc/evo-omp/codex-remote.json')
 STATE = Path('/run/evo-omp/codex-jobs.json')
 CLIENT = LOOP = BRIDGE = None
+SERVERS = {}
 ACTIVE = {'starting', 'running', 'waiting_for_approval', 'waiting_for_input', 'connection_lost'}
-PUBLIC_ACTIONS = ['new', 'projects', 'start', 'status', 'read', 'send', 'answer', 'stop', 'list', 'models',
+PUBLIC_ACTIONS = ['servers', 'new', 'projects', 'start', 'status', 'read', 'send', 'answer', 'stop', 'list', 'models',
                   'file_list', 'file_read', 'exec']
-SCHEDULED_ACTIONS = {'status', 'read', 'send', 'answer', 'list', 'models', 'projects',
+SCHEDULED_ACTIONS = {'servers', 'status', 'read', 'send', 'answer', 'list', 'models', 'projects',
                      'file_list', 'file_read'}
-
-# Fixed program: paths and paging are data, never interpolated shell source.
-READ_FILE = r'''
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-$p = $env:EVO_CODEX_READ_PATH
-$start = [int]$env:EVO_CODEX_READ_START
-$count = [int]$env:EVO_CODEX_READ_COUNT
-$info = [IO.FileInfo]::new($p)
-if (!$info.Exists) { throw 'File not found' }
-if ($info.Length -gt 16MB) { throw 'File exceeds 16 MiB; use exec to select the required section' }
-$reader = [IO.StreamReader]::new($p, [Text.Encoding]::UTF8, $true)
-try {
-    $n = 0
-    while ($n -lt $start - 1 -and !$reader.EndOfStream) { $null = $reader.ReadLine(); $n++ }
-    $text = [Text.StringBuilder]::new()
-    $partial = $false
-    for ($i = 0; $i -lt $count -and !$reader.EndOfStream; $i++) {
-        $line = $reader.ReadLine(); $n++
-        if ($line.Contains([char]0)) { throw 'Binary file; file_read accepts text reports and source files' }
-        $room = 12000 - $text.Length
-        if ($line.Length + 1 -gt $room) {
-            $null = $text.Append($line.Substring(0, [Math]::Max(0, $room)))
-            $partial = $true; break
-        }
-        $null = $text.Append($line).Append("`n")
-    }
-    $more = !$reader.EndOfStream
-    $next = if ($more -and !$partial) { $n + 1 } else { $null }
-    [ordered]@{path=$p; start_line=$start; end_line=$n; next_line=$next;
-        text=$text.ToString(); truncated=($more -or $partial); partial_line=$partial;
-        size_bytes=$info.Length} | ConvertTo-Json -Compress
-} finally { $reader.Dispose() }
-'''
-
 
 def check_request(check):
     if check is not None:
@@ -102,9 +68,44 @@ def project_snapshot(project):
             'source': 'windows_local', 'default_cwd': roots[0]}
 
 
+def server_config():
+    data = json.loads(CONFIG.read_text())
+    servers = data.get('servers') or {'msh-desktop': data}
+    default = data.get('default', 'msh-desktop')
+    if (not isinstance(servers, dict) or not 1 <= len(servers) <= 16 or default not in servers
+            or any(not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,47}', key) for key in servers)):
+        raise ValueError('Invalid Windows server catalog')
+    for settings in servers.values():
+        if not isinstance(settings, dict) or any(not isinstance(settings.get(k), str) or not settings[k]
+                                               for k in ('url', 'token', 'ca', 'cwd')):
+            raise ValueError('Windows server requires url/token/ca/cwd')
+        url = urlsplit(settings['url'])
+        if url.scheme != 'wss' or not url.hostname or url.username or url.password or url.query or url.fragment:
+            raise ValueError('Windows server requires a TLS URL without embedded credentials')
+    return default, servers
+
+
+def server_catalog():
+    return [{'id': ident, 'name': bridge.settings.get('name', ident),
+             'address': urlsplit(bridge.settings['url']).netloc, 'platform': 'windows',
+             'default': bridge is BRIDGE} for ident, bridge in SERVERS.items()]
+
+
+def select_server(ident=None):
+    if ident is None:
+        if BRIDGE is None: raise ValueError('Windows connection is not ready')
+        return BRIDGE
+    if ident not in SERVERS: raise ValueError('Unknown server; use servers')
+    return SERVERS[ident]
+
+
 class Bridge:
-    def __init__(self):
-        self.settings = json.loads(CONFIG.read_text())
+    def __init__(self, settings=None, server_id=None, default=True):
+        if settings is None:
+            server_id, servers = server_config()
+            settings = servers[server_id]
+        self.settings, self.server_id = settings, server_id or 'msh-desktop'
+        self.state_path = STATE.with_name(f'codex-jobs-{self.server_id}.json')
         self.ws = self.reader = None
         self.initialized = False
         self.pending = {}
@@ -114,18 +115,18 @@ class Bridge:
         self.jobs = {}
         self.desktop_monitors = {}
         self.new_chat_views = {}
-        if STATE.is_file():
-            for job in json.loads(STATE.read_text())[-16:]:
+        if self.state_path.is_file():
+            for job in json.loads(self.state_path.read_text())[-16:]:
                 if job.get('state') in ACTIVE:
                     job['state'] = 'connection_lost'
                 self.jobs[job['job_id']] = job
 
     def save(self):
         # Only task IDs and routing metadata, never prompts/answers/credentials.
-        tmp = STATE.with_suffix('.tmp')
+        tmp = self.state_path.with_suffix('.tmp')
         tmp.write_text(json.dumps([snapshot(j) for j in self.jobs.values()][-16:]))
         tmp.chmod(0o600)
-        tmp.replace(STATE)
+        tmp.replace(self.state_path)
 
     async def connect(self):
         if self.ws is not None and self.initialized:
@@ -169,13 +170,15 @@ class Bridge:
         finally:
             self.pending.pop(ident, None)
 
-    async def desktop(self, args, check=None):
+    async def desktop(self, args, check=None, endpoint='/desktop'):
+        if endpoint not in ('/desktop', '/files'):
+            raise ValueError('Unsupported Windows endpoint')
         check_request(check)
         def request():
             parts = urlsplit(self.settings['url'])
             if parts.scheme != 'wss' or parts.username or parts.password:
                 raise ValueError('Desktop connection requires the configured authenticated TLS endpoint')
-            url = urlunsplit(('https', parts.netloc, '/desktop', '', ''))
+            url = urlunsplit(('https', parts.netloc, endpoint, '', ''))
             context = ssl.create_default_context(cafile=self.settings['ca'])
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             req = Request(url, data=json.dumps(args).encode(), method='POST', headers={
@@ -611,6 +614,8 @@ class Bridge:
                 reply = await self.desktop(request, check=check)
             if action not in ('send', 'answer'):
                 return reply
+            if args.get('_silent'):
+                return reply  # Owner web UI follows the selected chat itself.
             job = next((j for j in self.jobs.values()
                 if j.get('source') == 'desktop' and j.get('thread_id') == thread_id), None)
             if job is None:
@@ -682,7 +687,7 @@ class Bridge:
             'pending_requests': [], 'conversation_view': {'source': 'stored_history_tail', 'complete_history': False,
                 'live_status_available': False, 'description': 'Stored recent messages; send loads this same chat in the app. Pending live requests are unavailable until loaded.'}}
 
-    async def read_history(self, thread_id, cursor=None, check=None):
+    async def read_history(self, thread_id, cursor=None, check=None, include_live=True):
         """Page visible messages, including long answers, without loading a chat."""
         native_cursor, expected_turn, index, offset = None, None, 0, 0
         if cursor is not None:
@@ -747,7 +752,7 @@ class Bridge:
             'turn_status': turn.get('status'), 'recent_messages': recent, 'next_cursor': next_cursor,
             'history_order': 'newest turn first; messages within each turn are chronological',
             'gui_attached': False, 'live_status_available': False}
-        if cursor is None:
+        if cursor is None and include_live:
             try:
                 live = await self.desktop({'action': 'status', 'thread_id': thread_id}, check=check)
                 result.update({key: live[key] for key in ('gui_attached', 'runtime_status', 'runtime_flags',
@@ -1028,17 +1033,8 @@ class Bridge:
             path = windows_path(args.get('path'))
             start = integer('start_line', 1, 1, 1000000)
             count = integer('limit', 200, 1, 200)
-            result = await self.rpc('command/exec', {
-                'command': ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', READ_FILE],
-                'cwd': ntpath.dirname(path), 'sandboxPolicy': {'type': 'readOnly'},
-                'env': {'EVO_CODEX_READ_PATH': path, 'EVO_CODEX_READ_START': str(start),
-                        'EVO_CODEX_READ_COUNT': str(count)},
-                'timeoutMs': 10000, 'outputBytesCap': 131072,
-            }, check=check)
-            if result['exitCode'] != 0:
-                raise RuntimeError('File read failed: ' + clean(result.get('stderr') or result.get('stdout') or 'No output')[:250])
-            report = json.loads(result['stdout'])
-            report['text'] = clean(report['text'])
+            report = await self.desktop({'path': path, 'start_line': start, 'limit': count},
+                                        check=check, endpoint='/files')
             return dict(report, source='windows_filesystem')
 
         command = args.get('command')
@@ -1046,15 +1042,18 @@ class Bridge:
                 or not all(isinstance(v, str) and '\x00' not in v and len(v) <= 16000 for v in command)
                 or not command[0]):
             raise ValueError('exec requires command as an argv array, such as ["git", "status", "--short"]')
-        params = {'command': command, 'timeoutMs': integer('timeout_ms', 10000, 100, 15000),
-                  'outputBytesCap': 16384}
+        # Windows sandbox rejects custom outputBytesCap; keep its native cap and
+        # bound the result returned to the UI/model separately.
+        params = {'command': command, 'timeoutMs': integer('timeout_ms', 10000, 100, 15000)}
         if args.get('cwd') is not None:
             params['cwd'] = windows_path(args['cwd'])
         # Omitting sandboxPolicy inherits this authenticated server's configured policy.
         result = await self.rpc('command/exec', params, check=check)
+        stdout, stderr = clean(result.get('stdout', '')), clean(result.get('stderr', ''))
         return {'source': 'windows_command', 'exit_code': result['exitCode'],
-                'stdout': clean(result.get('stdout', '')), 'stderr': clean(result.get('stderr', '')),
-                'capture_limit_bytes_per_stream': 16384, 'timeout_ms': params['timeoutMs'],
+                'stdout': stdout[:16000], 'stderr': stderr[:16000],
+                'truncated': len(stdout) > 16000 or len(stderr) > 16000,
+                'timeout_ms': params['timeoutMs'],
                 'shell_persistent': False}
 
     async def action(self, args, channel_id, check=None):
@@ -1069,6 +1068,8 @@ class Bridge:
                 return await self.read_history(thread_id, args.get('cursor'), check=check)
             args = dict(args, action='status')
         action = args.get('action', 'status')
+        if action == 'servers':
+            return {'servers': server_catalog()}
         if action in ('file_list', 'file_read', 'exec'):
             return await self.files_or_command(args, check=check)
         if args.get('project') is not None and action not in ('start', 'new', '_start'):
@@ -1099,6 +1100,8 @@ class Bridge:
                 'project_id': t.get('projectId'),
                 'stored_status': t.get('status', {}).get('type'), 'updated_at': t.get('updatedAt'),
                 'gui_attached': False} for t in stored.get('data', [])]
+            if args.get('_stored_only'):
+                return {'threads': threads, 'next_cursor': stored.get('nextCursor')}
             desktop_error = None
             try:
                 live = await self.desktop({'action': 'inspect', 'thread_ids': [t['thread_id'] for t in threads]})
@@ -1230,8 +1233,17 @@ class Bridge:
 def discord_factory(native, adapter):
     global CLIENT, LOOP, BRIDGE
     CLIENT, LOOP = native, asyncio.get_running_loop()
-    BRIDGE = Bridge()
-    BRIDGE.adapter = adapter
+    default, configured = server_config()
+    # Migrate the old single-server routing file once. Changing the default
+    # later must never attach one machine's job IDs to another machine.
+    if STATE.is_file():
+        target = STATE.with_name(f'codex-jobs-{default}.json')
+        STATE.replace(target if not target.exists() else STATE.with_suffix('.legacy'))
+    SERVERS.clear()
+    for ident, settings in configured.items():
+        bridge = SERVERS[ident] = Bridge(settings, ident, ident == default)
+        bridge.adapter = adapter
+    BRIDGE = SERVERS[default]
 
 
 def codex_task(args, **kwargs):
@@ -1250,6 +1262,10 @@ def codex_task(args, **kwargs):
     if not ready or BRIDGE is None:
         return json.dumps({'success': False, 'error': 'Owner Discord and Windows Codex must be connected'})
     if turn is None or is_interrupted(): return json.dumps({'success': False, 'error': 'Turn interrupted'})
+    try:
+        bridge = select_server(args.get('server'))
+    except ValueError as error:
+        return json.dumps({'success': False, 'error': str(error)})
     cancelled = threading.Event()
     deadline = time.monotonic() + 75
 
@@ -1258,10 +1274,11 @@ def codex_task(args, **kwargs):
                 or CLIENT is None or not CLIENT.is_ready()):
             raise InterruptedError('Codex request interrupted before submission')
 
-    future = asyncio.run_coroutine_threadsafe(BRIDGE.action(args,
+    future = asyncio.run_coroutine_threadsafe(bridge.action(args,
         turn.channel, check=check), LOOP)
     try:
-        return json.dumps(dict(success=True, **future.result(timeout=75)), ensure_ascii=False)
+        return json.dumps(dict(success=True, server=getattr(bridge, 'server_id', 'msh-desktop'),
+                               **future.result(timeout=75)), ensure_ascii=False)
     except Exception as error:
         cancelled.set()
         future.cancel()
@@ -1276,6 +1293,7 @@ def register(ctx):
     ctx.register_tool('codex_task', 'evo_codex', {
         'name': 'codex_task',
         'description': 'Control Codex tasks on the owner Windows PC, only from owner Discord. '
+            'servers lists configured Windows servers; server selects one for every action (default msh-desktop). '
             'new/start posts a selection card for project, working path, model and task. '
             'The owner clicks Start; an omitted prompt can be entered in the card. No task is created beforehand. '
             'Project chats persist; temporary chats disappear when the task server restarts, but files remain. '
@@ -1298,6 +1316,7 @@ def register(ctx):
             'Completion is sent here; return after posting a selection card and do not poll continuously.',
         'parameters': {'type': 'object', 'properties': {
             'action': {'type': 'string', 'enum': PUBLIC_ACTIONS},
+            'server': {'type': 'string', 'maxLength': 48, 'description': 'Server ID from servers, e.g. msh-desktop. Omit for default; retain it for that server\'s chat/job IDs.'},
             'project': {'type': 'string', 'maxLength': 200, 'description': 'Optional preselection for new/start: native project_id or unique exact project name. Owner can change it in the card.'},
             'prompt': {'type': 'string', 'maxLength': 16000}, 'job_id': {'type': 'string'},
             'request_id': {'type': ['string', 'integer'], 'description': 'answer: exact pending request_id from read/status.'},

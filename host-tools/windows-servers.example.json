@@ -1,0 +1,12 @@
+{
+  "default": "desktop-1",
+  "servers": {
+    "desktop-1": {
+      "name": "Desktop 1",
+      "url": "wss://desktop.example.internal:4500",
+      "token": "REPLACE_WITH_THIS_SERVERS_PRIVATE_TOKEN",
+      "ca": "/etc/evo-omp/certs/desktop-1.pem",
+      "cwd": "C:\\Work"
+    }
+  }
+}

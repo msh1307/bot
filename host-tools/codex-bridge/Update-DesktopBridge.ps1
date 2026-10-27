@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $serverRoot = Join-Path $env:USERPROFILE '.config/evo-codex-server'
 $settings = Get-Content -LiteralPath (Join-Path $serverRoot 'settings.json') -Raw | ConvertFrom-Json
-foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js')) {
+foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js', 'text-file.js')) {
     & $settings.node --check (Join-Path $PSScriptRoot $name)
     if ($LASTEXITCODE -ne 0) { throw "Invalid JavaScript: $name" }
 }
@@ -9,7 +9,7 @@ foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js')) {
 # backend. The running ChatGPT/Codex GUI and its app-server are not stopped.
 $backup = Join-Path $serverRoot ('backups/desktop-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $backup -Force | Out-Null
-foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js')) {
+foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js', 'text-file.js')) {
     $source = Join-Path $serverRoot $name
     if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination $backup }
 }
@@ -28,7 +28,7 @@ try {
         if ((Get-Date) -gt $deadline) { throw 'Previous bridge process has not exited' }
         Start-Sleep -Milliseconds 200
     } while ($true)
-    foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js')) {
+    foreach ($name in @('server.js', 'desktop-ipc.js', 'snapshot-tail.js', 'text-file.js')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $serverRoot
     }
     Start-ScheduledTask -TaskName 'EVO-Codex-Server'

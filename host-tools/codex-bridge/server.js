@@ -7,6 +7,7 @@ const net = require('net');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { DesktopIPC } = require('./desktop-ipc');
+const { readTextPage } = require('./text-file');
 const root = path.join(process.env.USERPROFILE, '.config', 'evo-codex-server');
 const settings = JSON.parse(fs.readFileSync(path.join(root, 'settings.json'), 'utf8').replace(/^\uFEFF/, ''));
 const token = fs.readFileSync(path.join(root, 'token'), 'utf8').trim();
@@ -93,12 +94,13 @@ async function desktopRequest(req, res) {
     if (!args || typeof args !== 'object' || Array.isArray(args)) {
       res.writeHead(400); res.end(); return;
     }
-    const result = await desktop.action(args);
+    const result = req.url === '/files' ? await readTextPage(args) : await desktop.action(args);
     res.end(JSON.stringify({success: true, ...result}));
   } catch (error) {
     if (!res.headersSent) res.writeHead(503);
     res.end(JSON.stringify({success: false, error_code: error.code || 'desktop_unavailable',
-      error: error.code ? error.message.slice(0, 350) : 'Desktop IPC unavailable; open the Codex app and check status.'}));
+      ...(req.url === '/files' ? {error: error.message.slice(0, 350)} : {
+      error: error.code ? error.message.slice(0, 350) : 'Desktop IPC unavailable; open the Codex app and check status.'})}));
   } finally { desktopRequests--; }
 }
 async function main() {
@@ -114,7 +116,7 @@ async function main() {
     minVersion: 'TLSv1.2', requestTimeout: 15000, headersTimeout: 10000,
     maxHeaderSize: 8192 }, (req, res) => {
       if (!allowedPeer(req) || !authorized(req)) { res.writeHead(401); res.end(); return; }
-      if (req.method === 'POST' && req.url === '/desktop') {
+      if (req.method === 'POST' && ['/desktop', '/files'].includes(req.url)) {
         desktopRequest(req, res).catch(() => { if (!res.destroyed) res.destroy(); }); return;
       }
       if (req.method !== 'GET' || req.url !== '/health') { res.writeHead(404); res.end(); return; }
