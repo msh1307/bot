@@ -1,0 +1,97 @@
+--- a/src/kernels/cuda/native_mmvq.cu
++++ b/src/kernels/cuda/native_mmvq.cu
+@@ -30,7 +30,7 @@
+ #include "strata/kernels/gfx_arch.hpp"
+ #include "strata/core/sm75_series.hpp"
+ #include "s26_tsum.cuh"
+-#if !defined(__HIPCC__)
++#if !defined(__HIPCC__) || defined(EVO_HIP_DENSE_IL)
+ #include "q8_1_il.cuh"
+ #endif
+ #include "strata/kernels/pdl.hpp"
+@@ -1520,7 +1520,7 @@
+     }
+ }
+ 
+-#if !defined(__HIPCC__)   // CUDA only: the HIP paths keep native_mmvq's kernels
++#if !defined(__HIPCC__) || defined(EVO_HIP_DENSE_IL)   // Private gfx1151 experiment
+ // ============================ ncols = 2..4 from interleaved activations (fork F4, Eddoursul) ============================
+ //
+ // `native_quantize_q8_1_il` also writes the columns interleaved (native_mmvq.hpp), so one load reads the same int of
+@@ -2938,7 +2938,7 @@
+     }
+ }
+ 
+-#if !defined(__HIPCC__)
++#if !defined(__HIPCC__) || defined(EVO_HIP_DENSE_IL)
+ std::size_t native_q8_1_il_bytes(int n_in, int ncols) {
+     validate_shape(n_in, ncols);
+     return std::size_t(n_in / Q8K) * std::size_t(native_q8_1_il_cp(ncols)) * (16 * sizeof(int) + sizeof(float));
+@@ -3192,7 +3192,19 @@
+     }
+     return cc[dev];
+ }
+-int il_rows(int type, int ncols, int n_out) { return native_mmvq_il_rows_for(il_cc(), type, ncols, n_out); }
++int il_rows(int type, int ncols, int n_out) {
++#if defined(__HIPCC__)
++    // Only the measured main vocabulary projection and its row subset.
++    if (ncols < 1 || ncols > 8 || type != 13) return 0;
++    if (n_out == 248320 || (ncols == 1 && n_out == 106299)) {
++        constexpr int rows[] = {1,1,4,4,2,2,1,1};
++        return rows[ncols-1];
++    }
++    return 0;
++#else
++    return native_mmvq_il_rows_for(il_cc(), type, ncols, n_out);
++#endif
++}
+ int g_tune_rows = 0;   // native_mmvq_il_tune (tests, benchmarks): rows a warp for every shape (0: the table)
+ }  // namespace
+ void native_mmvq_il_tune(int rows) { g_tune_rows = rows; }
+@@ -3211,6 +3223,18 @@
+ // native_mmvq's, mmvq_il_parity), its own table kIlRows_61.  STRATA_SM61_TABLE=0 keeps native_mmvq's kernels.
+ bool sm61_table_on() { const char* v = std::getenv("STRATA_SM61_TABLE"); return v == nullptr || std::atoi(v) != 0; }
+ bool il_arch_ok() {
++#if defined(__HIPCC__)
++    const char* e = std::getenv("EVO_HIP_DENSE_IL");
++    if (!e || std::atoi(e) != 1) return false;
++    static const bool halo = [] {
++        int dev = 0;
++        hipDeviceProp_t prop{};
++        return hipGetDevice(&dev) == hipSuccess &&
++               hipGetDeviceProperties(&prop, dev) == hipSuccess &&
++               gfx_arch_is_gfx1151(prop.gcnArchName);
++    }();
++    return halo;
++#else
+     static int ok[16] = {};   // 0 unknown, 1 yes, -1 no, by device ordinal
+     int dev = 0;
+     if (cudaGetDevice(&dev) != cudaSuccess || dev < 0 || dev >= 16) return false;
+@@ -3223,6 +3247,7 @@
+                     (major == 6 && minor == 0 && sm60_table_on()) || (major == 6 && minor == 1 && sm61_table_on()))) ? 1 : -1;
+     }
+     return ok[dev] > 0;
++#endif
+ }
+ }  // namespace
+ 
+--- a/src/core/mtp.cpp
++++ b/src/core/mtp.cpp
+@@ -1194,8 +1194,15 @@
+         native_quantize_q8_1(sample_, xq_, (int) N, T, cs);
+         const bool sub = dhead_ != nullptr;
+         const int64_t nv = sub ? n_dvocab_ : n_vocab_;
+-        native_mmvq(sub ? dhead_type_ : head_->type(), sub ? dhead_ : head_->weights(), xq_, head_logits_, (int) N,
+-                    (int) nv, T, cs);
++        const int ht = sub ? dhead_type_ : head_->type();
++        const void* hw = sub ? dhead_ : head_->weights();
++        // A single row needs no interleaved scratch. Other drafts keep their path.
++#if defined(STRATA_USE_HIP)
++        if (T == 1 && native_mmvq_il_supported(ht, 1, (int) nv))
++            native_mmvq_il(ht, hw, xq_, nullptr, head_logits_, (int) N, (int) nv, 1, cs);
++        else
++#endif
++            native_mmvq(ht, hw, xq_, head_logits_, (int) N, (int) nv, T, cs);
+         g_mp.stamp(14, cs);
+         if (coupled_rec_) {
+             // coupled draft sampling: the target's chain and Philox draw for the row that will verify this draft

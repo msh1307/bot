@@ -1,0 +1,1313 @@
+{
+  "date": "2026-10-25/26 KST",
+  "purpose": "Validate runtime research without lowering target quantization, context, KV precision or raising the power limit.",
+  "decision": "Keep production defaults pending broader task sampling. Probabilistic verification is a measured candidate: +2.7% short and +6.6% long-generation geomean decode TPS on two fixtures. No universal speed floor or multi-GiB RAM saving is established.",
+  "production_binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+  "production_config_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+  "source_base": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+  "controls": {
+    "target": "SC117 IQ3_XXS",
+    "context": 131072,
+    "kv": "int8",
+    "sampling": {
+      "temperature": 1,
+      "top_p": 0.95,
+      "top_k": 20,
+      "min_p": 0,
+      "presence_penalty": 0,
+      "repeat_penalty": 1
+    },
+    "draft_depth": 4,
+    "draft_min_p": 0.5,
+    "adaptive_spec_cost": true,
+    "arms": [
+      "base",
+      "cdf",
+      "gumbel",
+      "prob",
+      "prob",
+      "gumbel",
+      "cdf",
+      "base"
+    ],
+    "sampler_env": {
+      "base": {
+        "STRATA_SPEC_COUPLED": "0",
+        "STRATA_SPEC_GUMBEL": "0",
+        "STRATA_SPEC_PROB": "0"
+      },
+      "cdf": {
+        "STRATA_SPEC_COUPLED": "1",
+        "STRATA_SPEC_GUMBEL": "0",
+        "STRATA_SPEC_PROB": "0"
+      },
+      "gumbel": {
+        "STRATA_SPEC_COUPLED": "1",
+        "STRATA_SPEC_GUMBEL": "1",
+        "STRATA_SPEC_PROB": "0"
+      },
+      "prob": {
+        "STRATA_SPEC_COUPLED": "0",
+        "STRATA_SPEC_GUMBEL": "0",
+        "STRATA_SPEC_PROB": "1"
+      }
+    },
+    "fixture_prompt_tokens": [
+      16049,
+      16112
+    ],
+    "generated_tokens_per_request": 384,
+    "requests": 16,
+    "repeats_per_mode_per_fixture": 2
+  },
+  "sampler_results": [
+    {
+      "mode": "base",
+      "fixtures": {
+        "english_code_16k": {
+          "decode_tps": [
+            41.1,
+            40.9
+          ],
+          "cold_prefill_tps": [
+            624.3,
+            618.1
+          ],
+          "drafts_accepted": [
+            194,
+            193
+          ],
+          "drafts_proposed": [
+            343,
+            337
+          ],
+          "output_sha256": [
+            "4b26d42a2a6e6346b19b1ed5a1ca1b3056dd46a99e1793a712dfee9c5e82df5c",
+            "4b26d42a2a6e6346b19b1ed5a1ca1b3056dd46a99e1793a712dfee9c5e82df5c"
+          ]
+        },
+        "korean_thinking_16k": {
+          "decode_tps": [
+            39.0,
+            38.9
+          ],
+          "cold_prefill_tps": [
+            629.7,
+            622.8
+          ],
+          "drafts_accepted": [
+            177,
+            177
+          ],
+          "drafts_proposed": [
+            317,
+            318
+          ],
+          "output_sha256": [
+            "22e702bae9cdd46fef07e605bb29286c820e0f8438f3d72c601daa5a22d5e982",
+            "22e702bae9cdd46fef07e605bb29286c820e0f8438f3d72c601daa5a22d5e982"
+          ]
+        }
+      },
+      "observed_min_tps": 38.9,
+      "geometric_mean_tps": 39.96178091885837,
+      "geomean_change_percent": 0.0
+    },
+    {
+      "mode": "cdf",
+      "fixtures": {
+        "english_code_16k": {
+          "decode_tps": [
+            40.5,
+            40.4
+          ],
+          "cold_prefill_tps": [
+            621.5,
+            617.0
+          ],
+          "drafts_accepted": [
+            185,
+            185
+          ],
+          "drafts_proposed": [
+            309,
+            307
+          ],
+          "output_sha256": [
+            "4b26d42a2a6e6346b19b1ed5a1ca1b3056dd46a99e1793a712dfee9c5e82df5c",
+            "4b26d42a2a6e6346b19b1ed5a1ca1b3056dd46a99e1793a712dfee9c5e82df5c"
+          ]
+        },
+        "korean_thinking_16k": {
+          "decode_tps": [
+            39.5,
+            39.3
+          ],
+          "cold_prefill_tps": [
+            612.8,
+            609.8
+          ],
+          "drafts_accepted": [
+            174,
+            174
+          ],
+          "drafts_proposed": [
+            257,
+            257
+          ],
+          "output_sha256": [
+            "22e702bae9cdd46fef07e605bb29286c820e0f8438f3d72c601daa5a22d5e982",
+            "22e702bae9cdd46fef07e605bb29286c820e0f8438f3d72c601daa5a22d5e982"
+          ]
+        }
+      },
+      "observed_min_tps": 39.3,
+      "geometric_mean_tps": 39.92146852501702,
+      "geomean_change_percent": -0.10087737061370561
+    },
+    {
+      "mode": "gumbel",
+      "fixtures": {
+        "english_code_16k": {
+          "decode_tps": [
+            40.3,
+            39.4
+          ],
+          "cold_prefill_tps": [
+            622.2,
+            617.3
+          ],
+          "drafts_accepted": [
+            189,
+            192
+          ],
+          "drafts_proposed": [
+            316,
+            358
+          ],
+          "output_sha256": [
+            "da528cf757d923c023405ccacd634d9c25baf788aad871e38c6459b0933d3ca9",
+            "da528cf757d923c023405ccacd634d9c25baf788aad871e38c6459b0933d3ca9"
+          ]
+        },
+        "korean_thinking_16k": {
+          "decode_tps": [
+            39.5,
+            39.8
+          ],
+          "cold_prefill_tps": [
+            612.3,
+            625.1
+          ],
+          "drafts_accepted": [
+            177,
+            184
+          ],
+          "drafts_proposed": [
+            281,
+            299
+          ],
+          "output_sha256": [
+            "34e2fa0c76b0d82a5bd8e209759023b558b50bd6d0b1aa2e6fe04681caabf395",
+            "34e2fa0c76b0d82a5bd8e209759023b558b50bd6d0b1aa2e6fe04681caabf395"
+          ]
+        }
+      },
+      "observed_min_tps": 39.4,
+      "geometric_mean_tps": 39.748464736109504,
+      "geomean_change_percent": -0.5338004909791305
+    },
+    {
+      "mode": "prob",
+      "fixtures": {
+        "english_code_16k": {
+          "decode_tps": [
+            42.9,
+            41.8
+          ],
+          "cold_prefill_tps": [
+            619.1,
+            612.1
+          ],
+          "drafts_accepted": [
+            210,
+            202
+          ],
+          "drafts_proposed": [
+            324,
+            328
+          ],
+          "output_sha256": [
+            "bca3a24ca35993b7f0063f16145f0ec4d58617fa5b610ceedff43246bf1c4960",
+            "2583136aac4b638ced207014f3156eea6fad5a2673aa8958082a7f7bd9035a21"
+          ]
+        },
+        "korean_thinking_16k": {
+          "decode_tps": [
+            40.9,
+            38.7
+          ],
+          "cold_prefill_tps": [
+            624.3,
+            624.3
+          ],
+          "drafts_accepted": [
+            197,
+            168
+          ],
+          "drafts_proposed": [
+            328,
+            268
+          ],
+          "output_sha256": [
+            "247fe30aa4f9ba55e0a727e891c7f92b8f0cc0123b509ece6cbe3421f8463742",
+            "b329c1eadcfc54ec77043e13df5235d27d930153e91f53bea5388fe081ad512d"
+          ]
+        }
+      },
+      "observed_min_tps": 38.7,
+      "geometric_mean_tps": 41.04563338411676,
+      "geomean_change_percent": 2.712222629564809
+    }
+  ],
+  "limits": [
+    "Short generation timing smoke tests; not long-context, worst-case TPS, repetition or task accuracy benchmarks.",
+    "Same input and seed do not guarantee the same output across samplers. Output-dependent work and adaptive speculation are potential confounders.",
+    "CPU probability/entropy validation overlapped the first baseline English prefill (not its decode). The final baseline was uncontended.",
+    "Small samples and no confidence interval; small differences are not grounds for a universal speed claim.",
+    "No new 27B measurements in this validation."
+  ],
+  "long_generation_followup": {
+    "arms": [
+      "base",
+      "prob",
+      "prob",
+      "base"
+    ],
+    "requests": 8,
+    "max_generated_tokens": 1024,
+    "completed": true,
+    "restored": true,
+    "production_config_unchanged": true,
+    "modes": [
+      {
+        "mode": "base",
+        "geometric_mean_tps": 41.264873241687994,
+        "fixtures": {
+          "english_code_16k": {
+            "decode_tps": [
+              48.2,
+              47.2
+            ],
+            "cold_prefill_tps": [
+              626.0,
+              620.5
+            ],
+            "output_sha256": [
+              "09fb5aea1af4bec6927aeb9f803bea23ffade2ee438cf868aa888abfe012ea99",
+              "09fb5aea1af4bec6927aeb9f803bea23ffade2ee438cf868aa888abfe012ea99"
+            ]
+          },
+          "korean_thinking_16k": {
+            "decode_tps": [
+              35.8,
+              35.6
+            ],
+            "cold_prefill_tps": [
+              628.2,
+              609.9
+            ],
+            "output_sha256": [
+              "cbba4d6b1761f01e4d6ad466deb3d60410d3c284da2dab2bca41e7e75c645bfe",
+              "cbba4d6b1761f01e4d6ad466deb3d60410d3c284da2dab2bca41e7e75c645bfe"
+            ]
+          }
+        }
+      },
+      {
+        "mode": "prob",
+        "geometric_mean_tps": 44.0046324154524,
+        "fixtures": {
+          "english_code_16k": {
+            "decode_tps": [
+              48.5,
+              49.2
+            ],
+            "cold_prefill_tps": [
+              623.6,
+              617.5
+            ],
+            "output_sha256": [
+              "1d0a348f3ebfe633dcf950b29917067590888d645951873e438fd328b8fedd1e",
+              "7a2514ab147fba0cda13ff01c02d1696775b0b14aa89b73fae2855a27d4f9f7b"
+            ]
+          },
+          "korean_thinking_16k": {
+            "decode_tps": [
+              40.5,
+              38.8
+            ],
+            "cold_prefill_tps": [
+              611.9,
+              621.9
+            ],
+            "output_sha256": [
+              "f08a83006faadb3d1d49f5c0991ea9ecb108da1f61608e0a234786eee3c91a7c",
+              "d2676ee883edfd4c91ccffb95b871a8c8531fa2a3a1ccf831b85e0fb6fd66697"
+            ]
+          }
+        }
+      }
+    ],
+    "geomean_change_percent": 6.639446479618782,
+    "live_env_observation": [
+      {
+        "time": 1792941049.3140898,
+        "pid": 1839515,
+        "exe": "/home/msh/evo-llm/flash-next/engine-candidates/strata-7dd5cf1-evo/strata",
+        "env": {
+          "STRATA_SPEC_COST": "1",
+          "STRATA_SPEC_COUPLED": "0",
+          "STRATA_SPEC_GUMBEL": "0",
+          "STRATA_SPEC_PROB": "1"
+        }
+      }
+    ]
+  },
+  "resources": {
+    "generation_min_available_gib": 7.342342376708984,
+    "generation_max_temp_c": {
+      "k10temp": 63.75,
+      "amdgpu": 64.0,
+      "nvme": 43.85
+    },
+    "swapout_pages_before": 6,
+    "swapout_pages_after": 6,
+    "new_swapout_pages": 0,
+    "oom_before": 3,
+    "oom_after": 3,
+    "swap_used_bytes_before": 8192,
+    "swap_used_bytes_after": 8192,
+    "note": "MemAvailable excludes the 32GiB BIOS UMA reservation. New swapout is not the same as total SSD writes."
+  },
+  "correctness": {
+    "cpu_probability_reference": {
+      "cases": 72,
+      "failures": 0,
+      "exitcode": 0,
+      "scope": "Upstream host reference distribution tests, not a model capability evaluation."
+    },
+    "gpu_sampler": {
+      "completed": true,
+      "error": null,
+      "tests": [
+        {
+          "name": "sampler_parity",
+          "returncode": 0,
+          "stdout": "  sampled path: split top_k (default)\n  greedy argmax                      matches (0 of 4 differ)\n  order is observable on this fixture yes (survivors: spec 16, temp-first 12)\n  greedy over this fixture           matches (0 of 4 differ)\n  greedy ignores the seed            matches (seed-independent: 0 differ; vs reference: 0 wrong)\n  multiply-or-divide is observable   yes (multiply-rule 1, divide-always 0)\n  penalties: repeat on negatives     matches (0 of 2 differ)\n  presence penalty is a boolean      want token 1 (with present=1.5, token 0 goes 5.0/2 - 1.5 = 1.0 vs token 1 at 3.4)\n  penalties: presence is boolean     matches (0 of 2 differ)\n  T=0 greedy=false is the argmax     matches (0 of 4 differ)\n  T=0 greedy=true  is the argmax     matches (0 of 4 differ)\n  T=1 greedy=true  is the argmax     matches (0 of 4 differ)\n  sampled penalties are observable   yes (penalised picks 3/2, clean 0/0)\n  sampled chain: penalties + top_k/p matches (0 of 2 differ)\n  min_p cut is observable            yes (survivors: min_p 0 -> 12, 0.5 -> 4, 0.9 -> 2)\n  sampled chain: min_p=0.0           matches (0 of 2 differ)\n  sampled chain: min_p=0.5           matches (0 of 2 differ)\n  sampled chain: min_p=0.9           matches (0 of 2 differ)\n  penalty window clamp is observable yes (clamped pick 0, full-history pick 3)\n  penalty window: tail only          matches (0 of 1 differ)\n  one penalties stage (#53)          yes (token 0 drawn 0.1040 of 8000, expected 0.1050; twice-penalised would be 0.0255)\n  sampled chain: #53's example       matches (0 of 8000 differ)\n  top_p before min_p is observable   yes (token 2 drawn 58 of 256 times)\n  sampled chain: top_p then min_p    matches (0 of 256 differ)\n  stale history, last_n=0 (sampled)  matches (0 of 4 differ)\n  stale history, last_n=0 (greedy)   matches (0 of 4 differ)\n  per-row history T=1 H=1 greedy     matches (0 of 1 differ)\n  per-row history T=1 H=1 sampled    matches (0 of 1 differ)\n  per-row history T=1 H=64 greedy    matches (0 of 1 differ)\n  per-row history T=1 H=64 sampled   matches (0 of 1 differ)\n  per-row history T=1 H=1024 greedy  matches (0 of 1 differ)\n  per-row history T=1 H=1024 sampled matches (0 of 1 differ)\n  per-row history T=1 H=4096 greedy  matches (0 of 1 differ)\n  per-row history T=1 H=4096 sampled matches (0 of 1 differ)\n  per-row history T=2 H=1 greedy     matches (0 of 2 differ)\n  per-row history T=2 H=1 sampled    matches (0 of 2 differ)\n  per-row history T=2 H=64 greedy    matches (0 of 2 differ)\n  per-row history T=2 H=64 sampled   matches (0 of 2 differ)\n  per-row history T=2 H=1024 greedy  matches (0 of 2 differ)\n  per-row history T=2 H=1024 sampled matches (0 of 2 differ)\n  per-row history T=2 H=4096 greedy  matches (0 of 2 differ)\n  per-row history T=2 H=4096 sampled matches (0 of 2 differ)\n  per-row history T=4 H=1 greedy     matches (0 of 4 differ)\n  per-row history T=4 H=1 sampled    matches (0 of 4 differ)\n  per-row history T=4 H=64 greedy    matches (0 of 4 differ)\n  per-row history T=4 H=64 sampled   matches (0 of 4 differ)\n  per-row history T=4 H=1024 greedy  matches (0 of 4 differ)\n  per-row history T=4 H=1024 sampled matches (0 of 4 differ)\n  per-row history T=4 H=4096 greedy  matches (0 of 4 differ)\n  per-row history T=4 H=4096 sampled matches (0 of 4 differ)\n  per-row history T=8 H=1 greedy     matches (0 of 8 differ)\n  per-row history T=8 H=1 sampled    matches (0 of 8 differ)\n  per-row history T=8 H=64 greedy    matches (0 of 8 differ)\n  per-row history T=8 H=64 sampled   matches (0 of 8 differ)\n  per-row history T=8 H=1024 greedy  matches (0 of 8 differ)\n  per-row history T=8 H=1024 sampled matches (0 of 8 differ)\n  per-row history T=8 H=4096 greedy  matches (0 of 8 differ)\n  per-row history T=8 H=4096 sampled matches (0 of 8 differ)\n  per-row histories are observable   yes (21 drafted rows pick differently with row 0's history, of 60 rows)\n  out-of-vocab history ids (greedy)  matches (0 of 4 differ)\n  out-of-vocab history ids (sampled) matches (0 of 4 differ)\n  sampled top_k=64                   matches (0 of 4 differ)\n  sampled top_k=0 means 64           matches (0 of 4 differ)\n  sampled top_k=100 means 64         matches (0 of 4 differ)\n  sampled top_k=-3 means 64          matches (0 of 4 differ)\n  penalty_rows layout                matches (0 of 420 rows differ)\n  sampler draw counter segmentation/repeat: PASS\n  top_k list under ties              matches (0 of 1340 positions differ; 280 sentinel positions)\n  sampled draws under ties           matches (0 of 1632 draws differ; 1057 picks tie with another kept token)\n  fallbacks: graph capture, row cap  matches (0 of 143 draws differ)\n  gumbel: kernel vs reference        matches (0 of 48 draws differ)\n  gumbel: frequencies = softmax      matches (total variation 0.0098 over 10240 draws)\n  gumbel: flag read, greedy unchanged matches (2 of 16 sampled picks equal the inverse-CDF ones; greedy unchanged)\n\nsampler: 0 failures\nsampler_parity OK\n"
+        },
+        {
+          "name": "spec_verify_parity",
+          "returncode": 0,
+          "stdout": "spec_verify_parity: 1296 rows (365 drafts kept, 643 rejected, 288 plain last rows, 479 with a q list): 0 mismatches\n"
+        }
+      ],
+      "compat_header": "include/strata/hip_compat (RDNA wave32, matching production backend)"
+    },
+    "scalar_pair_lut": {
+      "cases": 36233700,
+      "failures": 0,
+      "scope": "Integer identity and original signed truncation only."
+    },
+    "gpu_pair_lut": {
+      "completed": true,
+      "error": null,
+      "scope": "Kernel-only prototype; actual SC117 IQ2 gate/up slices, synthetic q8_1 inputs. No activation epilogue, IQ3, long-context or full-model speed measurement.",
+      "prototype_sha256": "26edf822e29ea00631feed29d756f5ecb8f17faf32571be2540bd377416778c4",
+      "rows": [
+        {
+          "type": 16,
+          "tokens": 1,
+          "compared_float_outputs": 51200,
+          "bit_mismatches": 0,
+          "direct_us": 44.9455,
+          "lut_including_build_us": 74.9396,
+          "lut_consume_only_us": 71.6996,
+          "table_bytes": 46080
+        },
+        {
+          "type": 16,
+          "tokens": 4,
+          "compared_float_outputs": 204800,
+          "bit_mismatches": 0,
+          "direct_us": 61.0888,
+          "lut_including_build_us": 258.6065,
+          "lut_consume_only_us": 256.8383,
+          "table_bytes": 184320
+        },
+        {
+          "type": 17,
+          "tokens": 1,
+          "compared_float_outputs": 51200,
+          "bit_mismatches": 0,
+          "direct_us": 48.7486,
+          "lut_including_build_us": 77.6114,
+          "lut_consume_only_us": 74.1812,
+          "table_bytes": 46080
+        },
+        {
+          "type": 17,
+          "tokens": 4,
+          "compared_float_outputs": 204800,
+          "bit_mismatches": 0,
+          "direct_us": 74.0452,
+          "lut_including_build_us": 275.1575,
+          "lut_consume_only_us": 266.7211,
+          "table_bytes": 184320
+        },
+        {
+          "type": 22,
+          "tokens": 1,
+          "compared_float_outputs": 51200,
+          "bit_mismatches": 0,
+          "direct_us": 49.8061,
+          "lut_including_build_us": 82.1169,
+          "lut_consume_only_us": 78.1474,
+          "table_bytes": 46080
+        },
+        {
+          "type": 22,
+          "tokens": 4,
+          "compared_float_outputs": 204800,
+          "bit_mismatches": 0,
+          "direct_us": 74.4628,
+          "lut_including_build_us": 283.346,
+          "lut_consume_only_us": 275.9495,
+          "table_bytes": 184320
+        }
+      ],
+      "slices": [
+        {
+          "type": 16,
+          "layer": 1,
+          "bytes": 8448000,
+          "sha256": "6eaf6ba698e5ca9c1ba571f472c899165e009c257a39cd0cad1c3bdaccd745bf"
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "bytes": 9472000,
+          "sha256": "1aab7a62b2ad14bc2fb27f17aa625cd6974d11c15a3d2ba193b612f14c3ad849"
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "bytes": 10496000,
+          "sha256": "3c29287c8cc7a155068a5011ce9a6e6635179a5402609978ccd0e22f80da83c4"
+        }
+      ],
+      "before": {
+        "time": 1792940553.634006,
+        "available_bytes": 8703655936,
+        "pswpout": 6,
+        "oom_kill": 3
+      },
+      "after": {
+        "time": 1792940554.5269601,
+        "available_bytes": 8688640000,
+        "pswpout": 6,
+        "oom_kill": 3
+      }
+    }
+  },
+  "weight_compression": {
+    "read_payload_bytes": 2670080,
+    "scope": "48 layers, gate/up only; 4 experts x 8 rows x 10 blocks per tensor. Stratified sample, not an exhaustive weight survey.",
+    "rows": [
+      {
+        "type": "IQ2_XXS",
+        "blocks": 5760,
+        "index_count": 184320,
+        "raw_bits": 8,
+        "entropy_bits_per_index": 7.829423377318004,
+        "ideal_zero_order_block_saving_fraction": 0.01033797713224216,
+        "top8_fraction": 0.09023980034722222,
+        "common8_codec_optimistic_saving_fraction": 0.0,
+        "fixed_nonindex_bytes": 34.0
+      },
+      {
+        "type": "IQ2_XS",
+        "blocks": 6400,
+        "index_count": 204800,
+        "raw_bits": 9,
+        "entropy_bits_per_index": 8.763178605586923,
+        "ideal_zero_order_block_saving_fraction": 0.012801156454760987,
+        "top8_fraction": 0.0658056640625,
+        "common8_codec_optimistic_saving_fraction": 4.222972972978134e-06,
+        "fixed_nonindex_bytes": 38.0
+      },
+      {
+        "type": "IQ2_S",
+        "blocks": 6400,
+        "index_count": 204800,
+        "raw_bits": 10,
+        "entropy_bits_per_index": 9.621374129745755,
+        "ideal_zero_order_block_saving_fraction": 0.018469554646548647,
+        "top8_fraction": 0.05916015625,
+        "common8_codec_optimistic_saving_fraction": 0.0,
+        "fixed_nonindex_bytes": 42.0
+      },
+      {
+        "type": "IQ3_XXS",
+        "blocks": 3840,
+        "index_count": 245760,
+        "raw_bits": 8,
+        "entropy_bits_per_index": 7.794681700849141,
+        "ideal_zero_order_block_saving_fraction": 0.016760677481702735,
+        "top8_fraction": 0.06763102213541666,
+        "common8_codec_optimistic_saving_fraction": 0.0,
+        "fixed_nonindex_bytes": 34.0
+      },
+      {
+        "type": "IQ3_S",
+        "blocks": 8320,
+        "index_count": 532480,
+        "raw_bits": 9,
+        "entropy_bits_per_index": 8.76053361218752,
+        "ideal_zero_order_block_saving_fraction": 0.017415737295452982,
+        "top8_fraction": 0.04612379807692308,
+        "common8_codec_optimistic_saving_fraction": 0.0,
+        "fixed_nonindex_bytes": 38.0
+      }
+    ],
+    "decision": "Reject common-eight index codec: essentially no net payload saving even under optimistic raw fallback. Zero-order index entropy yields only about 1-2% ideal block savings on this sample.",
+    "limits": [
+      "No down tensors or full model compression evaluated.",
+      "Index entropy is only a zero-order bound, not a bound on context-aware codecs.",
+      "Codec estimates omit raw fallback header, allocator and metadata overhead.",
+      "No weight bytes were modified; no full weight tensor was allocated."
+    ],
+    "full_block_zstd_probe": {
+      "completed": true,
+      "error": null,
+      "scope": "Actual gate/up slices: one layer per IQ type, experts 0/255/511. No down tensors, full-model ratio or GPU decompressor benchmark.",
+      "rows": [
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 4096,
+          "level": 1,
+          "frames": 619,
+          "compressed_bytes": 2540590,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.009301726007834077
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 4096,
+          "level": 3,
+          "frames": 619,
+          "compressed_bytes": 2540590,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.009835274890065193
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 4096,
+          "level": 6,
+          "frames": 619,
+          "compressed_bytes": 2540590,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.014606893993914127
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 65536,
+          "level": 1,
+          "frames": 39,
+          "compressed_bytes": 2534790,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.004632422933354974
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 65536,
+          "level": 3,
+          "frames": 39,
+          "compressed_bytes": 2534790,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.004894942976534367
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 65536,
+          "level": 6,
+          "frames": 39,
+          "compressed_bytes": 2534790,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005633116001263261
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 2534400,
+          "level": 1,
+          "frames": 1,
+          "compressed_bytes": 2534470,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005552799208089709
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 2534400,
+          "level": 3,
+          "frames": 1,
+          "compressed_bytes": 2534470,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005012428853660822
+        },
+        {
+          "type": 16,
+          "layer": 1,
+          "payload_bytes": 2534400,
+          "sha256": "66fd6a182d2caf3abfbf6b15aab53bda0bfe5c2e23b70193ea12f17914f21e18",
+          "chunk_bytes": 2534400,
+          "level": 6,
+          "frames": 1,
+          "compressed_bytes": 2534470,
+          "optimistic_raw_fallback_bytes": 2534400,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005490500945597887
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 4096,
+          "level": 1,
+          "frames": 694,
+          "compressed_bytes": 2848540,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.010342236841097474
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 4096,
+          "level": 3,
+          "frames": 694,
+          "compressed_bytes": 2848540,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.010966713074594736
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 4096,
+          "level": 6,
+          "frames": 694,
+          "compressed_bytes": 2848540,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.014559446135535836
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 65536,
+          "level": 1,
+          "frames": 44,
+          "compressed_bytes": 2842040,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005111834965646267
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 65536,
+          "level": 3,
+          "frames": 44,
+          "compressed_bytes": 2842040,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005322677781805396
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 65536,
+          "level": 6,
+          "frames": 44,
+          "compressed_bytes": 2842040,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.006027430994436145
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 2841600,
+          "level": 1,
+          "frames": 1,
+          "compressed_bytes": 2841676,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005037158029153943
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 2841600,
+          "level": 3,
+          "frames": 1,
+          "compressed_bytes": 2841676,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.004637514008209109
+        },
+        {
+          "type": 17,
+          "layer": 0,
+          "payload_bytes": 2841600,
+          "sha256": "9807eae1457405539a0497208aef4e8796f51f853c95b13d7b0bc6cd2a138b38",
+          "chunk_bytes": 2841600,
+          "level": 6,
+          "frames": 1,
+          "compressed_bytes": 2841676,
+          "optimistic_raw_fallback_bytes": 2841600,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.0053728059865534306
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 4096,
+          "level": 1,
+          "frames": 769,
+          "compressed_bytes": 3156490,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.011695444118231535
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 4096,
+          "level": 3,
+          "frames": 769,
+          "compressed_bytes": 3156490,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.012133507058024406
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 4096,
+          "level": 6,
+          "frames": 769,
+          "compressed_bytes": 3156490,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.01609838684089482
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 65536,
+          "level": 1,
+          "frames": 49,
+          "compressed_bytes": 3149290,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.00567598408088088
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 65536,
+          "level": 3,
+          "frames": 49,
+          "compressed_bytes": 3149290,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.005963203031569719
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 65536,
+          "level": 6,
+          "frames": 49,
+          "compressed_bytes": 3149290,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.006750602973625064
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 3148800,
+          "level": 1,
+          "frames": 1,
+          "compressed_bytes": 3148885,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.006388755980879068
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 3148800,
+          "level": 3,
+          "frames": 1,
+          "compressed_bytes": 3148885,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.006238891975954175
+        },
+        {
+          "type": 22,
+          "layer": 12,
+          "payload_bytes": 3148800,
+          "sha256": "f0f22b90c61fba3b0bff701a6d0076c45055d29e26dc384d78379562411a7dde",
+          "chunk_bytes": 3148800,
+          "level": 6,
+          "frames": 1,
+          "compressed_bytes": 3148885,
+          "optimistic_raw_fallback_bytes": 3148800,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.006315708858892322
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 4096,
+          "level": 1,
+          "frames": 919,
+          "compressed_bytes": 3772390,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.01330685312859714
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 4096,
+          "level": 3,
+          "frames": 919,
+          "compressed_bytes": 3772390,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.013935070019215345
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 4096,
+          "level": 6,
+          "frames": 919,
+          "compressed_bytes": 3772390,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.019015236059203744
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 65536,
+          "level": 1,
+          "frames": 58,
+          "compressed_bytes": 3763780,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.0067773310001939535
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 65536,
+          "level": 3,
+          "frames": 58,
+          "compressed_bytes": 3763780,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.007084229961037636
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 65536,
+          "level": 6,
+          "frames": 58,
+          "compressed_bytes": 3763780,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.00808536191470921
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 3763200,
+          "level": 1,
+          "frames": 1,
+          "compressed_bytes": 3763297,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.00763086904771626
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 3763200,
+          "level": 3,
+          "frames": 1,
+          "compressed_bytes": 3763297,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.007705796044319868
+        },
+        {
+          "type": 18,
+          "layer": 35,
+          "payload_bytes": 3763200,
+          "sha256": "3d99fe35722b38bbb0d1fa29e5a33b8b701996e018067c2e210f07158240cf94",
+          "chunk_bytes": 3763200,
+          "level": 6,
+          "frames": 1,
+          "compressed_bytes": 3763297,
+          "optimistic_raw_fallback_bytes": 3763200,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.007662688149139285
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4096,
+          "level": 1,
+          "frames": 1032,
+          "compressed_bytes": 4234320,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.01422457885928452
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4096,
+          "level": 3,
+          "frames": 1032,
+          "compressed_bytes": 4234320,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.014571124920621514
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4096,
+          "level": 6,
+          "frames": 1032,
+          "compressed_bytes": 4234320,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.01991141098551452
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 65536,
+          "level": 1,
+          "frames": 65,
+          "compressed_bytes": 4224650,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.007514184108003974
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 65536,
+          "level": 3,
+          "frames": 65,
+          "compressed_bytes": 4224650,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.00788693898357451
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 65536,
+          "level": 6,
+          "frames": 65,
+          "compressed_bytes": 4224650,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.008926030015572906
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4224000,
+          "level": 1,
+          "frames": 1,
+          "compressed_bytes": 4224109,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.008532595122233033
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4224000,
+          "level": 3,
+          "frames": 1,
+          "compressed_bytes": 4224109,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.008349891984835267
+        },
+        {
+          "type": 21,
+          "layer": 8,
+          "payload_bytes": 4224000,
+          "sha256": "4f34d6a8ae773bad08ff36548c97e1a832eb158f3dc64ae1c487a1befb43b831",
+          "chunk_bytes": 4224000,
+          "level": 6,
+          "frames": 1,
+          "compressed_bytes": 4224109,
+          "optimistic_raw_fallback_bytes": 4224000,
+          "saving_fraction_without_index_metadata": 0.0,
+          "roundtrip_seconds": 0.008401100058108568
+        }
+      ],
+      "sample_payload_bytes": 16512000,
+      "best_saving_fraction_without_index_metadata": 0.0,
+      "limits": [
+        "Compression excludes address indexes, GPU decoder overhead and residency scratch.",
+        "Zstd is a feasibility probe, not a proposed GPU decoder or a measured whole-model ratio."
+      ]
+    }
+  },
+  "restoration": {
+    "model_test_completed": true,
+    "healthy": true,
+    "config_unchanged": true,
+    "final_audit": {
+      "time": 1792941517.873717,
+      "test_units_active": [],
+      "maintenance_lease_exists": false,
+      "services": {
+        "evo-flash": {
+          "is-active": "active",
+          "is-enabled": "static"
+        },
+        "evo-qwen": {
+          "is-active": "inactive",
+          "is-enabled": "enabled"
+        },
+        "evo-omp": {
+          "is-active": "active",
+          "is-enabled": "enabled"
+        },
+        "evo-hermes": {
+          "is-active": "inactive",
+          "is-enabled": "masked"
+        }
+      },
+      "router": {
+        "active": "sc117-flash-next-iq3_xxs",
+        "loading": null,
+        "busy": false,
+        "waiting_requests": 0,
+        "error": null,
+        "states": {
+          "qwen3.8-27b-uncensored": "unloaded",
+          "sc117-flash-next-iq3_xxs": "loaded"
+        },
+        "maintenance": null,
+        "operation": null,
+        "flash_guard": {
+          "min_available_gib": 6,
+          "sample_seconds": 2,
+          "consecutive_samples": 3
+        }
+      },
+      "flash": {
+        "status": "ok",
+        "max_context": 131072,
+        "model": "sc117-flash-next-iq3_xxs",
+        "images": true,
+        "loaded": true,
+        "service": "strata"
+      },
+      "vmstat": {
+        "pswpin": 0,
+        "pswpout": 6,
+        "oom_kill": 3
+      },
+      "available_bytes": 8572571648,
+      "swap_used_bytes": 8192,
+      "binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+      "config_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+      "live_sampler_env": [
+        {
+          "STRATA_SPEC_COST": "1"
+        }
+      ]
+    },
+    "cleanup": {
+      "completed": true,
+      "removed_tmpfs_directories": [
+        "/run/evo-spec-20261025",
+        "/run/evo-spec-long-20261025"
+      ],
+      "raw_reports_retained_locally": "runtime-work/spec-20261025",
+      "ssh_shells_closed": true
+    }
+  },
+  "sources": [
+    "https://github.com/Niko1221/Strata/blob/7dd5cf18e68c639a8773e096c5c79f971ea2a9f5/include/strata/core/spec_prob.hpp",
+    "https://github.com/Niko1221/Strata/blob/7dd5cf18e68c639a8773e096c5c79f971ea2a9f5/src/kernels/cuda/sampler.cu",
+    "https://github.com/Niko1221/Strata/blob/7dd5cf18e68c639a8773e096c5c79f971ea2a9f5/src/kernels/cuda/iq_kernels.cu",
+    "https://proceedings.mlr.press/v202/leviathan23a.html"
+  ],
+  "reproduction": {
+    "scripts_directory": "runtime-work/spec-20261025",
+    "environment": "EVO-X2 64GB gfx1151; SDK already installed on host; private localhost model port 8085; tmpfs files under /run/evo-spec-20261025.",
+    "full_model": "run.py: original engine/config, only three sampler env flags vary. Waits idle, owns router maintenance lease, stops private model and restores originally active model in finally.",
+    "gpu_tests": "gpu_parity.py builds pinned sampler and upstream parity tests using the RDNA compatibility headers.",
+    "lut_prototype": "run_lut_gpu.py compiles lut_gpu.cpp, reads ten actual experts from one layer of each IQ2 type, compares both kernels and alternates nine timing rounds.",
+    "lut_compile_command": [
+      "/home/msh/evo-llm/flash-next/rocm/install/lib/llvm/bin/clang++",
+      "-O3",
+      "-std=c++17",
+      "-DSTRATA_USE_HIP=1",
+      "-D__HIP_PLATFORM_AMD__=1",
+      "-I/run/evo-spec-20261025/strata/include/strata/hip_compat",
+      "-I/run/evo-spec-20261025/strata/include",
+      "-I/run/evo-spec-20261025/strata/third_party/ggml",
+      "-I/home/msh/evo-llm/flash-next/rocm/install/include",
+      "-x",
+      "hip",
+      "--offload-arch=gfx1151",
+      "--rocm-path=/home/msh/evo-llm/flash-next/rocm/install",
+      "--rocm-device-lib-path=/home/msh/evo-llm/flash-next/rocm/install/lib/llvm/amdgcn/bitcode",
+      "/run/evo-spec-20261025/lut_gpu.cpp",
+      "-L/home/msh/evo-llm/flash-next/rocm/install/lib",
+      "-lamdhip64",
+      "-Wl,-rpath,/home/msh/evo-llm/flash-next/rocm/install/lib",
+      "-o",
+      "/run/evo-spec-20261025/lut_gpu"
+    ],
+    "lut_weight_slices": "native_experts.txt: first layer for each of types 16/17/22, expert IDs 0/17/43/127/191/255/320/384/447/511; each expert gate then up; each matrix has 640 rows x 10 canonical blocks/row. Read GGUF at gate/up base + expert*640*10*block_bytes. Concatenate exact bytes, no transformation.",
+    "raw_report_sha256": {
+      "spec-comparison.json": "c1ebf552a2f72706edc3137939f3b861b6ee0806eb2b3093a2d564c684577c7c",
+      "long-comparison.json": "efb82c4818b00cc7e32ca430c28c5d5bc08f935ae9d61204b8c47d2363fb4072",
+      "long-live-env.json": "14d86600f6d893d59acfc9d80ab2a31de1a35ba23b1080d24b3694f36dac612a",
+      "compression-slices.json": "84c8f20ae7a72300449bff018fa5f3a41fea522651f61235502cb6c95017f0e2",
+      "gpu-parity.json": "c4994958d1622a7812dbbb599f870f90b6888795c5cd4ad7c0f1f796a1110999",
+      "validation.json": "2bc8f39eab8001f8a21b51d1f336f6bf6bd2b5a0663ecd7e81e6624adbc9b4e1",
+      "lut-gpu.json": "4348b177b10a5c60a376bbf44df4c4ae3e7bbcc589455fee767a0e0e5e1f4901",
+      "final-audit.json": "91d4c89c596ef4ceaaaa6b41cda96b032d4dbb6abccd5bfe0721015efbaddea3"
+    },
+    "gpu_lut_source": "runtime/strata/iq2-pair-lut-probe.cpp"
+  }
+}

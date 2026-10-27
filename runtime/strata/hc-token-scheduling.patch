@@ -1,0 +1,18 @@
+--- a/src/kernels/cuda/fused_gr.cu
++++ b/src/kernels/cuda/fused_gr.cu
+@@ -1213,8 +1213,13 @@
+ // STRATA_GR_DOWN_TG=n forces n where it divides the launch (0 = off).
+ int down_tg(int ct) {
+ #if defined(__HIPCC__)
+-    (void) ct;
+-    return 0;
++    // EVO gfx1151 experiment: same sums, schedule only. Off unless requested.
++    static const bool on = [] { const char* v = std::getenv("EVO_HC_DOWN_AUTO"); return v && std::atoi(v) != 0; }();
++    if (!on) return 0;
++    // Cold BF16 weights: T=4 benefits from pairs; T=5 from singles.
++    // T<=3 stays unchanged; T>6 uses the existing generic path.
++    if (ct == 4 || ct == 6) return 2;
++    return ct == 5 ? 1 : 0;
+ #else
+     static const int env = [] { const char* v = std::getenv("STRATA_GR_DOWN_TG"); return v ? std::atoi(v) : -1; }();
+     if (ct < 2) return 0;

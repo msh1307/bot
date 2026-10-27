@@ -1,0 +1,146 @@
+{
+  "status": "completed_deployed",
+  "source_sha256": "82e0a04e4511380e4bc56fbebc97d3500a29a24d23f68dfab693e95f6090ca2e",
+  "patch_sha256": "8cd1d86dfaad24bab754a0b18eb8ce9af1324ae5e1c0e311200b7543aeaf7d37",
+  "sizes": [
+    {
+      "chunk": 1,
+      "pad": 0,
+      "outside_bytes_removed": 64512,
+      "hc_region_minimum": 43776
+    },
+    {
+      "chunk": 1,
+      "pad": 64,
+      "outside_bytes_removed": 64768,
+      "hc_region_minimum": 43776
+    },
+    {
+      "chunk": 63,
+      "pad": 0,
+      "outside_bytes_removed": 3992832,
+      "hc_region_minimum": 2702336
+    },
+    {
+      "chunk": 63,
+      "pad": 64,
+      "outside_bytes_removed": 4001024,
+      "hc_region_minimum": 2702336
+    },
+    {
+      "chunk": 64,
+      "pad": 0,
+      "outside_bytes_removed": 4056064,
+      "hc_region_minimum": 2745088
+    },
+    {
+      "chunk": 64,
+      "pad": 64,
+      "outside_bytes_removed": 4064256,
+      "hc_region_minimum": 2745088
+    },
+    {
+      "chunk": 127,
+      "pad": 0,
+      "outside_bytes_removed": 8047872,
+      "hc_region_minimum": 5446656
+    },
+    {
+      "chunk": 127,
+      "pad": 64,
+      "outside_bytes_removed": 8064256,
+      "hc_region_minimum": 5446656
+    },
+    {
+      "chunk": 128,
+      "pad": 0,
+      "outside_bytes_removed": 8111104,
+      "hc_region_minimum": 5489408
+    },
+    {
+      "chunk": 128,
+      "pad": 64,
+      "outside_bytes_removed": 8127488,
+      "hc_region_minimum": 5489408
+    },
+    {
+      "chunk": 512,
+      "pad": 0,
+      "outside_bytes_removed": 32441344,
+      "hc_region_minimum": 21955328
+    },
+    {
+      "chunk": 512,
+      "pad": 64,
+      "outside_bytes_removed": 32506880,
+      "hc_region_minimum": 21955328
+    },
+    {
+      "chunk": 1024,
+      "pad": 0,
+      "outside_bytes_removed": 64881664,
+      "hc_region_minimum": 43909888
+    },
+    {
+      "chunk": 1024,
+      "pad": 64,
+      "outside_bytes_removed": 65012736,
+      "hc_region_minimum": 43909888
+    },
+    {
+      "chunk": 2048,
+      "pad": 0,
+      "outside_bytes_removed": 129762304,
+      "hc_region_minimum": 87819008
+    },
+    {
+      "chunk": 2048,
+      "pad": 64,
+      "outside_bytes_removed": 130024448,
+      "hc_region_minimum": 87819008
+    },
+    {
+      "chunk": 4096,
+      "pad": 0,
+      "outside_bytes_removed": 259523584,
+      "hc_region_minimum": 175637248
+    },
+    {
+      "chunk": 4096,
+      "pad": 64,
+      "outside_bytes_removed": 260047872,
+      "hc_region_minimum": 175637248
+    },
+    {
+      "chunk": 8192,
+      "pad": 0,
+      "outside_bytes_removed": 519046144,
+      "hc_region_minimum": 351273728
+    },
+    {
+      "chunk": 8192,
+      "pad": 64,
+      "outside_bytes_removed": 520094720,
+      "hc_region_minimum": 351273728
+    }
+  ],
+  "scope": "Alias HC temporary buffers with existing attention/MoE scratch; target weights, KV precision, context and prefill chunk unchanged.",
+  "dependency_proof": [
+    "HC down and inject consume normalized xn16; then up overwrites the same storage as gated.",
+    "HC mix consumes gated and stores mixed outside the shared region before attention/MoE starts.",
+    "Injection, residual, mixed and row scales remain outside the region.",
+    "Fused write-back may produce the next normalized input only after attention/MoE consumes the old scratch.",
+    "Existing fused-write guard excludes the transition into PLE layer 1; PLE invalidates the old normalized input. MTP uses the region after a complete prompt chunk."
+  ],
+  "diagnostic_results": "20261026-prefill-hc-scratch-parity.json",
+  "performance_results": "20261026-prefill-hc-scratch-performance.json",
+  "qualification_results": "20261026-prefill-hc-scratch-qualification.json",
+  "qualification_completed": [
+    "Build with pinned base and unchanged GPU kernels.",
+    "Alias ON / accounting OFF first: identical loan placement, bitwise operator/output parity, small-tail chunks, PLE and MTP.",
+    "Accounting ON then changes loan slots and residency: requires model parity/quality diagnostics, fixed prefill/decode ABBA, full 128K+vision, cancel/restore, swap/OOM.",
+    "No practical RAM saving is established by the static byte count. The region maximum, GPU allocation granules and host lending budget determine physical savings."
+  ],
+  "vision_results": "20261026-prefill-hc-scratch-vision.json",
+  "deployment_results": "20261026-prefill-hc-scratch-deployment.json"
+}

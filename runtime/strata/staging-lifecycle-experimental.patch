@@ -1,0 +1,13 @@
+--- a/include/strata/core/expert_source.hpp
++++ b/include/strata/core/expert_source.hpp
+@@ -873,8 +873,10 @@
+         std::lock_guard<std::mutex> lock(stage_mu_);
+         for (char busy : stage_busy_) if (busy) return false;
+         released = (uint64_t) stage_buf_.size() * stage_blob_;
++        stage_free_events();
+         stage_of_.clear();
+         stage_buf_.clear();
++        stage_pf_.clear();
+         stage_key_.clear();
+         stage_epoch_.clear();
+         stage_used_.clear();

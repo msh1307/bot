@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-26",
+  "status": "experimental_not_deployed",
+  "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+  "candidate_binary_sha256": "5daf755b3c88f22b82e55e8cfdc8970554dd3ccd8c71a17edfca2f3e538f445a",
+  "change": "Store 300 unchanged native projection tensor spans in one aligned HIP allocation; existing arithmetic and kernels unchanged.",
+  "fixed_16k_abba": {
+    "all_outputs_identical": true,
+    "every_projection_byte_readback_verified": true,
+    "english_decode_tps": {
+      "base": 43.49416,
+      "arena": 43.46772
+    },
+    "korean_decode_tps": {
+      "base": 36.82184,
+      "arena": 36.81927
+    },
+    "available_ram_mean_gain_mib": [
+      109.143,
+      111.84
+    ],
+    "anonymous_ram_mean_reduction_mib": [
+      111.068,
+      112.654
+    ]
+  },
+  "qualification_pairs": [
+    {
+      "order": [
+        "qual-4096-base-0",
+        "qual-4096-packed-1"
+      ],
+      "passed": true,
+      "output_agreement": {
+        "near_full_125k": true,
+        "near_full_append": true,
+        "vision_with_full_context": true
+      },
+      "swapout_delta_pages": 0,
+      "oom_delta": 0,
+      "rows": [
+        {
+          "arm": "qual-4096-base-0",
+          "fixture": "near_full_125k",
+          "seconds": 189.744,
+          "minimum_available_mib": 7191.76,
+          "peak_anonymous_mib": 19644.18,
+          "end_available_mib": 7191.76
+        },
+        {
+          "arm": "qual-4096-base-0",
+          "fixture": "vision_with_full_context",
+          "seconds": 54.809,
+          "minimum_available_mib": 6847.02,
+          "peak_anonymous_mib": 19943.88,
+          "end_available_mib": 7029.31
+        },
+        {
+          "arm": "qual-4096-packed-1",
+          "fixture": "near_full_125k",
+          "seconds": 189.708,
+          "minimum_available_mib": 7297.59,
+          "peak_anonymous_mib": 19522.59,
+          "end_available_mib": 7194.38
+        },
+        {
+          "arm": "qual-4096-packed-1",
+          "fixture": "vision_with_full_context",
+          "seconds": 55.157,
+          "minimum_available_mib": 6782.91,
+          "peak_anonymous_mib": 19920.45,
+          "end_available_mib": 7056.73
+        }
+      ]
+    },
+    {
+      "order": [
+        "qual-4096-packed-0",
+        "qual-4096-base-1"
+      ],
+      "passed": true,
+      "output_agreement": {
+        "near_full_125k": true,
+        "near_full_append": true,
+        "vision_with_full_context": true
+      },
+      "swapout_delta_pages": 0,
+      "oom_delta": 0,
+      "rows": [
+        {
+          "arm": "qual-4096-packed-0",
+          "fixture": "near_full_125k",
+          "seconds": 189.187,
+          "minimum_available_mib": 7302.07,
+          "peak_anonymous_mib": 19523.57,
+          "end_available_mib": 7183.81
+        },
+        {
+          "arm": "qual-4096-packed-0",
+          "fixture": "vision_with_full_context",
+          "seconds": 54.772,
+          "minimum_available_mib": 6841.64,
+          "peak_anonymous_mib": 19921.35,
+          "end_available_mib": 7061.2
+        },
+        {
+          "arm": "qual-4096-base-1",
+          "fixture": "near_full_125k",
+          "seconds": 189.641,
+          "minimum_available_mib": 7343.55,
+          "peak_anonymous_mib": 19504.09,
+          "end_available_mib": 7343.31
+        },
+        {
+          "arm": "qual-4096-base-1",
+          "fixture": "vision_with_full_context",
+          "seconds": 54.755,
+          "minimum_available_mib": 6931.08,
+          "peak_anonymous_mib": 19801.04,
+          "end_available_mib": 7198.46
+        }
+      ]
+    }
+  ],
+  "decision": "Hold. Short-context allocation savings did not hold consistently at 125K plus image. Candidate image-phase available-RAM minima were worse in both orders; production original restored.",
+  "limits": [
+    "Two long pairs cannot distinguish allocator variability from a repeatable layout effect.",
+    "Whole-machine MemAvailable includes other processes and file cache; allocation-payload savings are not a whole-system guarantee.",
+    "No default-swappiness claim: system swappiness remained 0; inference swap was disabled.",
+    "Same weights, IQ3_XXS, Q8 KV, 131072 context, 75W balanced 3500MHz settings."
+  ],
+  "archive": {
+    "sha256": "ee35ff9a4a86e04ddf404ff901a8edd4b9337eeeef4cfffa797fa205b38a2b76",
+    "bytes": 12291411
+  }
+}

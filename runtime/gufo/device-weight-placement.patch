@@ -1,0 +1,152 @@
+--- a/src/models/qwen/hip/model_loader.cpp
++++ b/src/models/qwen/hip/model_loader.cpp
+@@ -4,6 +4,9 @@
+ #include <algorithm>
+ #include <atomic>
+ #include <cerrno>
++#include <charconv>
++#include <cstdio>
++#include <cstdlib>
+ #include <cstring>
+ #include <limits>
+ #include <memory>
+@@ -25,6 +28,8 @@
+       (void)hipHostUnregister(region.host_copy);
+       (void)munmap(region.host_copy, region.size);
+     }
++    if (region.host_copy == nullptr && region.device_data != nullptr)
++      (void)hipFree(region.device_data);
+     region = {};
+   }
+ }
+@@ -45,14 +50,16 @@
+       auto* input = const_cast<std::uint8_t*>(
+                         static_cast<const std::uint8_t*>(source.data)) +
+                     offset;
+-      if (madvise(input, bytes, MADV_POPULATE_READ) != 0) {
++      const auto begin = reinterpret_cast<std::uintptr_t>(input) & ~std::uintptr_t{4095};
++      const auto end = (reinterpret_cast<std::uintptr_t>(input) + bytes + 4095) & ~std::uintptr_t{4095};
++      if (madvise(reinterpret_cast<void*>(begin), end - begin, MADV_POPULATE_READ) != 0) {
+         failure.store(errno, std::memory_order_relaxed);
+         break;
+       }
+       std::memcpy(static_cast<std::uint8_t*>(copy) + offset, input, bytes);
+       // The immutable copy now owns these resident bytes. Keep the original
+       // mapping valid for the reader without retaining its populated PTEs.
+-      (void)madvise(input, bytes, MADV_DONTNEED);
++      (void)madvise(reinterpret_cast<void*>(begin), end - begin, MADV_DONTNEED);
+     }
+   };
+   {
+@@ -107,29 +114,90 @@
+     return false;
+   }
+ 
+-  weight_regions.resize(source_regions.size());
+-  for (std::size_t i = 0; i < source_regions.size(); ++i) {
+-    const auto& source = source_regions[i];
+-    auto& destination = weight_regions[i];
+-    hipError_t map_error;
+-    try {
+-      map_error = MapRegisteredRegion(source, destination);
+-    } catch (const std::exception& e) {
+-      ReleaseWeightRegions(weight_regions);
+-      if (error_msg)
+-        *error_msg = e.what();
++
++  std::size_t budget = 0;
++  if (const char* value = std::getenv("GUFO_QWEN_DEVICE_WEIGHT_MIB")) {
++    const auto length = std::strlen(value);
++    const auto parsed = std::from_chars(value, value + length, budget);
++    if (parsed.ec != std::errc{} || parsed.ptr != value + length ||
++        budget > (std::numeric_limits<std::size_t>::max() >> 20)) {
++      if (error_msg) *error_msg = "Invalid GUFO_QWEN_DEVICE_WEIGHT_MIB";
+       return false;
+     }
+-    if (destination.device_data == nullptr) {
+-      ReleaseWeightRegions(weight_regions);
+-      if (error_msg != nullptr) {
+-        *error_msg = "Failed to make GGUF shard " + std::to_string(i) +
+-                     " GPU-visible through mapped registration: " +
+-                     hipGetErrorString(map_error);
+-      }
+-      return false;
+-    }
+-  }
++    budget <<= 20;
++  }
++  const bool verify = std::getenv("GUFO_VERIFY_DEVICE_WEIGHTS") != nullptr;
++  std::size_t device_total = 0, host_total = 0;
++  try {
++    weight_regions.reserve(source_regions.size() * 2);
++    for (const auto& source : source_regions) {
++      // Never split an encoded tensor between allocation types.
++      std::size_t prefix = source.size <= budget ? source.size : 0;
++      const auto base = reinterpret_cast<std::uintptr_t>(source.data);
++      if (prefix == 0 && budget != 0) {
++        for (const auto& tensor : reader.GetTensors()) {
++          const auto address = reinterpret_cast<std::uintptr_t>(tensor.data);
++          if (address >= base && address - base < source.size &&
++              address - base <= budget)
++            prefix = std::max(prefix, static_cast<std::size_t>(address - base));
++        }
++        for (const auto& tensor : reader.GetTensors()) {
++          const auto address = reinterpret_cast<std::uintptr_t>(tensor.data);
++          if (address >= base && address - base < prefix &&
++              tensor.size_bytes > prefix - (address - base))
++            throw std::runtime_error("Device prefix straddles a GGUF tensor");
++        }
++      }
++      if (prefix != 0) {
++        void* device = nullptr;
++        const auto allocated = hipMalloc(&device, prefix);
++        if (allocated != hipSuccess)
++          throw std::runtime_error(hipGetErrorString(allocated));
++        weight_regions.push_back({.host_data = source.data,
++                                  .device_data = device,
++                                  .host_copy = nullptr,
++                                  .size = prefix});
++        constexpr std::size_t chunk = 16ULL << 20;
++        std::vector<std::uint8_t> check(verify ? chunk : 0);
++        for (std::size_t offset = 0; offset < prefix; offset += chunk) {
++          const auto bytes = std::min(chunk, prefix - offset);
++          const auto* input = static_cast<const std::uint8_t*>(source.data) + offset;
++          auto* output = static_cast<std::uint8_t*>(device) + offset;
++          const auto result = hipMemcpy(output, input, bytes, hipMemcpyHostToDevice);
++          if (result != hipSuccess)
++            throw std::runtime_error(hipGetErrorString(result));
++          if (verify) {
++            const auto copied = hipMemcpy(check.data(), output, bytes, hipMemcpyDeviceToHost);
++            if (copied != hipSuccess || std::memcmp(check.data(), input, bytes) != 0)
++              throw std::runtime_error("Device weight byte verification failed");
++          }
++          const auto begin = reinterpret_cast<std::uintptr_t>(input) & ~std::uintptr_t{4095};
++          const auto end = (reinterpret_cast<std::uintptr_t>(input) + bytes + 4095) & ~std::uintptr_t{4095};
++          (void)madvise(reinterpret_cast<void*>(begin), end - begin, MADV_DONTNEED);
++        }
++        budget -= prefix;
++        device_total += prefix;
++      }
++      if (prefix != source.size) {
++        auto tail = source;
++        tail.data = static_cast<const std::uint8_t*>(source.data) + prefix;
++        tail.size -= prefix;
++        QwenGpuWeightRegion registered;
++        const auto status = MapRegisteredRegion(tail, registered);
++        if (status != hipSuccess)
++          throw std::runtime_error(hipGetErrorString(status));
++        weight_regions.push_back(registered);
++        host_total += tail.size;
++      }
++    }
++  } catch (const std::exception& ex) {
++    ReleaseWeightRegions(weight_regions);
++    if (error_msg) *error_msg = ex.what();
++    return false;
++  }
++  std::fprintf(stderr, "evo weight placement: device=%zu host=%zu bytes verified=%d\n",
++               device_total, host_total, verify ? 1 : 0);
++
+   return true;
+ }
+ 

@@ -1,0 +1,99 @@
+--- a/src/models/qwen/vision/encoder.hip
++++ b/src/models/qwen/vision/encoder.hip
+@@ -20,6 +20,7 @@
+ #include "src/core/hip/managed_alloc.hpp"
+ #include "src/models/qwen/hip/ops/gemm.hpp"
+ #include "src/models/qwen/vision/encoder.hpp"
++#include "src/models/qwen/vision/lossless_f16.hpp"
+ 
+ namespace gufo::models::qwen::vision {
+ namespace {
+@@ -428,11 +429,15 @@
+       const auto* tensor = reader->FindTensor(name);
+       if (tensor == nullptr ||
+           tensor->dimensions != std::vector<std::uint64_t>(shape) ||
+-          tensor->type != type) {
++          (tensor->type != type &&
++           !(tensor->type == core::GgmlType::kF16 &&
++             (type == core::GgmlType::kBF16 ||
++              name == "v.patch_embd.weight" ||
++              name == "v.patch_embd.weight.1")))) {
+         throw std::invalid_argument("invalid BF16 Qwen vision tensor: " + name);
+       }
+       const auto bytes =
+-          tensor->ElementCount() * (type == core::GgmlType::kF32 ? 4 : 2);
++          tensor->ElementCount() * (tensor->type == core::GgmlType::kF32 ? 4 : 2);
+       const auto address = reinterpret_cast<std::uintptr_t>(tensor->data);
+       const bool mapped = std::any_of(
+           reader->GetMappedRegions().begin(), reader->GetMappedRegions().end(),
+@@ -510,20 +515,45 @@
+           tensor.ElementCount() * (tensor.type == core::GgmlType::kF32 ? 4 : 2);
+       Allocation buffer = Allocation::Weight(bytes);
+       bytes_uploaded += bytes;
+-      upload.Copy(buffer.data, tensor.data, bytes);
++      if (tensor.type == core::GgmlType::kF16) {
++        // The BF16 encoder may consume F16 only if every value is exact.
++        // Bound the staging allocation; never retain a second projector copy.
++        constexpr std::size_t kChunkElements = 1u << 20;
++        std::vector<std::uint16_t> converted(
++            std::min<std::size_t>(tensor.ElementCount(), kChunkElements));
++        const auto* source = static_cast<const std::uint16_t*>(tensor.data);
++        auto* destination = static_cast<std::uint16_t*>(buffer.data);
++        for (std::size_t offset = 0; offset < tensor.ElementCount();) {
++          const auto count = std::min<std::size_t>(
++              converted.size(), tensor.ElementCount() - offset);
++          for (std::size_t i = 0; i < count; ++i) {
++            converted[i] = detail::LosslessF16ToBf16(source[offset + i]);
++          }
++          upload.Copy(destination + offset, converted.data(), count * 2);
++          offset += count;
++        }
++      } else {
++        upload.Copy(buffer.data, tensor.data, bytes);
++      }
+       weights.emplace(tensor.name, std::move(buffer));
+     }
+-    const auto* first = static_cast<const float*>(
+-        reader->FindTensor("v.patch_embd.weight")->data);
+-    const auto* second = static_cast<const float*>(
+-        reader->FindTensor("v.patch_embd.weight.1")->data);
++    const auto* first = reader->FindTensor("v.patch_embd.weight");
++    const auto* second = reader->FindTensor("v.patch_embd.weight.1");
++    const auto patch_value = [&](unsigned t, unsigned i) {
++      const auto* tensor = t == 0 ? first : second;
++      if (tensor->type == core::GgmlType::kF16) {
++        return detail::LosslessF16ToBf16(
++            static_cast<const std::uint16_t*>(tensor->data)[i]);
++      }
++      return ToBf16(static_cast<const float*>(tensor->data)[i]);
++    };
+     std::vector<std::uint16_t> patch(kHidden * kPatchDim);
+     for (unsigned h = 0; h < kHidden; ++h) {
+       for (unsigned c = 0; c < 3; ++c) {
+         for (unsigned t = 0; t < 2; ++t) {
+           for (unsigned p = 0; p < 256; ++p) {
+             patch[h * kPatchDim + (c * 2 + t) * 256 + p] =
+-                ToBf16((t == 0 ? first : second)[(h * 3 + c) * 256 + p]);
++                patch_value(t, (h * 3 + c) * 256 + p);
+           }
+         }
+       }
+--- /dev/null
++++ b/src/models/qwen/vision/lossless_f16.hpp
+@@ -0,0 +1,16 @@
++#pragma once
++
++#include <bit>
++#include <cstdint>
++#include <stdexcept>
++
++namespace gufo::models::qwen::vision::detail {
++inline std::uint16_t LosslessF16ToBf16(std::uint16_t bits) {
++  const float value = static_cast<float>(std::bit_cast<_Float16>(bits));
++  const auto wide = std::bit_cast<std::uint32_t>(value);
++  if ((wide & 0xffffu) != 0 || (wide & 0x7f800000u) == 0x7f800000u) {
++    throw std::invalid_argument("F16 vision weight is not finite exact BF16");
++  }
++  return static_cast<std::uint16_t>(wide >> 16);
++}
++}  // namespace gufo::models::qwen::vision::detail

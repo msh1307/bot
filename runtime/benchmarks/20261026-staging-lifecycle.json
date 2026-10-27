@@ -1,0 +1,36 @@
+{
+  "status": "reproduced_in_extracted_cleanup_body_not_live_inference",
+  "base": "Strata 7dd5cf1 plus evo-7dd5cf1.patch",
+  "patch_sha256": "4b133eb61c1d7e1763a215adabdd1a87837fe14c58670359bda03d76195ed3cd",
+  "checks": {
+    "before": {
+      "reclaimed": true,
+      "metadata_empty": false,
+      "events_destroyed": false,
+      "reallocation_aligned": false,
+      "busy_refused_without_mutation": true,
+      "second_release": true,
+      "idempotent_release": true
+    },
+    "after": {
+      "reclaimed": true,
+      "metadata_empty": true,
+      "events_destroyed": true,
+      "reallocation_aligned": true,
+      "busy_refused_without_mutation": true,
+      "second_release": true,
+      "idempotent_release": true
+    }
+  },
+  "limits": [
+    "GPU events are stubs; caller must have joined fills and completed H2D copies before cleanup.",
+    "No live crash was demonstrated. No speed or RAM savings claimed. Not deployed."
+  ],
+  "reproduction_script": "runtime-work/staging-lifecycle-20261026/verify.py",
+  "deployment": "not_deployed_pending_full_engine_validation",
+  "reproduce": "g++ -O1 -g -std=c++17 -fsanitize=address,undefined before.cpp -o before && ./before; repeat for after.cpp. The extracted actual cleanup body is tested with container/event stubs.",
+  "test_sources": [
+    "runtime/strata/staging-lifecycle-check/before.cpp",
+    "runtime/strata/staging-lifecycle-check/after.cpp"
+  ]
+}

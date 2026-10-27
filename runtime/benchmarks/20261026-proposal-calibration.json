@@ -1,0 +1,509 @@
+{
+  "date": "2026-10-26",
+  "hardware": "EVO-X2 64GB, gfx1151, reserved UMA 32GiB",
+  "objective": "Increase generation speed 50% without changing target quantization, context capacity or power limits",
+  "scope": "Qwen27B independent DFlash2 proposal-temperature experiment; no Flash benchmark in this trial",
+  "controls": {
+    "target": "RANA Q6_K",
+    "draft": "DFlash2 Q4_K_M",
+    "context": 262144,
+    "kv": "f16",
+    "draft_depth": 4,
+    "sampling": {
+      "temperature": 1,
+      "top_p": 0.95,
+      "top_k": 20,
+      "min_p": 0,
+      "presence_penalty": 0,
+      "repeat_penalty": 1
+    },
+    "cpu_max_mhz": 3500,
+    "configured_apu_watts": 75,
+    "output_tokens": 512,
+    "checkpoints": 48,
+    "checkpoint_min_step": 4096,
+    "prefill_batch": 2048
+  },
+  "source": {
+    "upstream": "https://github.com/Nathanw1014/llama.cpp",
+    "revision": "8e9dcfeb7522f302ff1e5d2bb0492283bc16d24d",
+    "archive_sha256": "f0fe161cf761d4e0600d1cedb24956b46f90393e9b1c225f98c37fa1d2869a25",
+    "experimental_patch_sha256": "a7ad3d48f41c5714aab3c908dbae699c8001d6d603a08965d9f2b064cd8da94b",
+    "experimental_library_sha256": "8802ff2c7585e1378da8d7fd123ba3d7677f2a5e66cacca7917d1391afbf683c",
+    "scope": "common/speculative.cpp proposal q only; common/sampling.cpp read-only diagnostic. Public structures and installed GPU libraries unchanged."
+  },
+  "method": [
+    "At each DFlash2 depth q=softmax(selector_scores/proposal_temperature); save and verify the actual normalized q.",
+    "Target sampling stays temperature=1, top_p=.95, top_k=20, min_p=0. No greedy target decoding.",
+    "Only the private common library is replaced on a loopback-only temporary server. The installed GPU engine is shared unchanged.",
+    "Baseline, baseline with telemetry, proposal temperatures .5/.7/1.3, repeated baseline; 16K synthetic review prefix and English code/Korean thinking fixtures.",
+    "Reported decode TPS excludes prompt prefill; request wall time and prefill rate are retained separately.",
+    "Telemetry has its own arm and is off in candidate speed arms."
+  ],
+  "raw_sha256": "aa4b97e3fb550fbe4b6c8fbcdcee6fde91858b7cfcb034d336ce8b423ea7fd6e",
+  "rows": [
+    {
+      "arm": "control",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.7952027190476656,
+      "first_text_seconds": 0.6133599039167166,
+      "decode_tps": 16.54743321731744,
+      "prefill_tps": 36.01609592068601,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "control",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "6678b3b521fbdeb7aaf46c584140ada1c7a1db7472da502ca4bad5d443967b25",
+      "seconds": 78.57645786111243,
+      "first_text_seconds": 53.45913606812246,
+      "decode_tps": 20.3450326428285,
+      "prefill_tps": 300.7642849823402,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 656,
+      "draft_accepted_tokens": 346,
+      "finish": "length"
+    },
+    {
+      "arm": "control",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "56c1742602d6ba65ec6170e1d223acebfd2bc54f5405ae9a400965f2c2fcdfe6",
+      "seconds": 83.47420369600877,
+      "first_text_seconds": 54.01410690997727,
+      "decode_tps": 17.345950141561282,
+      "prefill_tps": 300.52219274883896,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 769,
+      "draft_accepted_tokens": 318,
+      "finish": "length"
+    },
+    {
+      "arm": "probe_1",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.8012509071268141,
+      "first_text_seconds": 0.6188053141813725,
+      "decode_tps": 16.486596397129134,
+      "prefill_tps": 35.73238393472018,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "probe_1",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "6678b3b521fbdeb7aaf46c584140ada1c7a1db7472da502ca4bad5d443967b25",
+      "seconds": 78.89196873502806,
+      "first_text_seconds": 53.91691436385736,
+      "decode_tps": 20.4607652214079,
+      "prefill_tps": 298.2524975650023,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 656,
+      "draft_accepted_tokens": 346,
+      "finish": "length"
+    },
+    {
+      "arm": "probe_1",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "56c1742602d6ba65ec6170e1d223acebfd2bc54f5405ae9a400965f2c2fcdfe6",
+      "seconds": 83.67135786497965,
+      "first_text_seconds": 54.49504564795643,
+      "decode_tps": 17.514710557411664,
+      "prefill_tps": 297.8560777253512,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 769,
+      "draft_accepted_tokens": 318,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_0p5",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.8019244531169534,
+      "first_text_seconds": 0.6189401210285723,
+      "decode_tps": 16.44457356479984,
+      "prefill_tps": 35.73987221371144,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "temp_0p5",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "733a9555264a246a1faed1d1f23ad01ed816992c2f52d9d156c1934add15fecf",
+      "seconds": 78.50035348115489,
+      "first_text_seconds": 53.53727623797022,
+      "decode_tps": 20.471135778673933,
+      "prefill_tps": 300.3642644269313,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 654,
+      "draft_accepted_tokens": 347,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_0p5",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "7ac81c7f278bb1c6ae0b2c9edc9f6283925ae092ea0e523f3941495d9f32a695",
+      "seconds": 85.37149012112059,
+      "first_text_seconds": 53.98078540409915,
+      "decode_tps": 16.27902361156096,
+      "prefill_tps": 300.66175256131174,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 823,
+      "draft_accepted_tokens": 304,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_0p7",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.8063590051606297,
+      "first_text_seconds": 0.6240909660700709,
+      "decode_tps": 16.5206425428573,
+      "prefill_tps": 35.40825720558034,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "temp_0p7",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "7bf25fe2c12d69d205f39ca177b6daef4452f9f44e255baaa76072734919c512",
+      "seconds": 79.27260561101139,
+      "first_text_seconds": 53.658735061995685,
+      "decode_tps": 19.950482979329387,
+      "prefill_tps": 299.67538745260333,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 672,
+      "draft_accepted_tokens": 342,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_0p7",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "fc50d25833ca63b68daf2ebb0ac452cd8e7aeb29a62fc09b17ded41591fceb32",
+      "seconds": 85.06262409081683,
+      "first_text_seconds": 54.16448569390923,
+      "decode_tps": 16.538866433215116,
+      "prefill_tps": 299.67525632817535,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 803,
+      "draft_accepted_tokens": 309,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_1p3",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.8015317469835281,
+      "first_text_seconds": 0.619243938010186,
+      "decode_tps": 16.527650759721013,
+      "prefill_tps": 35.70124548663232,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "temp_1p3",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "6de4ad12d48f6634d965597c8451ea403f6b48eb33fae169057fb0b5488e1df0",
+      "seconds": 79.62401800695807,
+      "first_text_seconds": 53.695687155937776,
+      "decode_tps": 19.708514541104012,
+      "prefill_tps": 299.46061636678684,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 688,
+      "draft_accepted_tokens": 338,
+      "finish": "length"
+    },
+    {
+      "arm": "temp_1p3",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "3d31d7eff7a48fb9f60bcb94116a5ad08676450a4709182b39ede3a98aa1273b",
+      "seconds": 83.23828813107684,
+      "first_text_seconds": 54.159703945042565,
+      "decode_tps": 17.57350298171792,
+      "prefill_tps": 299.62047019995293,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 755,
+      "draft_accepted_tokens": 320,
+      "finish": "length"
+    },
+    {
+      "arm": "control_repeat",
+      "fixture": "warmup",
+      "seed": 42,
+      "input_sha256": "8e2430830d58b3cc1c2dbf51a493ea05087ba6709587a21ff4d2dd31c96cca18",
+      "output_sha256": "f6eacfde7a1d43b4b10f24e83b7dfd33a05a17e15dca2d1d9a40ecab33a7abf8",
+      "seconds": 0.796531368046999,
+      "first_text_seconds": 0.6138700239825994,
+      "decode_tps": 16.471389196964875,
+      "prefill_tps": 36.02334968029277,
+      "new_prompt_tokens": 22,
+      "cached_tokens": 0,
+      "output_tokens": 4,
+      "draft_tokens": 4,
+      "draft_accepted_tokens": 3,
+      "finish": "stop"
+    },
+    {
+      "arm": "control_repeat",
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "6678b3b521fbdeb7aaf46c584140ada1c7a1db7472da502ca4bad5d443967b25",
+      "seconds": 78.7395494049415,
+      "first_text_seconds": 53.62918810197152,
+      "decode_tps": 20.350723816702985,
+      "prefill_tps": 299.8269171637207,
+      "new_prompt_tokens": 16049,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 656,
+      "draft_accepted_tokens": 346,
+      "finish": "length"
+    },
+    {
+      "arm": "control_repeat",
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "56c1742602d6ba65ec6170e1d223acebfd2bc54f5405ae9a400965f2c2fcdfe6",
+      "seconds": 83.55446890601888,
+      "first_text_seconds": 54.06929860403761,
+      "decode_tps": 17.331200634695023,
+      "prefill_tps": 300.1533647328179,
+      "new_prompt_tokens": 16112,
+      "cached_tokens": 0,
+      "output_tokens": 512,
+      "draft_tokens": 769,
+      "draft_accepted_tokens": 318,
+      "finish": "length"
+    }
+  ],
+  "comparison": {
+    "control": {
+      "geometric_mean_tps": 18.785737192107746,
+      "gain_vs_combined_controls_percent": 0.014275572498223532
+    },
+    "probe_1": {
+      "geometric_mean_tps": 18.93051453701442,
+      "gain_vs_combined_controls_percent": 0.7850625329500094
+    },
+    "temp_0p5": {
+      "geometric_mean_tps": 18.255139076339663,
+      "gain_vs_combined_controls_percent": -2.8106008550806694
+    },
+    "temp_0p7": {
+      "geometric_mean_tps": 18.164756350506337,
+      "gain_vs_combined_controls_percent": -3.291793727952619
+    },
+    "temp_1p3": {
+      "geometric_mean_tps": 18.61041748734623,
+      "gain_vs_combined_controls_percent": -0.9191173034903688
+    },
+    "control_repeat": {
+      "geometric_mean_tps": 18.78037479733953,
+      "gain_vs_combined_controls_percent": -0.014273534869368998
+    }
+  },
+  "baseline_geometric_mean_tps": 18.783055803359154,
+  "default_overlay_output_parity": true,
+  "probability_check": {
+    "cases": 4200,
+    "max_absolute_probability_error": 8.881784197001252e-15,
+    "includes": "sparse target, sparse proposal, duplicate candidate IDs, varied proposal temperature",
+    "scope": "analytic p/q rejection and residual identity; does not establish model quality or kernel parity"
+  },
+  "power_check": {
+    "scaling_max_freq": [
+      "3500000"
+    ],
+    "scaling_governor": [
+      "powersave"
+    ],
+    "energy_performance_preference": [
+      "balance_performance"
+    ],
+    "power_configuration": {
+      "models": {
+        "qwen3.8-27b-uncensored": 75,
+        "sc117-flash-next-iq3_xxs": 75
+      },
+      "cpu_max_mhz": 3500
+    }
+  },
+  "draft_overlap_diagnostic": {
+    "rows": 926,
+    "by_depth": {
+      "0": {
+        "rows": 356,
+        "overlap": 0.7519098731475562,
+        "support": 0.9605735441123595,
+        "pmax": 0.7812749621292134,
+        "psum": 1.0000000001179776,
+        "qsum": 1.0000000125196629
+      },
+      "1": {
+        "rows": 263,
+        "overlap": 0.7041303764406844,
+        "support": 0.9140597972703423,
+        "pmax": 0.7886276047908746,
+        "psum": 0.9999999993802282,
+        "qsum": 1.0000000076806084
+      },
+      "2": {
+        "rows": 176,
+        "overlap": 0.7175156848171591,
+        "support": 0.8942969666130114,
+        "pmax": 0.8391365798409091,
+        "psum": 1.0000000010681818,
+        "qsum": 1.0000000090227272
+      },
+      "3": {
+        "rows": 131,
+        "overlap": 0.7368445853412977,
+        "support": 0.8890474575923665,
+        "pmax": 0.8747916682519085,
+        "psum": 0.9999999991679388,
+        "qsum": 1.0000000178549617
+      }
+    }
+  },
+  "completed": true,
+  "error": null,
+  "restored_unit": "evo-flash",
+  "restored_healthy": true,
+  "new_swapout_bytes": 0,
+  "new_oom_kills": 0,
+  "minimum_available_gib": 10.237560272216797,
+  "resource_sample_scope": "Build, model startup and candidate requests before restoring the original Flash service. Restore is checked separately.",
+  "peak_temperature_c": {
+    "k10temp": 65.875,
+    "amdgpu": 66.0,
+    "nvme": 41.85
+  },
+  "production_changed": false,
+  "result": "The three proposal-temperature candidates do not show a consistent speed gain across both fixtures. Rejected; the 50% objective was not met.",
+  "restore_check": {
+    "router": {
+      "active": "sc117-flash-next-iq3_xxs",
+      "loading": null,
+      "busy": false,
+      "waiting_requests": 0,
+      "error": null,
+      "states": {
+        "qwen3.8-27b-uncensored": "unloaded",
+        "sc117-flash-next-iq3_xxs": "loaded"
+      },
+      "maintenance": null,
+      "operation": null,
+      "flash_guard": {
+        "min_available_gib": 6,
+        "sample_seconds": 2,
+        "consecutive_samples": 3
+      }
+    },
+    "services": "active\ninactive\nactive",
+    "test_port_listener": "State Recv-Q Send-Q Local Address:Port Peer Address:Port",
+    "flash_binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+    "flash_config_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+    "available_after_cleanup_gib": 8.379066467285156
+  },
+  "related_research": [
+    {
+      "name": "Block Verification",
+      "url": "https://arxiv.org/abs/2403.10444",
+      "status": "Not ported or measured on EVO",
+      "author_result": "5-8% wall-clock gain over token verification; does not substantiate another 50% on this runtime."
+    },
+    {
+      "name": "Infernix DFlash2 trees",
+      "url": "https://github.com/Wallawalla47/Infernix/blob/main/docs/maintainer/dflash.md",
+      "status": "Primary documentation review only; not tested on EVO",
+      "limitation": "Inference: porting requires branch-aware target attention, recurrent-state rollback, and sampling integration. The pinned Nathan common/server source has no draft-tree-nodes option."
+    },
+    {
+      "name": "hipfire",
+      "url": "https://hipfire.dev/docs/dflash/",
+      "status": "Official benchmark review only; not tested on EVO",
+      "limitation": "Published large gains use other Qwen generations, MQ4 and greedy decoding. They do not establish the same RANA Q6 sampled configuration."
+    }
+  ],
+  "limits": [
+    "Two synthetic 16K fixtures and one seed per arm are a screening experiment, not a general speed floor or broad quality evaluation.",
+    "Proposal-temperature changes alter sampled output sequences; equal-seed target AR output is not expected.",
+    "The analytic p/q identity is checked separately. It does not by itself validate the complete implementation or original-model accuracy.",
+    "Same-seed baseline/telemetry output equality validates the diagnostic overlay only.",
+    "The context allocation remains 262144; this is not a full 262144-token prompt benchmark.",
+    "Observed candidate support and overlap are conditional on the tested paths, not a global bound for other drafters."
+  ]
+}

@@ -1,0 +1,13 @@
+--- a/src/models/qwen/hip/arena.cpp
++++ b/src/models/qwen/hip/arena.cpp
+@@ -18,7 +18,9 @@
+ namespace gufo::hip {
+ namespace {
+ 
+-constexpr std::uint32_t kMaxPromptBatch = 4096;
++// EVO serves prefill in 2048-token chunks. Bound only temporary workspaces;
++// the full context/KV capacity and larger-request chunking are unchanged.
++constexpr std::uint32_t kMaxPromptBatch = 2048;
+ constexpr std::size_t kMaxTargetLayerTaps = 5;
+ constexpr std::array<std::uint8_t, 8> kCompactSnapshotMagic = {
+     'G', 'Q', 'K', 'V', 'S', 'N', 'P', '1'};

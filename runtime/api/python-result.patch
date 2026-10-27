@@ -1,0 +1,45 @@
+--- a/evo_python.py
++++ b/evo_python.py
+@@ -36,11 +36,23 @@
+ ]
+ 
+ SHELL_TOOL = 'shell_exec'
++MODEL_OUTPUT_BYTES = 8192
++
++
++def compact_output(text):
++    data = text.encode('utf-8')
++    if len(data) <= MODEL_OUTPUT_BYTES:
++        return text
++    head = data[:4096].decode('utf-8', 'ignore')
++    tail = data[-3072:].decode('utf-8', 'ignore')
++    return (head + '\n[... middle omitted from ' + str(len(data))
++            + ' output bytes; rerun with narrower output if needed ...]\n' + tail)
+ 
+ 
+ def call(request):
+     if not isinstance(request, dict):
+         raise ValueError('Invalid tool request')
++    requested_tool = request.get('tool')
+     if request.get('tool') in (SHELL_TOOL, 'exec_shell_command'):
+         params = request.get('params')
+         params = params if isinstance(params, dict) else {}
+@@ -77,4 +89,18 @@
+         result = json.loads(line)
+         if not isinstance(result, dict):
+             raise ValueError('Invalid Python bridge response')
++        if requested_tool in ('run_python', SHELL_TOOL, 'exec_shell_command'):
++            raw = result.get('plain_text_response') or result.get('error')
++            if isinstance(raw, str):
++                try:
++                    details = json.loads(raw)
++                except ValueError:
++                    details = None
++                if isinstance(details, dict) and isinstance(details.get('output'), str):
++                    output = details['output']
++                    if details.get('error_type'):
++                        return {'error': compact_output(output or str(details['error_type']))}
++                    if requested_tool == 'run_python' and details.get('kernel_started') is True:
++                        output = '[Python started; prior variables were reset]\n' + output
++                    return {'plain_text_response': compact_output(output if output.strip() else '(no output)')}
+         return result

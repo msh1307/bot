@@ -1,0 +1,668 @@
+{
+  "date": "2026-10-25",
+  "status": "prototype only; not integrated or deployed",
+  "observed_system_vm_swappiness": 0,
+  "encoding": "64 BF16 values: 64 sign/mantissa bytes, 32 exponent-delta bytes, 4-byte exponent-base/fallback header. Blocks with exponent span >15 retain unchanged BF16 in a fallback array.",
+  "lossy_quantization": false,
+  "source_weights_changed": false,
+  "storage": {
+    "all_hc_down_up_original_bytes": 1271398400,
+    "all_hc_down_up_encoded_bytes": 999428096,
+    "down_only_original_bytes": 635699200,
+    "down_only_encoded_bytes": 499207040,
+    "down_only_saving_mib": 130.1690673828125,
+    "note": "Potential encoded storage, not measured whole-model RAM savings; the runtime loader still uses the original format."
+  },
+  "correctness": {
+    "cpu_reconstruction": "Every BF16 bit compared for all four generic probe tensors; 13,107,200 values.",
+    "fused_down_gpu_checks": 16,
+    "fused_down_gpu_output_values": 23040,
+    "scope": "Two actual HC-down tensors from layers 0 and 47, T=1..8; finite bitwise equality to the original fused down arithmetic. Not a complete model test."
+  },
+  "probes": [
+    {
+      "kernel": "generic GEMV",
+      "tensor": "blk.0.hc_attn_down.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5169792,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            47.155,
+            47.233
+          ],
+          "packed_us": [
+            33.638,
+            34.147
+          ],
+          "time_reduction_percent": 28.18472687206002
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            52.947,
+            52.968
+          ],
+          "packed_us": [
+            55.429,
+            55.11
+          ],
+          "time_reduction_percent": -4.365765000236044
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            72.828,
+            72.699
+          ],
+          "packed_us": [
+            58.06,
+            57.761
+          ],
+          "time_reduction_percent": 20.412706920365288
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            82.661,
+            81.45
+          ],
+          "packed_us": [
+            58.169,
+            57.852
+          ],
+          "time_reduction_percent": 29.303337375313056
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            95.749,
+            95.773
+          ],
+          "packed_us": [
+            54.411,
+            54.217
+          ],
+          "time_reduction_percent": 43.281711761573085
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            104.182,
+            104.326
+          ],
+          "packed_us": [
+            54.78,
+            54.444
+          ],
+          "time_reduction_percent": 47.61639841157174
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            110.655,
+            110.783
+          ],
+          "packed_us": [
+            55.138,
+            54.759
+          ],
+          "time_reduction_percent": 50.37121000009033
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            114.15,
+            114.197
+          ],
+          "packed_us": [
+            55.081,
+            54.828
+          ],
+          "time_reduction_percent": 51.867552453064846
+        }
+      ]
+    },
+    {
+      "kernel": "generic GEMV",
+      "tensor": "blk.0.hc_attn_up.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5158144,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            41.543,
+            43.92
+          ],
+          "packed_us": [
+            55.853,
+            56.022
+          ],
+          "time_reduction_percent": -30.90460199150511
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            32.05,
+            32.044
+          ],
+          "packed_us": [
+            45.552,
+            45.223
+          ],
+          "time_reduction_percent": -41.62792149031114
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            32.707,
+            32.61
+          ],
+          "packed_us": [
+            47.584,
+            46.994
+          ],
+          "time_reduction_percent": -44.79844450908645
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            33.476,
+            33.344
+          ],
+          "packed_us": [
+            47.83,
+            47.21
+          ],
+          "time_reduction_percent": -42.232864411852745
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            41.018,
+            40.102
+          ],
+          "packed_us": [
+            62.702,
+            62.011
+          ],
+          "time_reduction_percent": -53.73890532544377
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            42.675,
+            41.645
+          ],
+          "packed_us": [
+            63.456,
+            62.478
+          ],
+          "time_reduction_percent": -49.352466793168894
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            44.139,
+            42.976
+          ],
+          "packed_us": [
+            64.315,
+            62.946
+          ],
+          "time_reduction_percent": -46.083912070251955
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            45.665,
+            44.654
+          ],
+          "packed_us": [
+            64.52,
+            63.088
+          ],
+          "time_reduction_percent": -41.28588669050808
+        }
+      ]
+    },
+    {
+      "kernel": "generic GEMV",
+      "tensor": "blk.47.hc_ffn_down.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5145600,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            46.805,
+            46.967
+          ],
+          "packed_us": [
+            33.809,
+            34.054
+          ],
+          "time_reduction_percent": 27.629782877618048
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            52.925,
+            53.062
+          ],
+          "packed_us": [
+            54.86,
+            54.733
+          ],
+          "time_reduction_percent": -3.4023040561578233
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            72.575,
+            72.834
+          ],
+          "packed_us": [
+            57.659,
+            57.662
+          ],
+          "time_reduction_percent": 20.69197917597948
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            81.777,
+            81.451
+          ],
+          "packed_us": [
+            57.838,
+            57.354
+          ],
+          "time_reduction_percent": 29.428774474967533
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            95.1,
+            95.228
+          ],
+          "packed_us": [
+            54.437,
+            54.066
+          ],
+          "time_reduction_percent": 42.99157244336092
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            104.265,
+            104.8
+          ],
+          "packed_us": [
+            54.628,
+            53.841
+          ],
+          "time_reduction_percent": 48.11709277019109
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            110.431,
+            110.474
+          ],
+          "packed_us": [
+            54.776,
+            54.349
+          ],
+          "time_reduction_percent": 50.600937054389895
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            114.108,
+            113.878
+          ],
+          "packed_us": [
+            55.314,
+            54.532
+          ],
+          "time_reduction_percent": 51.818971340345456
+        }
+      ]
+    },
+    {
+      "kernel": "generic GEMV",
+      "tensor": "blk.47.hc_ffn_up.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5156480,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            41.214,
+            43.947
+          ],
+          "packed_us": [
+            56.329,
+            56.33
+          ],
+          "time_reduction_percent": -32.2894282594145
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            31.997,
+            32.194
+          ],
+          "packed_us": [
+            45.539,
+            45.019
+          ],
+          "time_reduction_percent": -41.0758517549189
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            32.861,
+            32.703
+          ],
+          "packed_us": [
+            47.534,
+            46.671
+          ],
+          "time_reduction_percent": -43.684033921054244
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            33.365,
+            33.371
+          ],
+          "packed_us": [
+            48.013,
+            47.215
+          ],
+          "time_reduction_percent": -42.6935986573963
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            40.492,
+            40.535
+          ],
+          "packed_us": [
+            63.426,
+            61.738
+          ],
+          "time_reduction_percent": -54.47196613474523
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            42.604,
+            41.592
+          ],
+          "packed_us": [
+            63.861,
+            62.007
+          ],
+          "time_reduction_percent": -49.494037721506956
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            43.891,
+            43.161
+          ],
+          "packed_us": [
+            64.768,
+            62.301
+          ],
+          "time_reduction_percent": -45.96907595460187
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            45.274,
+            44.617
+          ],
+          "packed_us": [
+            64.407,
+            62.87
+          ],
+          "time_reduction_percent": -41.590370559900315
+        }
+      ]
+    },
+    {
+      "kernel": "production fused-HC down kernel extracted unchanged except the weight decoder",
+      "tensor": "blk.0.hc_attn_down.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5169792,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            44.541,
+            44.708
+          ],
+          "packed_us": [
+            39.444,
+            39.298
+          ],
+          "time_reduction_percent": 11.772680926396928
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            47.918,
+            47.924
+          ],
+          "packed_us": [
+            43.554,
+            43.41
+          ],
+          "time_reduction_percent": 9.263162287932225
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            51.869,
+            52.104
+          ],
+          "packed_us": [
+            48.021,
+            47.891
+          ],
+          "time_reduction_percent": 7.752974329874096
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            57.532,
+            56.177
+          ],
+          "packed_us": [
+            52.948,
+            51.591
+          ],
+          "time_reduction_percent": 8.064445206623926
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            67.067,
+            67.045
+          ],
+          "packed_us": [
+            57.304,
+            57.26
+          ],
+          "time_reduction_percent": 14.575876879026485
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            73.987,
+            74.288
+          ],
+          "packed_us": [
+            62.621,
+            62.162
+          ],
+          "time_reduction_percent": 15.843533974034719
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            79.593,
+            79.695
+          ],
+          "packed_us": [
+            72.78,
+            72.105
+          ],
+          "time_reduction_percent": 9.042112400180812
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            84.933,
+            84.99
+          ],
+          "packed_us": [
+            76.733,
+            76.332
+          ],
+          "time_reduction_percent": 9.920964201432414
+        }
+      ]
+    },
+    {
+      "kernel": "production fused-HC down kernel extracted unchanged except the weight decoder",
+      "tensor": "blk.47.hc_ffn_down.weight",
+      "exit": 0,
+      "elements": 3276800,
+      "original_bytes": 6553600,
+      "encoded_bytes": 5145600,
+      "measurements": [
+        {
+          "tokens": 1,
+          "base_us": [
+            45.031,
+            44.736
+          ],
+          "packed_us": [
+            38.96,
+            38.982
+          ],
+          "time_reduction_percent": 13.172992302293707
+        },
+        {
+          "tokens": 2,
+          "base_us": [
+            48.107,
+            47.97
+          ],
+          "packed_us": [
+            43.169,
+            43.089
+          ],
+          "time_reduction_percent": 10.219927766270809
+        },
+        {
+          "tokens": 3,
+          "base_us": [
+            52.457,
+            52.019
+          ],
+          "packed_us": [
+            47.873,
+            47.659
+          ],
+          "time_reduction_percent": 8.560817795474563
+        },
+        {
+          "tokens": 4,
+          "base_us": [
+            58.026,
+            56.751
+          ],
+          "packed_us": [
+            52.802,
+            51.015
+          ],
+          "time_reduction_percent": 9.548951444975906
+        },
+        {
+          "tokens": 5,
+          "base_us": [
+            67.922,
+            66.558
+          ],
+          "packed_us": [
+            56.759,
+            56.674
+          ],
+          "time_reduction_percent": 15.6506543723974
+        },
+        {
+          "tokens": 6,
+          "base_us": [
+            74.131,
+            74.107
+          ],
+          "packed_us": [
+            62.265,
+            61.937
+          ],
+          "time_reduction_percent": 16.214465926415635
+        },
+        {
+          "tokens": 7,
+          "base_us": [
+            79.806,
+            79.822
+          ],
+          "packed_us": [
+            72.367,
+            71.895
+          ],
+          "time_reduction_percent": 9.626130754003048
+        },
+        {
+          "tokens": 8,
+          "base_us": [
+            84.897,
+            84.9
+          ],
+          "packed_us": [
+            75.793,
+            75.605
+          ],
+          "time_reduction_percent": 10.835880492588213
+        }
+      ]
+    }
+  ],
+  "new_swap_out_pages": 0,
+  "new_oom_kills": 0,
+  "limitations": [
+    "Generic up projection regressed, so compressing all HC projections is rejected.",
+    "Fused down improvements are isolated kernel timings; whole-model speed and RAM gains unverified.",
+    "Keeping both original and compressed weights would increase RAM. Loader/prefill integration must replace or safely reconstruct the original representation before adoption.",
+    "Only gfx1151/HIP and two actual down matrices tested."
+  ]
+}

@@ -1,0 +1,146 @@
+--- a/src/core/native_dense.cpp
++++ b/src/core/native_dense.cpp
+@@ -164,7 +164,7 @@
+     for (const char* suffix : suffixes) if (name.ends_with(suffix)) return true;
+     return false;
+ }
+-struct DeviceFree { void operator()(void* p) const { if (p) cudaFree(p); } };
++struct DeviceFree { bool owner = true; void operator()(void* p) const { if (p && owner) cudaFree(p); } };
+ using DevicePtr = std::unique_ptr<void, DeviceFree>;
+ struct Pending {
+     WeightRef* ref;
+@@ -271,7 +271,59 @@
+     };
+     if (scratch_ || !weights_.empty()) { err = "native dense: already loaded"; return false; }
+     if (shards.empty()) { err = "native dense: at least one GGUF shard is required"; return false; }
++    const char* arena_flag = std::getenv("EVO_NATIVE_ARENA");
++    const bool arena_on = arena_flag && std::strcmp(arena_flag, "1") == 0;
++    if (arena_on) {
++#if defined(STRATA_USE_HIP)
++        int dev = 0;
++        cudaDeviceProp prop{};
++        if (cudaGetDevice(&dev) != cudaSuccess || cudaGetDeviceProperties(&prop, dev) != cudaSuccess ||
++            !strata::kernels::gfx_arch_is_gfx1151(prop.gcnArchName) || layer_hi >= 0 || g_layer_lb >= 0 || hc_q8_env()) {
++            err = "EVO_NATIVE_ARENA needs unsplit gfx1151 with STRATA_HC_Q8=0"; return false;
++        }
++#else
++        err = "EVO_NATIVE_ARENA is qualified only for HIP gfx1151"; return false;
++#endif
++    }
+     try {
++        // Own the arena until all uploads pass. Pending pointers into it never free subranges.
++        DevicePtr arena;
++        std::map<std::string, std::pair<uint64_t, uint64_t>> arena_rows;
++        uint64_t arena_bytes = 0;
++        if (arena_on) {
++            for (const auto& path : shards) {
++                strata::GgufFile gguf(path);
++                for (const auto& tensor : gguf.tensors()) {
++                    if (!eligible(tensor, include_ple_key) || !strata::kernels::native_mmvq_supported(tensor.type)) continue;
++                    auto found = table.table_.find(tensor.name);
++                    if (found == table.table_.end()) { err = "native arena: missing canonical row"; return false; }
++                    const auto& ref = found->second;
++                    if (tensor.name == "blk.1.ple_key.weight" && !ref.quantized()) continue;
++                    if (!ref.quantized() || tensor.shape.size() != 2 ||
++                        ref.ne0 <= 0 || ref.ne0 > INT_MAX || ref.ne1 <= 0 || ref.ne1 > INT_MAX ||
++                        tensor.shape[0] != (uint64_t) ref.ne0 || tensor.shape[1] != (uint64_t) ref.ne1) {
++                        err = "native arena: invalid shape " + tensor.name; return false;
++                    }
++                    const uint64_t bytes = strata::kernels::native_mmvq_weight_bytes(tensor.type, (int) ref.ne0, (int) ref.ne1);
++                    if (!bytes || bytes > UINT64_MAX - 255 || arena_bytes > UINT64_MAX - ((bytes + 255) & ~255ull)) {
++                        err = "native arena: extent overflow"; return false;
++                    }
++                    if (!arena_rows.emplace(tensor.name, std::make_pair(arena_bytes, bytes)).second) {
++                        err = "native arena: duplicate row"; return false;
++                    }
++                    arena_bytes += (bytes + 255) & ~255ull;
++                }
++            }
++            if (arena_bytes > SIZE_MAX) { err = "native arena: size overflow"; return false; }
++            if (arena_bytes) {
++                void* ptr = nullptr;
++                const auto status = cudaMalloc(&ptr, (size_t) arena_bytes);
++                arena.reset(ptr);
++                if (status != cudaSuccess) { err = "native arena allocation: " + std::string(cudaGetErrorString(status)); return false; }
++            }
++        }
++        const char* verify_flag = std::getenv("EVO_NATIVE_ARENA_CHECK");
++        const bool verify_arena = arena_on && verify_flag && std::strcmp(verify_flag, "1") == 0;
+         std::vector<Pending> pending;
+         std::set<std::string> seen;
+         int max_in = 0;
+@@ -364,16 +416,35 @@
+                 const auto bytes = strata::kernels::native_mmvq_weight_bytes(
+                     tensor.type, (int) ref.ne0, (int) ref.ne1);
+                 void* allocation = nullptr;
+-                auto status = cudaMalloc(&allocation, bytes);
+-                DevicePtr data(allocation);
++                cudaError_t status = cudaSuccess;
++                if (arena_on) {
++                    const auto found = arena_rows.find(tensor.name);
++                    if (found == arena_rows.end() || found->second.second != bytes) {
++                        err = "native arena: plan changed during upload"; return false;
++                    }
++                    allocation = (uint8_t*) arena.get() + found->second.first;
++                } else {
++                    status = cudaMalloc(&allocation, bytes);
++                }
++                DevicePtr data(allocation, DeviceFree{!arena_on});
+                 if (status == cudaSuccess)
+                     status = cudaMemcpy(data.get(), gguf.tensor_data(tensor), bytes, cudaMemcpyHostToDevice);
+                 if (status != cudaSuccess) {
+                     err = "native dense upload " + tensor.name + ": " + cudaGetErrorString(status); return false;
+                 }
++                if (verify_arena) {
++                    std::vector<uint8_t> got((size_t) (std::min<uint64_t>)(bytes, 16ull << 20));
++                    for (uint64_t offset = 0; offset < bytes; offset += got.size()) {
++                        const size_t n = (size_t) (std::min)(bytes - offset, (uint64_t) got.size());
++                        if (cudaMemcpy(got.data(), (const uint8_t*) data.get() + offset, n, cudaMemcpyDeviceToHost) != cudaSuccess ||
++                            std::memcmp(got.data(), (const uint8_t*) gguf.tensor_data(tensor) + offset, n) != 0) {
++                            err = "native arena: byte comparison failed " + tensor.name; return false;
++                        }
++                    }
++                }
+                 max_in = (std::max)(max_in, (int) ref.ne0);
+                 total += bytes;
+-                allocated += alloc_bytes(bytes);
++                if (!arena_on) allocated += alloc_bytes(bytes);
+                 // STRATA_Q8_PACKED=1: a second, packed copy of an eligible Q8_0 matrix for the decode MMVQ (the GGUF
+                 // copy stays: the prompt path's GEMMs read it).
+                 DevicePtr packed;
+@@ -499,7 +570,16 @@
+                 ++packed_count;
+                 weights_.push_back(item.packed.release());
+             }
+-            weights_.push_back(item.data.release());
++            if (arena_on) (void) item.data.release();
++            else weights_.push_back(item.data.release());
++        }
++        if (arena_on && arena) {
++            arena_tensor_count_ = pending.size();
++            weights_.push_back(arena.release());
++            allocated += alloc_bytes(arena_bytes);
++            std::fprintf(stderr, "EVO native arena: tensors=%zu payload=%llu arena=%llu allocated=%llu checked=%d\n",
++                arena_tensor_count_, (unsigned long long) total, (unsigned long long) arena_bytes,
++                (unsigned long long) alloc_bytes(arena_bytes), verify_arena);
+         }
+         if (packed_count)
+             std::fprintf(stderr, "native dense: STRATA_Q8_PACKED=1 packed %zu Q8_0 matrices for decode (+%.1f MiB)\n",
+--- a/include/strata/core/native_dense.hpp
++++ b/include/strata/core/native_dense.hpp
+@@ -55,7 +55,7 @@
+     uint64_t weight_bytes() const { return bytes_; }
+     /// What the device lost to `load`: each matrix rounded up to the granule `cudaMalloc` backs it with.
+     uint64_t allocated_bytes() const { return allocated_; }
+-    size_t tensor_count() const { return weights_.size() - packed_keys_.size(); }
++    size_t tensor_count() const { return arena_tensor_count_ ? arena_tensor_count_ : weights_.size() - packed_keys_.size(); }
+ 
+ private:
+     std::vector<void*> weights_;
+@@ -63,5 +63,6 @@
+     void* scratch_ = nullptr;
+     uint64_t bytes_ = 0;
+     uint64_t allocated_ = 0;
++    size_t arena_tensor_count_ = 0;
+ };
+ } // namespace strata::core

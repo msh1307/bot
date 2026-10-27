@@ -1,0 +1,78 @@
+--- a/evo_responses_display.py
++++ b/evo_responses_display.py
+@@ -5,6 +5,7 @@
+ """
+ import copy
+ import json
++from evo_responses_tools import ResponsesToolRepair
+ 
+ 
+ class ResponsesDisplay:
+@@ -16,6 +17,7 @@
+         self.parts = {}
+         self.seq = 0
+         self.buffer = b''
++        self.tool_repair = ResponsesToolRepair(request)
+ 
+     def request(self, body):
+         """Normalize Codex's custom/namespaced tools for llama.cpp's native route."""
+@@ -110,7 +112,7 @@
+                 item['type'] = 'custom_tool_call'
+                 arguments = item.pop('arguments', '')
+                 item['input'] = '' if added else self.custom_input(arguments)
+-        return item
++        return self.tool_repair.item(item, added=added)
+ 
+     @staticmethod
+     def custom_input(arguments):
+@@ -138,9 +140,13 @@
+             iid = item['id']
+             index = e.get('output_index', len(self.indexes))
+             self.indexes[iid] = index
+-            self.parts[iid] = {'kind': item['type'], 'texts': [], 'name': item.get('name'), 'closed': False}
++            converted = self.item(item, added=True)
++            rewrite_input = bool(self.tool_repair.plan(item)) or (
++                item['type'] == 'function_call' and converted['type'] == 'custom_tool_call')
++            self.parts[iid] = {'kind': item['type'], 'texts': [], 'name': item.get('name'),
++                               'closed': False, 'rewrite_input': rewrite_input}
+             e['output_index'] = index
+-            e['item'] = self.item(item, added=True)
++            e['item'] = converted
+             out.append(self.emit(e))
+             if self.show and item['type'] == 'reasoning':
+                 out.append(self.emit({'type': 'response.reasoning_summary_part.added', 'item_id': iid,
+@@ -161,9 +167,10 @@
+                 out.append(self.emit({'type': 'response.reasoning_summary_text.delta', 'item_id': iid,
+                                       'output_index': index, 'summary_index': 0, 'delta': e['delta']}))
+             return out
+-        custom = self.names.get(state.get('name'), (None, None, None))[2] == 'custom'
+-        if custom and kind in ('response.function_call_arguments.delta', 'response.function_call_arguments.done'):
+-            # A custom input is released whole after its JSON wrapper is complete.
++        rewritten = state.get('rewrite_input', False)
++        if rewritten and kind in ('response.function_call_arguments.delta', 'response.function_call_arguments.done',
++                                   'response.custom_tool_call_input.delta', 'response.custom_tool_call_input.done'):
++            # Repaired inputs are released once, after the complete original input arrives.
+             return []
+         if kind == 'response.output_item.done':
+             original = e['item']
+@@ -178,12 +185,15 @@
+                                       'part': {'type': 'summary_text', 'text': text}}))
+                 state['closed'] = True
+                 state['texts'] = []
+-            if custom:
+-                text = e['item']['input']
+-                out.append(self.emit({'type': 'response.custom_tool_call_input.delta', 'item_id': iid,
++            if rewritten:
++                custom = e['item']['type'] == 'custom_tool_call'
++                family = 'response.custom_tool_call_input' if custom else 'response.function_call_arguments'
++                field = 'input' if custom else 'arguments'
++                text = e['item'][field]
++                out.append(self.emit({'type': family + '.delta', 'item_id': iid,
+                                       'output_index': index, 'delta': text}))
+-                out.append(self.emit({'type': 'response.custom_tool_call_input.done', 'item_id': iid,
+-                                      'output_index': index, 'input': text}))
++                out.append(self.emit({'type': family + '.done', 'item_id': iid,
++                                      'output_index': index, field: text}))
+         if kind.startswith('response.content_part.') or kind.startswith('response.output_text.'):
+             e.setdefault('content_index', 0)
+         if isinstance(e.get('response'), dict) and 'output' in e['response']:

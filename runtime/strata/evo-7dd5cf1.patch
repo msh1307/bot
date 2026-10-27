@@ -1,0 +1,383 @@
+--- a/include/strata/core/expert_source.hpp
++++ b/include/strata/core/expert_source.hpp
+@@ -860,6 +860,29 @@
+     /// take the RAM the budget was sized for.  `why` says what decided.
+     /// #577: `ram_bytes` counts up to every expert, and only the experts outside it are what the cache must keep.
+     bool set_unbuffered(uint64_t ram_bytes, std::string& why);
++    /// EVO opt-in: bypass the file cache only while the full resident expert tiers are filled.
++    /// Called at startup with no concurrent readers; resume the mapped file tier before serving.
++    bool begin_startup_direct(std::string& why);
++    void end_startup_direct();
++    /// EVO: reclaim temporary GGUF assembly buffers after the profile fill's futures and blocking
++    /// H2D copies have finished, before allocating the permanent RAM complement. Startup-only:
++    /// callers must not retain blob pointers or submit inference/lookahead work across this call.
++    /// No class-layout, tensor, resident arena or numerical changes. Refuse an unfinished fill.
++    bool release_startup_staging(uint64_t& released) {
++        released = 0;
++        std::lock_guard<std::mutex> lock(stage_mu_);
++        for (char busy : stage_busy_) if (busy) return false;
++        released = (uint64_t) stage_buf_.size() * stage_blob_;
++        stage_of_.clear();
++        stage_buf_.clear();
++        stage_key_.clear();
++        stage_epoch_.clear();
++        stage_used_.clear();
++        stage_busy_.clear();
++        stage_seq_ = 0;
++        stage_grew_ = false;
++        return true;
++    }
+     /// #577: the same decision once the RAM copy is built (pin_cache_complement), from the RAM it really holds and the
+     /// expert bytes outside it; switches either way (startup only, nothing reading).  Returns whether unbuffered.
+     bool recheck_unbuffered(std::string& why);
+--- a/src/core/expert_source.cpp
++++ b/src/core/expert_source.cpp
+@@ -2488,6 +2488,30 @@
+     why = "through the file cache (no unbuffered reads on this platform)";
+     return false;
+ #endif
++}
++
++bool FileExpertSource::begin_startup_direct(std::string& why) {
++#if defined(__linux__)
++    if (base_ == nullptr || paths_.empty()) {
++        why = "no expert files open";
++        return false;
++    }
++    if (!direct_.empty()) {
++        why = "already unbuffered";
++        return false;  // do not take ownership of another mode's file handles
++    }
++    why = "startup-only O_DIRECT; mapped serving restored after resident fill";
++    return open_direct(why);
++#else
++    why = "startup-only direct read is Linux-only";
++    return false;
++#endif
++}
++
++void FileExpertSource::end_startup_direct() {
++    // The profile-fill future and every complement-copy worker have joined at the call site.
++    for (void* file : direct_) close_direct(file);
++    direct_.clear();
+ }
+ 
+ bool FileExpertSource::recheck_unbuffered(std::string& why) {
+@@ -4078,6 +4102,42 @@
+         release();
+         return false;
+     }
++    // Optional installation check; compare every resident byte with the original mapped file.
++    // Off in normal operation; this deliberately reads the source pages independently of O_DIRECT.
++    if (const char* v = std::getenv("STRATA_VERIFY_STARTUP_COPY");
++        v != nullptr && std::strcmp(v, "1") == 0) {
++        uint64_t checked = 0;
++        for (size_t i = 0; i < offsets.size(); ++i) {
++            if (offsets[i] == kNoComplement) continue;
++            const int64_t layer = (int64_t) (i / (size_t) n_expert_);
++            const int64_t expert = (int64_t) (i % (size_t) n_expert_);
++            const uint8_t* dst = host + (size_t) offsets[i];
++            bool equal = true;
++            uint64_t at = 0;
++            if (role_ptr_.empty()) {
++                const uint8_t* ref = mapped_blob(layer, expert);
++                equal = ref != nullptr && std::memcmp(dst, ref, (size_t) layer_blob_bytes_[(size_t) layer]) == 0;
++                at = layer_blob_bytes_[(size_t) layer];
++            } else {
++                for (int r = 0; r < 3 && equal; ++r) {
++                    const size_t k = (size_t) (3 * layer + r);
++                    const uint64_t per = role_bytes_[k];
++                    const uint8_t* ref = role_ptr_[k] + (size_t) ((uint64_t) expert * per);
++                    equal = std::memcmp(dst + (size_t) at, ref, (size_t) per) == 0;
++                    at += per;
++                }
++            }
++            if (!equal) {
++                err = "EVO resident-copy verification failed at layer " + std::to_string(layer) +
++                      " expert " + std::to_string(expert);
++                release();
++                return false;
++            }
++            checked += at;
++        }
++        std::fprintf(stderr, "evo startup copy verification: CPU matched %llu bytes against mapped source\n",
++                     (unsigned long long) checked);
++    }
+ #if defined(_WIN32)
+     // The mapped pages this process touched (the GPU cache's fill and this copy) leave its working set for the
+     // standby list: VirtualUnlock on pages that are not locked does exactly that (it then reports ERROR_NOT_LOCKED).
+--- a/src/core/mtp.cpp
++++ b/src/core/mtp.cpp
+@@ -4,6 +4,7 @@
+ #include "strata/kernels/qsa_prompt_attn.hpp"
+ #include "strata/core/coupled_draft.hpp"
+ #include "strata/core/spec_prob.hpp"
++#include "strata/core/host_wait.hpp"
+ #include "strata/core/on_device.hpp"
+ #include "strata/core/progress.hpp"
+ 
+@@ -1634,13 +1635,18 @@
+         (void) cudaStreamQuery(cs_);
+         prefetch_ple(tokens[a]);
+         progress_at("mtp draft: waiting for the GPU");   // #2065
++        const HostWaitTimerSlack host_wait_slack;
+         for (int j = 0; j + 1 < max_steps; ++j) {
++            HostWait host_wait;
+             uint32_t spins = 0;
+             while (((volatile int32_t*) h_out_)[j] < 0) {
+ #if defined(_WIN32) || defined(__x86_64__)
+                 _mm_pause();
+ #endif
+-                if ((++spins & 1023u) == 0 && cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                if ((++spins & 1023u) == 0) {
++                    if (cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                    if (host_wait_enabled() && ((volatile int32_t*) h_out_)[j] < 0) host_wait.poll(Clock::now());
++                }
+             }
+             drafts[j] = ((volatile int32_t*) h_out_)[j];
+             if (probs) probs[j] = ((volatile float*) h_prob_)[j];
+@@ -1670,13 +1676,18 @@
+         (void) cudaStreamQuery(cs_);
+         prefetch_ple(tokens[a]);
+         progress_at("mtp draft: waiting for the GPU");   // #2065: a stall here read as "decode", the verify window before it
++        const HostWaitTimerSlack host_wait_slack;
+         auto wait_step = [&](int j) {
++            HostWait host_wait;
+             uint32_t spins = 0;
+             while (((volatile int32_t*) h_out_)[j] < 0) {
+ #if defined(_WIN32) || defined(__x86_64__)
+                 _mm_pause();
+ #endif
+-                if ((++spins & 1023u) == 0 && cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                if ((++spins & 1023u) == 0) {
++                    if (cudaStreamQuery(cs_) != cudaErrorNotReady) break;
++                    if (host_wait_enabled() && ((volatile int32_t*) h_out_)[j] < 0) host_wait.poll(Clock::now());
++                }
+             }
+         };
+         tl = Clock::now();
+--- a/src/core/verify.cpp
++++ b/src/core/verify.cpp
+@@ -11,6 +11,7 @@
+ #include "strata/core/remote_expert_opt.hpp"
+ #include "strata/core/dma_batch.hpp"
+ #include "strata/core/spec_prob.hpp"
++#include "strata/core/host_wait.hpp"
+ #if defined(_WIN32)
+ #ifndef NOMINMAX
+ #define NOMINMAX
+@@ -2908,6 +2909,7 @@
+ #if !defined(STRATA_USE_HIP) && !defined(STRATA_HIP_GFX906)
+     std::optional<HostGraphLaunch> launch_o;   // (not set when the previous stage launched this window already)
+ #endif
++    const HostWaitTimerSlack host_wait_slack;
+     const bool test_stall = g_test_stall > 0 && windows + 1 == g_test_stall;   // #267 test hook (off: false)
+     bool flag_raised = false;   // the PLE flag went up before the launch (early_ple_flag_mode)
+     bool& graph_launched = ar_off_ ? launched_nr_[T] : launched_[T];
+@@ -3006,6 +3008,7 @@
+         auto last_flush = a;
+         uint32_t spins = 0;
+         progress_at("verify window: waiting for the GPU to reach layer", l);
++        HostWait host_wait;
+         while (*seq < want) {
+             _mm_pause();
+             if ((++spins & 1023u) != 0) continue;
+@@ -3042,6 +3045,7 @@
+                 err = "verify: timed out at layer " + std::to_string(l) + released_note(release_gpu_waits(5000));
+                 return false;
+             }
++            if (host_wait_enabled() && *seq < want) host_wait.poll(now);
+         }
+         const Clock::time_point b = Clock::now();
+         if (g_trace) trace_ev("RANG", k, l, (int64_t) std::chrono::duration_cast<std::chrono::microseconds>(b - a).count());
+--- a/src/program/generate.cpp
++++ b/src/program/generate.cpp
+@@ -5629,6 +5629,7 @@
+     // CUDA error left set by the failed `cudaHostRegister` and read later by `gr_read`'s launch check.  See the
+     // note in `pinned.cu`.
+     strata::core::FileExpertSource src;
++    bool evo_startup_direct = false;
+     {   // the card, and whether this build has code for it (a binary built for other GPUs fails at its first kernel
+         // otherwise, after the whole expert arena has loaded) - before the arena starts loading
+         int dev = 0;
+@@ -5806,6 +5807,15 @@
+             }
+         } else if (const char* sv = std::getenv("STRATA_IO_STATS"); sv != nullptr && std::atoi(sv) != 0) {
+             src.set_io_stats(true);
++        }
++        // EVO: only the complete resident mode, with no explicit RAM budget.
++        // Existing budget/unbuffered behavior and the serving-time file cache are unchanged.
++        if (const char* v = std::getenv("STRATA_STARTUP_DIRECT");
++            v != nullptr && std::strcmp(v, "1") == 0 && o.resident_cpu_experts && o.resident_budget == 0) {
++            std::string why;
++            evo_startup_direct = src.begin_startup_direct(why);
++            std::fprintf(stderr, "evo startup direct: %s (%s)\n",
++                         evo_startup_direct ? "enabled" : "unavailable; mapped fallback", why.c_str());
+         }
+         srcp = &src;
+     } else {
+@@ -6532,6 +6542,46 @@
+             }
+             std::fprintf(stderr, "strata generate: expert cache checksum %016llx (%zu slots%s)\n", (unsigned long long) h,
+                          sl.size(), copy_ok ? "" : ", A READ-BACK FAILED");
++        }
++    }
++
++    // EVO single-device resident startup: the profile-fill future has joined and every H2D
++    // copy above was blocking. No inference/lookahead has started. Its assembly cache is
++    // now a disposable copy, so release it before the large permanent RAM allocation.
++    if (const char* v = std::getenv("STRATA_STARTUP_TRIM_STAGING");
++        v != nullptr && std::strcmp(v, "1") == 0 && src.unbuffered() &&
++        srcp == &src && stages.empty() && o.peer_device < 0 && !remote_caches &&
++        o.resident_cpu_experts) {
++        uint64_t released = 0;
++        if (!src.release_startup_staging(released)) {
++            std::fprintf(stderr, "strata generate: EVO startup staging trim refused: a fill is still busy\n");
++            return 1;
++        }
++        std::fprintf(stderr, "strata generate: EVO startup staging trim released %llu bytes before RAM fill\n",
++                     (unsigned long long) released);
++        mem_mark("EVO startup staging trim");
++        if (const char* check = std::getenv("STRATA_VERIFY_STARTUP_TRIM");
++            check != nullptr && std::strcmp(check, "1") == 0) {
++            std::vector<uint8_t> seen((size_t) g.n_layers, 0);
++            uint64_t verified_bytes = 0;
++            int64_t verified_layers = 0;
++            for (const auto& p : profile) {
++                if (p.first < 0 || p.first >= g.n_layers || seen[(size_t) p.first]) continue;
++                const int32_t slot = xcache.slot_of(p.first, p.second);
++                if (slot < 0) continue;
++                const uint8_t* reference = src.blob(p.first, p.second);
++                const int64_t bytes = (int64_t) strata::kernels::cpu::expert_layout().blob_bytes(p.first);
++                if (reference == nullptr || !xcache.verify_slot(slot, reference, err, bytes)) {
++                    std::fprintf(stderr, "strata generate: EVO post-trim GPU verification failed: %s\n", err.c_str());
++                    return 1;
++                }
++                seen[(size_t) p.first] = 1;
++                verified_bytes += (uint64_t) bytes;
++                ++verified_layers;
++            }
++            if (!src.release_startup_staging(released)) return 1;
++            std::fprintf(stderr, "strata generate: EVO post-trim GPU verification: %lld layers, %llu bytes equal\n",
++                         (long long) verified_layers, (unsigned long long) verified_bytes);
+         }
+     }
+ 
+@@ -8305,6 +8355,31 @@
+             }
+         }
+ #endif
++    }
++    if (evo_startup_direct) {
++        const int64_t fallbacks = src.direct_fallbacks();
++        src.end_startup_direct();
++        std::fprintf(stderr, "evo startup direct: finished; mapped serving restored; direct fallbacks %lld\n",
++                     (long long) fallbacks);
++        if (const char* v = std::getenv("STRATA_VERIFY_STARTUP_COPY");
++            v != nullptr && std::strcmp(v, "1") == 0) {
++            int64_t checked = 0;
++            uint64_t checked_bytes = 0;
++            for (const auto& pair : profile) {
++                const int32_t slot = xcache.slot_of(pair.first, pair.second);
++                if (slot == strata::core::kNotResident) continue;
++                const uint8_t* ref = srcp->blob(pair.first, pair.second);
++                const uint64_t bytes = strata::kernels::cpu::expert_layout().blob_bytes(pair.first);
++                if (ref == nullptr || !xcache.verify_slot(slot, ref, err, (int64_t) bytes)) {
++                    std::fprintf(stderr, "evo startup copy verification: GPU mismatch: %s\n", err.c_str());
++                    return 1;
++                }
++                ++checked;
++                checked_bytes += bytes;
++            }
++            std::fprintf(stderr, "evo startup copy verification: GPU matched %lld slots / %llu bytes\n",
++                         (long long) checked, (unsigned long long) checked_bytes);
++        }
+     }
+     // (the arena mode has no RAM copy to exchange with: its experts are always in RAM, the tier only copies them in)
+     if (o.adapt_async && !src.complement_ready() && srcp != &arena_src) adapt_async_off("the resident RAM mode is not running");
+--- /dev/null
++++ b/include/strata/core/host_wait.hpp
+@@ -0,0 +1,83 @@
++// Opt-in host/GPU handshake backoff. Linux only; unset/0 retains busy polling.
++#pragma once
++
++#include <chrono>
++#include <cstdlib>
++#include <thread>
++#if defined(__linux__)
++#include <sys/prctl.h>
++#endif
++
++namespace strata::core {
++namespace host_wait_detail {
++struct Config {
++    long sleep_us = 0;
++    long spin_us = 10;
++};
++inline long read_us(const char* name, long fallback) {
++    const char* value = std::getenv(name);
++    if (value == nullptr || *value == '\0') return fallback;
++    char* end = nullptr;
++    const long n = std::strtol(value, &end, 10);
++    return end != value && *end == '\0' && n >= 0 && n <= 1000 ? n : fallback;
++}
++inline const Config& config() {
++    static const Config value = [] {
++        Config c;
++#if defined(__linux__)
++        c.sleep_us = read_us("STRATA_HOST_WAIT_US", 0);
++        c.spin_us = read_us("STRATA_HOST_SPIN_US", 10);
++#endif
++        return c;
++    }();
++    return value;
++}
++}  // namespace host_wait_detail
++
++inline bool host_wait_enabled() { return host_wait_detail::config().sleep_us > 0; }
++
++// Linux normally coalesces short sleeps with a 50us timer slack. Tighten it only
++// for this calling thread while backoff is enabled, then restore its prior value.
++class HostWaitTimerSlack {
++public:
++    HostWaitTimerSlack() {
++#if defined(__linux__)
++        if (!host_wait_enabled()) return;
++        const long previous = ::prctl(PR_GET_TIMERSLACK, 0UL, 0UL, 0UL, 0UL);
++        if (previous > 1 && ::prctl(PR_SET_TIMERSLACK, 1UL, 0UL, 0UL, 0UL) == 0)
++            previous_ = previous;
++#endif
++    }
++    ~HostWaitTimerSlack() {
++#if defined(__linux__)
++        if (previous_ > 0)
++            (void) ::prctl(PR_SET_TIMERSLACK, (unsigned long) previous_, 0UL, 0UL, 0UL);
++#endif
++    }
++    HostWaitTimerSlack(const HostWaitTimerSlack&) = delete;
++    HostWaitTimerSlack& operator=(const HostWaitTimerSlack&) = delete;
++private:
++    long previous_ = -1;
++};
++
++class HostWait {
++public:
++    using Clock = std::chrono::steady_clock;
++    HostWait() {
++        if (host_wait_enabled())
++            next_sleep_ = Clock::now() +
++                          std::chrono::microseconds(host_wait_detail::config().spin_us);
++    }
++    // Call only after the existing driver/error checks and while the GPU's
++    // completion word is still pending. No whole-stream wait: the GPU may be
++    // waiting for a flag that this same host loop must publish.
++    void poll(Clock::time_point now) {
++        const auto& cfg = host_wait_detail::config();
++        if (cfg.sleep_us == 0 || now < next_sleep_) return;
++        std::this_thread::sleep_for(std::chrono::microseconds(cfg.sleep_us));
++        next_sleep_ = Clock::now() + std::chrono::microseconds(cfg.spin_us);
++    }
++private:
++    Clock::time_point next_sleep_{};
++};
++}  // namespace strata::core

@@ -1,0 +1,615 @@
+{
+  "source_sha256": "719d45c49c2851d19d66e5a509dab48e14f7727c2df18de076e4664a05881ac2",
+  "context": 131072,
+  "target": "SC117 IQ3_XXS",
+  "kv": "int8",
+  "sampling": {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0,
+    "presence_penalty": 0,
+    "repeat_penalty": 1
+  },
+  "order": "ABBA: four seeds per paired block; reverse fixture order in BA",
+  "scope": "32 timed requests, 16 paired comparisons; production adaptive speculation; no diagnostic hooks.",
+  "fixtures": {
+    "english_code_16k": {
+      "decode": {
+        "geomean_percent": -0.28132910949405293,
+        "paired_bootstrap_95_percent": [
+          -1.053775917180713,
+          0.41295431171697505
+        ],
+        "worst_pair_percent": -2.481389578163773,
+        "best_pair_percent": 1.1990407673860837,
+        "regressed_pairs": 5
+      },
+      "prefill": {
+        "geomean_percent": -0.6541399386201207,
+        "paired_bootstrap_95_percent": [
+          -0.867412420266527,
+          -0.45923549808708625
+        ],
+        "worst_pair_percent": -1.201637396012134,
+        "best_pair_percent": -0.3004572175048903,
+        "regressed_pairs": 8
+      },
+      "end_to_end": {
+        "geomean_percent": -0.5175113718217945,
+        "paired_bootstrap_95_percent": [
+          -0.9278117458757739,
+          -0.1524108373304845
+        ],
+        "worst_pair_percent": -1.6528598300775132,
+        "best_pair_percent": 0.28879646457249386,
+        "regressed_pairs": 7
+      },
+      "first_text": {
+        "geomean_percent": -0.653925902999749,
+        "paired_bootstrap_95_percent": [
+          -0.8628449648383804,
+          -0.46116145674265197
+        ],
+        "worst_pair_percent": -1.1863282160352817,
+        "best_pair_percent": -0.2976526658043821,
+        "regressed_pairs": 8
+      },
+      "available_delta_mib": [
+        413.00390625,
+        428.1875,
+        372.171875,
+        349.2265625,
+        453.91015625,
+        496.37109375,
+        504.828125,
+        504.828125
+      ],
+      "cgroup_saved_mib": [
+        247.57421875,
+        246.85546875,
+        247.6171875,
+        246.8671875,
+        665.23828125,
+        718.21875,
+        748.32421875,
+        779.86328125
+      ],
+      "pairs": [
+        {
+          "seed": 11,
+          "base": {
+            "decode_tps": 40.3,
+            "prefill_tps": 766.2,
+            "seconds": 33.79154917318374,
+            "cached_tokens": 0,
+            "available_gib": 7.6389007568359375,
+            "cgroup_gib": 19.311233520507812,
+            "output_sha256": "481efed674ef199453d4539f75e149ea3100a67729a9611dd1e4b5522e653997"
+          },
+          "packed": {
+            "decode_tps": 39.3,
+            "prefill_tps": 757.3,
+            "seconds": 34.35946293384768,
+            "cached_tokens": 0,
+            "available_gib": 8.042224884033203,
+            "cgroup_gib": 19.069461822509766,
+            "output_sha256": "481efed674ef199453d4539f75e149ea3100a67729a9611dd1e4b5522e653997"
+          }
+        },
+        {
+          "seed": 101,
+          "base": {
+            "decode_tps": 43.7,
+            "prefill_tps": 768.7,
+            "seconds": 32.71138120791875,
+            "cached_tokens": 0,
+            "available_gib": 7.6968231201171875,
+            "cgroup_gib": 19.329139709472656,
+            "output_sha256": "c6f8af026dda967c1fcc3f4deada8073f69079cc102a3ba7edbcbf38ff728c1c"
+          },
+          "packed": {
+            "decode_tps": 43.4,
+            "prefill_tps": 764.7,
+            "seconds": 32.89812642382458,
+            "cached_tokens": 0,
+            "available_gib": 8.114974975585938,
+            "cgroup_gib": 19.088069915771484,
+            "output_sha256": "c6f8af026dda967c1fcc3f4deada8073f69079cc102a3ba7edbcbf38ff728c1c"
+          }
+        },
+        {
+          "seed": 313,
+          "base": {
+            "decode_tps": 44.6,
+            "prefill_tps": 769.0,
+            "seconds": 32.464944117935374,
+            "cached_tokens": 0,
+            "available_gib": 7.7506866455078125,
+            "cgroup_gib": 19.330318450927734,
+            "output_sha256": "12605e57782cd0c5885e041aab8880f07ecfd2c6e8fe127fa66d8a005d4cb12b"
+          },
+          "packed": {
+            "decode_tps": 44.5,
+            "prefill_tps": 765.0,
+            "seconds": 32.60721086291596,
+            "cached_tokens": 0,
+            "available_gib": 8.1141357421875,
+            "cgroup_gib": 19.088504791259766,
+            "output_sha256": "12605e57782cd0c5885e041aab8880f07ecfd2c6e8fe127fa66d8a005d4cb12b"
+          }
+        },
+        {
+          "seed": 577,
+          "base": {
+            "decode_tps": 43.6,
+            "prefill_tps": 767.7,
+            "seconds": 32.770235321018845,
+            "cached_tokens": 0,
+            "available_gib": 7.780597686767578,
+            "cgroup_gib": 19.330604553222656,
+            "output_sha256": "c1c97cd051cac3ebf9b0831b25396ef6434fb821d3b91bafdd30346379cd22b5"
+          },
+          "packed": {
+            "decode_tps": 43.7,
+            "prefill_tps": 763.6,
+            "seconds": 32.8659180670511,
+            "cached_tokens": 0,
+            "available_gib": 8.121639251708984,
+            "cgroup_gib": 19.089523315429688,
+            "output_sha256": "c1c97cd051cac3ebf9b0831b25396ef6434fb821d3b91bafdd30346379cd22b5"
+          }
+        },
+        {
+          "seed": 1009,
+          "base": {
+            "decode_tps": 43.4,
+            "prefill_tps": 757.3,
+            "seconds": 33.10374949290417,
+            "cached_tokens": 0,
+            "available_gib": 7.5598907470703125,
+            "cgroup_gib": 19.743316650390625,
+            "output_sha256": "d0794d4a6f41ba39560fe6fd6739a61123ff0b49cc8c841f05b3a59a0014e823"
+          },
+          "packed": {
+            "decode_tps": 43.1,
+            "prefill_tps": 748.2,
+            "seconds": 33.46066339593381,
+            "cached_tokens": 0,
+            "available_gib": 8.003162384033203,
+            "cgroup_gib": 19.093669891357422,
+            "output_sha256": "d0794d4a6f41ba39560fe6fd6739a61123ff0b49cc8c841f05b3a59a0014e823"
+          }
+        },
+        {
+          "seed": 2027,
+          "base": {
+            "decode_tps": 41.7,
+            "prefill_tps": 765.5,
+            "seconds": 33.381051138974726,
+            "cached_tokens": 0,
+            "available_gib": 7.582420349121094,
+            "cgroup_gib": 19.79928970336914,
+            "output_sha256": "fa90376dcfae8e0160d07875b0d20ddcff28ab89407095c45ce3086536db9f93"
+          },
+          "packed": {
+            "decode_tps": 42.2,
+            "prefill_tps": 763.2,
+            "seconds": 33.28492545103654,
+            "cached_tokens": 0,
+            "available_gib": 8.067157745361328,
+            "cgroup_gib": 19.097904205322266,
+            "output_sha256": "fa90376dcfae8e0160d07875b0d20ddcff28ab89407095c45ce3086536db9f93"
+          }
+        },
+        {
+          "seed": 4093,
+          "base": {
+            "decode_tps": 42.8,
+            "prefill_tps": 766.1,
+            "seconds": 33.051928110886365,
+            "cached_tokens": 0,
+            "available_gib": 7.595695495605469,
+            "cgroup_gib": 19.829586029052734,
+            "output_sha256": "93b1dc14b7bbe87392a6a7df0fc05f0be1e879fa3f3df32603455746e5a4f912"
+          },
+          "packed": {
+            "decode_tps": 42.6,
+            "prefill_tps": 762.7,
+            "seconds": 33.17486274195835,
+            "cached_tokens": 0,
+            "available_gib": 8.088691711425781,
+            "cgroup_gib": 19.098800659179688,
+            "output_sha256": "93b1dc14b7bbe87392a6a7df0fc05f0be1e879fa3f3df32603455746e5a4f912"
+          }
+        },
+        {
+          "seed": 8191,
+          "base": {
+            "decode_tps": 43.6,
+            "prefill_tps": 767.7,
+            "seconds": 32.78290868992917,
+            "cached_tokens": 0,
+            "available_gib": 7.597259521484375,
+            "cgroup_gib": 19.86095428466797,
+            "output_sha256": "a909dd1c2fbc15b413dd268dbcc7e448e0766356f337b0484e4ab86e3877b7da"
+          },
+          "packed": {
+            "decode_tps": 44.0,
+            "prefill_tps": 763.5,
+            "seconds": 32.7930138760712,
+            "cached_tokens": 0,
+            "available_gib": 8.090255737304688,
+            "cgroup_gib": 19.099369049072266,
+            "output_sha256": "a909dd1c2fbc15b413dd268dbcc7e448e0766356f337b0484e4ab86e3877b7da"
+          }
+        }
+      ]
+    },
+    "korean_thinking_16k": {
+      "decode": {
+        "geomean_percent": 0.08462811311984847,
+        "paired_bootstrap_95_percent": [
+          -0.4604323953937913,
+          0.7644191932657083
+        ],
+        "worst_pair_percent": -1.1111111111111072,
+        "best_pair_percent": 2.1505376344086002,
+        "regressed_pairs": 3
+      },
+      "prefill": {
+        "geomean_percent": -0.6444498720809135,
+        "paired_bootstrap_95_percent": [
+          -1.0814463858777663,
+          -0.3110737328814128
+        ],
+        "worst_pair_percent": -1.9921874999999978,
+        "best_pair_percent": -0.03948407475651283,
+        "regressed_pairs": 8
+      },
+      "end_to_end": {
+        "geomean_percent": -0.3534099327907961,
+        "paired_bootstrap_95_percent": [
+          -0.671177808831634,
+          -0.017656393132742827
+        ],
+        "worst_pair_percent": -1.0315184445973014,
+        "best_pair_percent": 0.5528960152807683,
+        "regressed_pairs": 7
+      },
+      "first_text": {
+        "geomean_percent": -0.6440693148407856,
+        "paired_bootstrap_95_percent": [
+          -1.082633108713657,
+          -0.30861090553128107
+        ],
+        "worst_pair_percent": -2.002124555900031,
+        "best_pair_percent": -0.03764560374486248,
+        "regressed_pairs": 8
+      },
+      "available_delta_mib": [
+        379.59765625,
+        393.8046875,
+        347.05859375,
+        323.19140625,
+        331.7890625,
+        483.68359375,
+        503.3125,
+        501.9296875
+      ],
+      "cgroup_saved_mib": [
+        246.37890625,
+        246.83984375,
+        247.89453125,
+        248.73046875,
+        532.52734375,
+        703.20703125,
+        733.91796875,
+        767.14453125
+      ],
+      "pairs": [
+        {
+          "seed": 11,
+          "base": {
+            "decode_tps": 36.0,
+            "prefill_tps": 768.7,
+            "seconds": 35.2788879100699,
+            "cached_tokens": 0,
+            "available_gib": 7.693721771240234,
+            "cgroup_gib": 19.323566436767578,
+            "output_sha256": "82dc6a4ba0ace7b028dd5c1f5ea4e1dc50441ae2e3677fd86789ed554102d79a"
+          },
+          "packed": {
+            "decode_tps": 35.6,
+            "prefill_tps": 761.9,
+            "seconds": 35.646589051000774,
+            "cached_tokens": 0,
+            "available_gib": 8.064422607421875,
+            "cgroup_gib": 19.082962036132812,
+            "output_sha256": "82dc6a4ba0ace7b028dd5c1f5ea4e1dc50441ae2e3677fd86789ed554102d79a"
+          }
+        },
+        {
+          "seed": 101,
+          "base": {
+            "decode_tps": 36.5,
+            "prefill_tps": 769.5,
+            "seconds": 35.070875047007576,
+            "cached_tokens": 0,
+            "available_gib": 7.7303466796875,
+            "cgroup_gib": 19.33002471923828,
+            "output_sha256": "cac497736f1c908dad841a983e18de15c4f382e217a10dace95edc35592534d8"
+          },
+          "packed": {
+            "decode_tps": 36.5,
+            "prefill_tps": 764.2,
+            "seconds": 35.233198733069,
+            "cached_tokens": 0,
+            "available_gib": 8.114921569824219,
+            "cgroup_gib": 19.088970184326172,
+            "output_sha256": "cac497736f1c908dad841a983e18de15c4f382e217a10dace95edc35592534d8"
+          }
+        },
+        {
+          "seed": 313,
+          "base": {
+            "decode_tps": 34.4,
+            "prefill_tps": 767.3,
+            "seconds": 36.00173777109012,
+            "cached_tokens": 0,
+            "available_gib": 7.776100158691406,
+            "cgroup_gib": 19.33068084716797,
+            "output_sha256": "0b3dab00937de38adb5aee659bda830a17a9c83a2b27703a6cab90699d27f349"
+          },
+          "packed": {
+            "decode_tps": 34.3,
+            "prefill_tps": 763.1,
+            "seconds": 36.173066776013,
+            "cached_tokens": 0,
+            "available_gib": 8.11502456665039,
+            "cgroup_gib": 19.08859634399414,
+            "output_sha256": "0b3dab00937de38adb5aee659bda830a17a9c83a2b27703a6cab90699d27f349"
+          }
+        },
+        {
+          "seed": 577,
+          "base": {
+            "decode_tps": 39.2,
+            "prefill_tps": 766.5,
+            "seconds": 34.20403305301443,
+            "cached_tokens": 0,
+            "available_gib": 7.7921142578125,
+            "cgroup_gib": 19.331344604492188,
+            "output_sha256": "b820868b7fb53d47d9ceac23c7eaf4bf89eb149c92cf35ab13cfa112dfb0ee66"
+          },
+          "packed": {
+            "decode_tps": 39.2,
+            "prefill_tps": 765.4,
+            "seconds": 34.222049525007606,
+            "cached_tokens": 0,
+            "available_gib": 8.107730865478516,
+            "cgroup_gib": 19.088443756103516,
+            "output_sha256": "b820868b7fb53d47d9ceac23c7eaf4bf89eb149c92cf35ab13cfa112dfb0ee66"
+          }
+        },
+        {
+          "seed": 1009,
+          "base": {
+            "decode_tps": 34.4,
+            "prefill_tps": 759.8,
+            "seconds": 36.23393789399415,
+            "cached_tokens": 0,
+            "available_gib": 7.640357971191406,
+            "cgroup_gib": 19.599197387695312,
+            "output_sha256": "25d6b27dc556878a238d4122e5be32b5e51c976e629bc0a955b768d53ac623d4"
+          },
+          "packed": {
+            "decode_tps": 34.2,
+            "prefill_tps": 759.5,
+            "seconds": 36.2928576359991,
+            "cached_tokens": 0,
+            "available_gib": 7.9643707275390625,
+            "cgroup_gib": 19.079151153564453,
+            "output_sha256": "25d6b27dc556878a238d4122e5be32b5e51c976e629bc0a955b768d53ac623d4"
+          }
+        },
+        {
+          "seed": 2027,
+          "base": {
+            "decode_tps": 36.9,
+            "prefill_tps": 768.0,
+            "seconds": 34.980422898195684,
+            "cached_tokens": 0,
+            "available_gib": 7.561061859130859,
+            "cgroup_gib": 19.785919189453125,
+            "output_sha256": "5f7a25a82b4d9fb49376139a5949f2af43148fddb7072083fed9f581e57210f2"
+          },
+          "packed": {
+            "decode_tps": 37.1,
+            "prefill_tps": 752.7,
+            "seconds": 35.31867056898773,
+            "cached_tokens": 0,
+            "available_gib": 8.033409118652344,
+            "cgroup_gib": 19.099193572998047,
+            "output_sha256": "5f7a25a82b4d9fb49376139a5949f2af43148fddb7072083fed9f581e57210f2"
+          }
+        },
+        {
+          "seed": 4093,
+          "base": {
+            "decode_tps": 37.2,
+            "prefill_tps": 768.4,
+            "seconds": 34.84733846294694,
+            "cached_tokens": 0,
+            "available_gib": 7.589176177978516,
+            "cgroup_gib": 19.815250396728516,
+            "output_sha256": "5b7c788cb4963bd3cad9e11b3e528160c5afad5a5e587cbe3bb507fda3163213"
+          },
+          "packed": {
+            "decode_tps": 38.0,
+            "prefill_tps": 764.7,
+            "seconds": 34.655728321988136,
+            "cached_tokens": 0,
+            "available_gib": 8.080692291259766,
+            "cgroup_gib": 19.098533630371094,
+            "output_sha256": "5b7c788cb4963bd3cad9e11b3e528160c5afad5a5e587cbe3bb507fda3163213"
+          }
+        },
+        {
+          "seed": 8191,
+          "base": {
+            "decode_tps": 36.5,
+            "prefill_tps": 767.2,
+            "seconds": 35.13767632492818,
+            "cached_tokens": 0,
+            "available_gib": 7.597007751464844,
+            "cgroup_gib": 19.848602294921875,
+            "output_sha256": "9717c2322ca7fb42f31940e1a386c1126d4439f8c0360e11c5a3fc85c43acdb9"
+          },
+          "packed": {
+            "decode_tps": 36.5,
+            "prefill_tps": 764.4,
+            "seconds": 35.21956909401342,
+            "cached_tokens": 0,
+            "available_gib": 8.087173461914062,
+            "cgroup_gib": 19.099437713623047,
+            "output_sha256": "9717c2322ca7fb42f31940e1a386c1126d4439f8c0360e11c5a3fc85c43acdb9"
+          }
+        }
+      ]
+    }
+  },
+  "all_completed_output_pairs_identical": true,
+  "identical_output_pairs": 16,
+  "limitations": [
+    "Paired bootstrap reflects this fixed workload, not independent devices or days.",
+    "End-to-end includes prefill and decode. Report these separately.",
+    "Available RAM is system-wide; cgroup and process measurements are complementary, not additive.",
+    "Short-context memory results require separate full-context and image qualification.",
+    "Last OFF arm was admitted with only 17.20GiB resident/17.00GiB pinned versus 17.34GiB fully pinned in first OFF arm; it read 87 lendable experts per request. Both ON arms had 17.09GiB fully pinned and zero expert blob reads. Do not attribute all second-block RAM difference to direct scratch removal.",
+    "All measured requests had zero cached prompt tokens. Conversation parking was denied by the existing 8192MiB physical-RAM floor; this is a cold-prefill benchmark, not a warm conversation-switch benchmark."
+  ],
+  "arms": {
+    "hc-account-fixed-prefill4096-base-0": {
+      "minimum_available_gib": 7.474239349365234,
+      "peak_cpu_c": 61.75,
+      "peak_gpu_c": 62.0,
+      "idle_before_available_gib": 7.635540008544922,
+      "idle_after_available_gib": 7.790882110595703,
+      "idle_after_cgroup_gib": 19.331340789794922,
+      "idle_after_memory_stat_mib": {
+        "anon": 18693.89453125,
+        "file": 1051.859375,
+        "kernel": 46.15625,
+        "shmem": 1051.38671875,
+        "file_mapped": 1051.375,
+        "file_dirty": 0.0,
+        "file_writeback": 0.0
+      },
+      "idle_after_pss_anon_mib": 18693.89453125
+    },
+    "hc-account-fixed-prefill4096-packed-1": {
+      "minimum_available_gib": 7.780914306640625,
+      "peak_cpu_c": 63.125,
+      "peak_gpu_c": 64.0,
+      "idle_before_available_gib": 7.8776397705078125,
+      "idle_after_available_gib": 8.106441497802734,
+      "idle_after_cgroup_gib": 19.088436126708984,
+      "idle_after_memory_stat_mib": {
+        "anon": 18446.02734375,
+        "file": 1051.8125,
+        "kernel": 45.59375,
+        "shmem": 1051.38671875,
+        "file_mapped": 1051.375,
+        "file_dirty": 0.0,
+        "file_writeback": 0.0
+      },
+      "idle_after_pss_anon_mib": 18446.02734375
+    },
+    "hc-account-fixed-prefill4096-packed-2": {
+      "minimum_available_gib": 7.709983825683594,
+      "peak_cpu_c": 63.5,
+      "peak_gpu_c": 65.0,
+      "idle_before_available_gib": 7.859828948974609,
+      "idle_after_available_gib": 8.089195251464844,
+      "idle_after_cgroup_gib": 19.099109649658203,
+      "idle_after_memory_stat_mib": {
+        "anon": 18449.046875,
+        "file": 1059.8125,
+        "kernel": 45.65234375,
+        "shmem": 1059.38671875,
+        "file_mapped": 1059.375,
+        "file_dirty": 0.0,
+        "file_writeback": 0.0
+      },
+      "idle_after_pss_anon_mib": 18449.046875
+    },
+    "hc-account-fixed-prefill4096-base-3": {
+      "minimum_available_gib": 7.432895660400391,
+      "peak_cpu_c": 64.125,
+      "peak_gpu_c": 65.0,
+      "idle_before_available_gib": 7.477931976318359,
+      "idle_after_available_gib": 7.597694396972656,
+      "idle_after_cgroup_gib": 19.860946655273438,
+      "idle_after_memory_stat_mib": {
+        "anon": 18944.4609375,
+        "file": 1340.0,
+        "kernel": 50.0859375,
+        "shmem": 1059.390625,
+        "file_mapped": 1339.55859375,
+        "file_dirty": 0.0,
+        "file_writeback": 0.0
+      },
+      "idle_after_pss_anon_mib": 18944.4609375
+    }
+  },
+  "swapout_pages_delta": 0,
+  "oom_kills_delta": 0,
+  "model_swap_bytes_max": 0,
+  "all_timed_requests_cold": true,
+  "restored_healthy": true,
+  "resident_admission_evidence": {
+    "hc-account-fixed-prefill4096-base-0.engine.log": {
+      "startup": [
+        "FileExpertSource: mapped pinned cache complement ready: resident 17.34 GiB, pinned 17.34 GiB in 7 s; 17.34 GiB page-locked after taking the pages in steps; "
+      ],
+      "last": [
+        "strata serve: resident RAM: 17.34 GiB of experts in RAM, 5977 exchanged with the VRAM tier, 0 blob reads from the file",
+        "strata serve: resident RAM: 17.34 GiB of experts in RAM, 7536 exchanged with the VRAM tier, 0 blob reads from the file"
+      ]
+    },
+    "hc-account-fixed-prefill4096-base-3.engine.log": {
+      "startup": [
+        "FileExpertSource: WARNING: only 17.00 of 17.20 GiB could be page-locked (the RAM left would fall under the reserve); the rest is resident but pageable, so its copies to the GPU go through the CPU (#1250)",
+        "FileExpertSource: mapped pinned cache complement ready: resident 17.20 GiB, pinned 17.00 GiB in 7 s; WARNING: only 17.00 of 17.20 GiB could be page-locked (the RAM left would fall under the reserve); the rest is resident but pageable, so its copies to the GPU go through the CPU (#1250); mlock",
+        "FileExpertSource: WARNING: 87 of 900 lendable slots (10%) will read their experts from the pack during a long prompt; expect a slower prompt read on 50K+ token prompts (one measurement: 18% uncovered cost 26%). Free RAM or lower STRATA_RESIDENT_HEADROOM_GIB (now the RAM left free at start) and restart; the line above should read N of N."
+      ],
+      "last": [
+        "strata serve: resident RAM: 17.20 GiB of experts in RAM, 6266 exchanged with the VRAM tier, 609 blob reads from the file",
+        "strata serve: resident RAM: 17.20 GiB of experts in RAM, 7036 exchanged with the VRAM tier, 696 blob reads from the file"
+      ]
+    },
+    "hc-account-fixed-prefill4096-packed-1.engine.log": {
+      "startup": [
+        "FileExpertSource: mapped pinned cache complement ready: resident 17.09 GiB, pinned 17.09 GiB in 7 s; 17.09 GiB page-locked after taking the pages in steps; "
+      ],
+      "last": [
+        "strata serve: resident RAM: 17.09 GiB of experts in RAM, 6047 exchanged with the VRAM tier, 0 blob reads from the file",
+        "strata serve: resident RAM: 17.09 GiB of experts in RAM, 7578 exchanged with the VRAM tier, 0 blob reads from the file"
+      ]
+    },
+    "hc-account-fixed-prefill4096-packed-2.engine.log": {
+      "startup": [
+        "FileExpertSource: mapped pinned cache complement ready: resident 17.09 GiB, pinned 17.09 GiB in 7 s; 17.09 GiB page-locked after taking the pages in steps; "
+      ],
+      "last": [
+        "strata serve: resident RAM: 17.09 GiB of experts in RAM, 6275 exchanged with the VRAM tier, 0 blob reads from the file",
+        "strata serve: resident RAM: 17.09 GiB of experts in RAM, 6978 exchanged with the VRAM tier, 0 blob reads from the file"
+      ]
+    }
+  },
+  "first_block_anonymous_ram_reduction_mib": 247.8671875,
+  "decision": "Full qualification and image follow-up subsequently passed; deployed for RAM savings. Not a demonstrated acceleration.",
+  "subsequent_qualification": "20261026-prefill-hc-scratch-qualification.json",
+  "deployment_results": "20261026-prefill-hc-scratch-deployment.json"
+}

@@ -1,0 +1,237 @@
+--- a/tools/ui/src/lib/components/app/chat/ChatForm/ChatFormContextGauge/ContextGaugePopup.svelte
++++ b/tools/ui/src/lib/components/app/chat/ChatForm/ChatFormContextGauge/ContextGaugePopup.svelte
+@@ -73,7 +73,7 @@
+ 				</span>
+ 			</div>
+ 
+-			{#if gauge.activeModelId !== null && !gauge.isActiveModelLoaded}
++			{#if gauge.activeModelId !== null && !gauge.isActiveModelLoaded && !showProgressBar}
+ 				<ContextGaugeLoadModel
+ 					isLoading={gauge.isActiveModelLoading}
+ 					modelId={gauge.activeModelId}
+--- a/tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessageReasoningBlock.svelte
++++ b/tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessageReasoningBlock.svelte
+@@ -29,7 +29,7 @@
+ 	const REASONING_HEADER = 'Reasoning';
+ 	const REASONING_HEADER_PENDING = 'Reasoning...';
+ 	const REASONING_SUBTITLE_ERROR = 'Error';
+-	const REASONING_SUBTITLE_CANCELLED = 'Cancelled';
++	const REASONING_SUBTITLE_CANCELLED = 'Interrupted';
+ 
+ 	const isPending = $derived(section.type === AgenticSectionType.REASONING_PENDING);
+ 	const title = $derived(isPending && isStreaming ? REASONING_HEADER_PENDING : REASONING_HEADER);
+--- a/tools/ui/src/lib/services/chat.service.ts
++++ b/tools/ui/src/lib/services/chat.service.ts
+@@ -21,8 +21,7 @@
+ 	SSE_DONE_MARKER,
+ 	SSE_LINE_SEPARATOR,
+ 	STREAM_QUERY_PARAMS,
+-	STREAM_RESUME_LOCALSTORAGE_KEY_PREFIX,
+-	STREAM_VISIBILITY_KICK_MS
++	STREAM_RESUME_LOCALSTORAGE_KEY_PREFIX
+ } from '$lib/constants';
+ import {
+ 	AttachmentLabel,
+@@ -457,7 +456,6 @@
+ 		let bytesParsed = 0;
+ 		let segmentStartOffset = 0;
+ 		let segmentBytesRead = 0;
+-		let lastByteAt = Date.now();
+ 		// each resume must produce at least one byte to be retried again
+ 		// if a resume returns 200 but yields nothing, we abandon
+ 		// since the session has a bounded size, the total number of retries is bounded by construction
+@@ -477,6 +475,7 @@
+ 		let aggregatedToolCalls: ApiChatCompletionToolCall[] = [];
+ 		let lastTimings: ChatMessageTimings | undefined;
+ 		let streamFinished = false;
++		let finishReason: string | null = null;
+ 		let modelEmitted = false;
+ 		let idEmitted = false;
+ 		let toolCallIndexOffset = 0;
+@@ -532,15 +531,9 @@
+ 				return;
+ 			}
+ 
+-			if (streamFinished) return;
+-
+-			if (!conversationId) return;
+-
+-			// the bytes have been quiet for too long, the OS likely killed the socket
+-			// kicking the reader unblocks reader.read with done=true so the outer loop can resume
+-			if (Date.now() - lastByteAt > STREAM_VISIBILITY_KICK_MS) {
+-				reader!.cancel().catch(() => {});
+-			}
++			// A quiet stream can still be processing the prompt. Never cancel a live
++			// reader merely because the tab became visible: EVO has no replay buffer.
++			// Actual EOF/read errors follow the resume-or-error path below.
+ 		};
+ 		const onPageHide = () => {
+ 			// a reload or navigation is about to happen; make sure the resume
+@@ -588,7 +581,6 @@
+ 
+ 					if (value && value.byteLength > 0) {
+ 						segmentBytesRead += value.byteLength;
+-						lastByteAt = Date.now();
+ 
+ 						if (!madeProgress) {
+ 							madeProgress = true;
+@@ -624,7 +616,11 @@
+ 
+ 							try {
+ 								const parsed: ApiChatCompletionStreamChunk = JSON.parse(data);
++								if (parsed.error) {
++									throw new Error(typeof parsed.error === 'string' ? parsed.error : parsed.error.message || 'Server stream error');
++								}
+ 								const choice = parsed.choices?.[0];
++								if (choice?.finish_reason) finishReason = choice.finish_reason;
+ 								const content = choice?.delta?.content;
+ 								const reasoningContent = choice?.delta?.reasoning_content;
+ 								const toolCalls = choice?.delta?.tool_calls;
+@@ -671,6 +667,7 @@
+ 
+ 								processToolCallDelta(toolCalls);
+ 							} catch (e) {
++								if (!(e instanceof SyntaxError)) throw e;
+ 								console.error('Error parsing JSON chunk:', e);
+ 							}
+ 						}
+@@ -686,13 +683,11 @@
+ 
+ 				if (streamFinished) break;
+ 
+-				if (!conversationId) break;
++				if (!conversationId) throw new Error('Response stream ended before completion.');
+ 
+ 				if (!madeProgress) {
+ 					onConnectionState?.(StreamConnectionState.LOST);
+-					onError?.(new Error('Stream resume produced no new bytes, giving up'));
+-
+-					break;
++					throw new Error('Connection interrupted. Partial output was kept; regenerate after the server recovers.');
+ 				}
+ 
+ 				onConnectionState?.(StreamConnectionState.RESUMING);
+@@ -715,14 +710,12 @@
+ 
+ 				if (!resumeResp || resumeResp.status !== 200) {
+ 					onConnectionState?.(StreamConnectionState.LOST);
+-					onError?.(new Error('Stream connection lost and could not be resumed'));
+-
+-					break;
++					throw new Error('Connection interrupted; the server could not resume this response. Partial output was kept.');
+ 				}
+ 
+ 				const newReader = resumeResp.body?.getReader();
+ 
+-				if (!newReader) break;
++				if (!newReader) throw new Error('Stream resume returned no response body.');
+ 
+ 				try {
+ 					reader.releaseLock();
+@@ -734,12 +727,16 @@
+ 				chunk = '';
+ 				segmentStartOffset = bytesParsed;
+ 				segmentBytesRead = 0;
+-				lastByteAt = Date.now();
+ 			}
+ 
+ 			if (abortSignal?.aborted) return;
+ 
+ 			if (streamFinished) {
++				if (finishReason === 'length') {
++					const error = new Error('Response stopped at the output or context limit. Partial output was kept. If context is full, start a new chat or reduce its history; otherwise increase the output limit.');
++					error.name = 'CompletionLimitError';
++					throw error;
++				}
+ 				finalizeOpenToolCallBatch();
+ 
+ 				if (conversationId) {
+@@ -758,6 +755,7 @@
+ 			}
+ 		} catch (error) {
+ 			const err = error instanceof Error ? error : new Error('Stream error');
++			if (conversationId) ChatService.clearStreamState(conversationId);
+ 
+ 			onError?.(err);
+ 
+@@ -1246,10 +1244,6 @@
+ 
+ 				const error = await ChatService.parseErrorResponse(response);
+ 
+-				if (onError) {
+-					onError(error);
+-				}
+-
+ 				throw error;
+ 			}
+ 
+@@ -1258,7 +1252,7 @@
+ 					response,
+ 					onChunk,
+ 					onComplete,
+-					onError,
++					undefined, // sendMessage reports a failure once from its catch block
+ 					onReasoningChunk,
+ 					onToolCallChunk,
+ 					onModel,
+@@ -1275,7 +1269,7 @@
+ 				return ChatService.handleNonStreamResponse(
+ 					response,
+ 					onComplete,
+-					onError,
++					undefined, // sendMessage reports a failure once from its catch block
+ 					onToolCallChunk,
+ 					onModel
+ 				);
+--- a/tools/ui/src/lib/stores/chat/processing.svelte.ts
++++ b/tools/ui/src/lib/stores/chat/processing.svelte.ts
+@@ -121,12 +121,6 @@
+ 	}
+ 
+ 	private getContextTotal(): number | null {
+-		const activeConvId = this._activeConversationId;
+-		const activeState = activeConvId ? this.getState(activeConvId) : null;
+-
+-		if (activeState && typeof activeState.contextTotal === 'number' && activeState.contextTotal > 0)
+-			return activeState.contextTotal;
+-
+ 		if (serverStore.isRouterMode) {
+ 			const modelContextSize = modelsStore.selectedModelContextSize;
+ 
+--- a/tools/ui/src/lib/stores/models/props.svelte.ts
++++ b/tools/ui/src/lib/stores/models/props.svelte.ts
+@@ -29,6 +29,7 @@
+ export interface ModelPropsHost {
+ 	/** Model rows the manager mirrors fetched modalities onto. */
+ 	models: ModelOption[];
++	routerModels: ApiModelDataEntry[];
+ 	readonly selectedModelName: string | null;
+ 	readonly loadedModelIds: string[];
+ 	isModelLoaded(modelId: string): boolean;
+@@ -182,9 +183,13 @@
+ 
+ 	getModelContextSize(modelId: string): number | null {
+ 		const props = this.getModelProps(modelId);
+-		const nCtx = props?.default_generation_settings?.n_ctx;
+-
+-		return typeof nCtx === 'number' ? nCtx : null;
++		const advertised = this.host.routerModels.find((model) => model.id === modelId)?.meta?.n_ctx;
++		const nCtx = props?.default_generation_settings?.n_ctx ?? advertised ??
++			(!serverStore.isRouterMode ? serverStore.contextSize : null);
++
++		// The configured window survives props TTL expiry and model unloads.
++		// n_ctx_train is deliberately not used: it can exceed the runtime window.
++		return typeof nCtx === 'number' && Number.isFinite(nCtx) && nCtx > 0 ? nCtx : null;
+ 	}
+ 
+ 	getModelModalities(modelId: string): ModelModalities | null {
+--- a/tools/ui/src/lib/types/api.d.ts
++++ b/tools/ui/src/lib/types/api.d.ts
+@@ -350,6 +350,7 @@
+ }
+ 
+ export interface ApiChatCompletionStreamChunk {
++	error?: string | { message?: string };
+ 	id?: string;
+ 	object?: string;
+ 	model?: string;

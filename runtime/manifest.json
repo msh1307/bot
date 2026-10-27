@@ -1,13 +1,42 @@
 {
   "schema_version": 1,
-  "packaged_date": "2026-10-20",
+  "packaged_date": "2026-10-26",
   "target": {
     "hardware": "EVO-X2",
     "unified_memory_gb": 64,
     "gpu_arch": "gfx1151"
   },
-  "packaging_scope": "Recorded deployment patches; host-wait backoff was built and compared on EVO-X2 using bounded streamed inference.",
+  "packaging_scope": "Measured EVO-X2 64GB runtime changes; target quantization and context capacities retained. Prototypes are marked experimental.",
   "patches": [
+    {
+      "path": "strata/prefill-batch.json",
+      "status": "deployed_setting_with_historical_benchmark",
+      "comparison": "2048 to 4096 input batch; two uncached requests each at 8152/16347 tokens: mean prefill 11.689/24.165s to 10.432/21.6275s (10.75/10.50% less time). Two sampled 512-token generation requests per setting: median 40.05 to 38.3 tok/s; output hashes differ, no generation gain established. Available RAM after warm-up at least 8.336 GiB, zero new swap-out pages including reload. Full 128K with browser/vision and broad accuracy unverified.",
+      "sha256": "5066fa3b718a31ec32058f3d86e23b8ffa572323819e9b928668a24240ade454",
+      "bytes": 1025
+    },
+    {
+      "path": "strata/fused-prefill.conf",
+      "status": "deployed_systemd_configuration",
+      "environment": {
+        "STRATA_PF_FUSED": "1",
+        "STRATA_PREFILL_STREAM_MIN": "128"
+      },
+      "cpu_max_mhz": 3500,
+      "comparison": "Two short pairs at 3500MHz/75W: 281/760/4058-token prefill time reduced 24.72/32.01/26.69%. Restarted non-fused/fused decode 38.2/38.1 tok/s with identical output; the original warm process was 40.6 tok/s with different output. CPU peaks around 56C, no swap increase. Broad accuracy and sustained thermals unverified.",
+      "sha256": "6ff7e92d03a20f5242b9e211f0500f6a3199926cfb19219dcb9c726520b9c3b4",
+      "bytes": 82
+    },
+    {
+      "path": "power/balanced-cpu.patch",
+      "status": "deployed_cpu_policy",
+      "configuration": {
+        "cpu_max_mhz": 3500
+      },
+      "comparison": "Two bounded Flash-Next pairs, 1024 output tokens: CPU peaks 64.0/66.125C to 55.875/56.5C; decode 38.9/39.5 to 40.6/40.6 tok/s. Identical output hashes, zero swap increase. Long-duration thermals and Qwen 27B throughput are unverified; CPU-heavy compilation can slow down.",
+      "sha256": "3768ed14cf96e1d0f6a07c6181967244e41f787ed702987a36d41d2e8ee8246e",
+      "bytes": 3069
+    },
     {
       "path": "strata/evo-v0.1.43.patch",
       "status": "recorded_deployed_source",
@@ -78,6 +107,457 @@
       "limitation": "Exact historical helper base commit not recovered; recheck target source before use.",
       "sha256": "8abc28a70a94db9f4ab94665f1097d13ee279d59218b9f9f79cd7c4819b3f968",
       "bytes": 870
+    },
+    {
+      "path": "webui/stream-context.patch",
+      "status": "deployed_static_webui_and_recorded_source",
+      "upstream": "https://github.com/ggml-org/llama.cpp",
+      "base_revision": "a043d38a62aeacde876dee02b9386cf6c3baf134",
+      "features": [
+        "runtime_context_metadata_fallback",
+        "passive_tab_visibility",
+        "partial_output_on_stream_failure",
+        "explicit_length_finish_error",
+        "single_error_callback"
+      ],
+      "validation": "Six isolated JavaScript regressions passed; deployed asset syntax/hash checked; existing browser conversation and context gauge verified. No model or router restart. No live forced disconnection or 128K replay test.",
+      "bundle_sha256": "cd34b00bb241d5ee24ce092e14e58056aa91c41c51d6e8bc08c227552bc90ec5",
+      "sha256": "9de0e8c942deaf20effde4a67d68895e80aae047d7c6242f15d3b7acbbf39b34",
+      "bytes": 8351
+    },
+    {
+      "path": "webui/auto-compact.patch",
+      "status": "deployed_static_webui_and_source",
+      "upstream": "https://github.com/ggml-org/llama.cpp",
+      "base_revision": "a043d38a62aeacde876dee02b9386cf6c3baf134",
+      "apply_after": "webui/stream-context.patch",
+      "copy_source": {
+        "from": "webui/auto-compact.js",
+        "to": "tools/ui/src/lib/services/auto-compact.js",
+        "sha256": "c14715e21f7886e8d0dcf1e64f5b6d2ee395c6b023be50ca138e264f32200c27",
+        "bytes": 14386
+      },
+      "features": [
+        "automatic_prompt_compaction_near_80_percent",
+        "browser_conversation_checkpoint",
+        "original_history_preserved",
+        "paired_tool_tail",
+        "incomplete_summary_rejection",
+        "one_smaller_window_retry",
+        "one_rejected_context_retry",
+        "checkpoint_cache_warming"
+      ],
+      "validation": "Isolated state/error/tool and compiled ChatService checks passed. Live Flash synthetic summary+checkpoint reuse+continuation completed in 34.712s; swap-out delta 0 pages. Browser ordinary reply verified. No 128K threshold load test, live Qwen switch or authenticated 13077 end-to-end test; no full Svelte rebuild.",
+      "bundle_sha256": "1e6b4c37738024545f6db8a5d040605dc47988ad111ec7d671dc344029907712",
+      "sha256": "e28607c8ff7edcd0ca6cafc60d2dab5888cecf6bdfeaa32c1e8176c529c8d3da",
+      "bytes": 2824
+    },
+    {
+      "path": "api/responses-tools.patch",
+      "status": "deployed_router",
+      "base_display_sha256": "dc9b0588b770180273ce19a327ca50353cdad08e97a1e6a134c33aa3828d5c5d",
+      "copy_source": {
+        "from": "api/evo_responses_tools.py",
+        "to": "/usr/local/lib/evo_responses_tools.py",
+        "sha256": "72c4d312e2576f606f96ac4fa5e448323d91405dccec1e2f742783713d6ab231",
+        "bytes": 6967
+      },
+      "features": [
+        "request_scoped_code_mode_helper_alias_repair",
+        "declared_direct_tool_alias_repair",
+        "explicit_nested_mcp_declarations_only",
+        "function_custom_shape_preservation",
+        "streaming_argument_consistency"
+      ],
+      "validation": "22 isolated catalog, namespace, payload and SSE checks passed across Flash and Qwen adapter paths. Live Flash Responses through OpenCodex returned HTTP 200 and the declared fixture_echo({value:7}) call in 13.165s; no client tools executed. Router and OMP replaced while idle; Flash process unchanged and swap-out delta zero. Unknown tool names remain unchanged for normal client validation. No original request replay or live Qwen model switch.",
+      "sha256": "9d2f3183988ad9d74353e1a0612e1b0388c29769c29b068a6ad23de6caa4b47b",
+      "bytes": 4195
+    },
+    {
+      "path": "api/maintenance-guard.patch",
+      "status": "deployed_router",
+      "features": [
+        "honor_valid_benchmark_maintenance_lease",
+        "reset_low_memory_streak_while_leased"
+      ],
+      "validation": "Eight isolated lease/guard cases passed. Fixes observed competing-model startup during an isolated benchmark; ordinary 6 GiB guard remains enabled. Lease validates expiry and a live owner PID.",
+      "sha256": "edc66843ff1df70f5d80e0206ae43fd96ffbc0cc7e67507547630d8ae2382867",
+      "bytes": 568
+    },
+    {
+      "path": "gufo/device-weight-placement.patch",
+      "status": "experimental_not_deployed",
+      "upstream": "https://github.com/gufo-org/gufo",
+      "upstream_revision": "194db882a857ee10c246a6a85cc787948a0028cf",
+      "features": [
+        "opt_in_tensor_aligned_device_weight_prefix",
+        "chunked_copy_and_source_page_discard",
+        "optional_full_device_byte_readback",
+        "allocation_cleanup"
+      ],
+      "flags": {
+        "GUFO_QWEN_DEVICE_WEIGHT_MIB": "VRAM placement budget in MiB; unset keeps upstream placement",
+        "GUFO_VERIFY_DEVICE_WEIGHTS": "presence enables byte verification during startup"
+      },
+      "validation": "Built/tested on gfx1151 with ROCm 7.14.60850. Earlier 8 GiB placement skipped snapshots and must not be presented as equivalent-functionality savings. With the 2048 arena and 3.5 GiB cache, 6 GiB placement left 8.434 GiB available; 7 GiB placement left 9.443 GiB versus Nathan 8.658 in these 16K trials. Both retained the two tested histories; all ten Gufo output hashes matched. Some cold requests regressed; no general speed win. Actual 259066-token input plus append passed at 6 GiB placement; a tail revision missed cache and its recomputation was operator-interrupted. 7 GiB filled-context behavior is unverified. No production engine replacement.",
+      "sha256": "a8a43fc0c659a087316e481119ed8ecce2eae30fbc9b2ace1e7506ce3ee612c3",
+      "bytes": 6579
+    },
+    {
+      "path": "gufo/lossless-f16-vision.patch",
+      "status": "experimental_not_deployed",
+      "upstream": "https://github.com/gufo-org/gufo",
+      "upstream_revision": "194db882a857ee10c246a6a85cc787948a0028cf",
+      "validation": "Installed RANA projector: 457666560 F16 values are exactly representable in BF16. Bounded in-memory conversion rejects non-finite/non-exact values; original GGUF is unchanged. Independent exhaustive C++/NumPy comparison covered all 65536 F16 bit patterns with zero mismatches. Basic left-red/right-blue image and subsequent text request passed. Broad vision/OCR quality is unverified.",
+      "sha256": "e5d1303821a83e4a9c76424ba2cb9c4bcdb780df11e4834039bfd4b30734cee8",
+      "bytes": 4476
+    },
+    {
+      "path": "gufo/prefill-arena-2048.patch",
+      "status": "experimental_not_deployed",
+      "upstream": "https://github.com/gufo-org/gufo",
+      "upstream_revision": "194db882a857ee10c246a6a85cc787948a0028cf",
+      "validation": "Temporary Qwen workspaces and prompt capture use 2048 tokens rather than 4096; Q6, F16 KV and 262144 context capacity are retained. GPU allocation dropped 0.9995 GiB; minimum OS available RAM improved 9.492->9.742 GiB in matched 6 GiB placement/2 GiB cache trials. Ten same-history outputs matched byte-for-byte, including RAM restoration and basic vision. No decode speed gain established. At 6 GiB placement/3.5 GiB cache, actual 259066-token multimodal input and append passed (1085.044s / 2.333s, minimum available 9.387 GiB); tail revision missed cache and was operator-interrupted. The separate 7 GiB placement trial passed declared streamed tool calls and recovery after stream cancellation. Completed trials had zero new swap-out/OOM. Experimental, not deployed.",
+      "sha256": "2e2dcce5c28f77996d7154dd3c613ef8860c1cfa22bcce096dd35efb8d6cad36",
+      "bytes": 539
+    },
+    {
+      "path": "strata/evo-7dd5cf1.patch",
+      "status": "deployed_base_patch_with_hc_scratch_overlay",
+      "upstream": "https://github.com/Niko1221/Strata",
+      "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+      "sha256": "5f064904336ea460ac0281ecf2f5f90d44223d9a908d6e8894a19b551640a3c8",
+      "bytes": 17575,
+      "features": [
+        "retained_startup_direct_io_and_staging_release",
+        "retained_host_wait_backoff"
+      ],
+      "validation": "Built on gfx1151. Engine upgraded while existing patched Python wrapper remains. Flash 131072/int8 KV retained; bounded cost-MTP qualification covered 128034-token text, append reuse, 129053-token multimodal input and declared streamed tool calls. No new swap-out or OOM in qualification/deployment. Output hashes matched six of seven comparable fixtures in the long-context test; no broad accuracy benchmark. Overlap and numerically different HC/GDN options remain off.",
+      "binary_sha256_before_hc_scratch": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+      "current_binary_sha256": "c2c7ab1ee3af2a569e58f8baf88edc06b7a2e4bda6e5140be5fe7a831314134e"
+    },
+    {
+      "path": "strata/runtime-20261025.json",
+      "status": "historical_baseline_configuration_retained_with_hc_scratch_overlay",
+      "upstream": "https://github.com/Niko1221/Strata",
+      "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+      "binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+      "sha256": "e3a20f9f78651d6380bbd9d58534e457118c234acf0b7e3c8f3508e9472abcd5",
+      "bytes": 640,
+      "validation": "Old/new bounded 16K decode: English seed42 39.6->40.1, seed2718 41.7->43.5; Korean seed42 33.5->35.7, seed2718 35.2->37.8 tok/s. Minimum available RAM 6.489 GiB during long-context/vision qualification. Cache parking is opportunistic and was skipped at the 8 GiB free-memory floor; no multi-conversation latency claim for this deployment. Active context/checkpoint capacity is retained.",
+      "memory_profile_results": "benchmarks/20261025-memory-and-tps.json",
+      "current_overlay": "benchmarks/20261026-prefill-hc-scratch-deployment.json"
+    },
+    {
+      "path": "nathan/block-verification-guarded-experimental.patch",
+      "status": "held_not_deployed",
+      "comparison": "32 requests: eight predeclared seeds, two workloads, counterbalanced order. Code geomean +5.947%, Korean thinking +2.282%; 5/16 paired regressions. Does not establish +5% slow-condition improvement. Grammar/stateful samplers fall back; full context not qualified.",
+      "results": "benchmarks/20261026-block-guarded.json",
+      "sha256": "1448972229e92086c53fc9356de8c5ceb96d63d95645122cb8dd3d7e92f11bbd",
+      "bytes": 4728
+    },
+    {
+      "path": "strata/staging-lifecycle-experimental.patch",
+      "status": "reproduced_stub_test_not_deployed",
+      "comparison": "Fix cleanup metadata surviving temporary buffer release. Actual cleanup-body test fails before and passes after; GPU events are stubs. No live failure or speed/RAM gain demonstrated.",
+      "results": "benchmarks/20261026-staging-lifecycle.json",
+      "sha256": "4b133eb61c1d7e1763a215adabdd1a87837fe14c58670359bda03d76195ed3cd",
+      "bytes": 495
+    },
+    {
+      "path": "strata/prefill-hc-scratch-experimental.patch",
+      "status": "deployed_engine_ram_optimization",
+      "comparison": "Same arithmetic with shared non-overlapping scratch lifetimes. About 224-248MiB lower anonymous RAM, 176-202MiB better image-phase available-RAM minima. Decode -0.28%/+0.08%, prefill about -0.65%; follow-up image latency +1.1%. No acceleration claim.",
+      "results": "benchmarks/20261026-prefill-hc-scratch-deployment.json",
+      "sha256": "8cd1d86dfaad24bab754a0b18eb8ce9af1324ae5e1c0e311200b7543aeaf7d37",
+      "bytes": 6960,
+      "binary_sha256": "c2c7ab1ee3af2a569e58f8baf88edc06b7a2e4bda6e5140be5fe7a831314134e"
     }
-  ]
+  ],
+  "configuration_changes": [
+    {
+      "id": "qwen-static-draft-20261025",
+      "status": "deployed_qwen_profile_and_systemd",
+      "runtime_revision": "8e9dcfeb7522f302ff1e5d2bb0492283bc16d24d",
+      "settings": {
+        "DRAFT": 4,
+        "QWEN_BATCH": 2048,
+        "QWEN_UBATCH": 2048,
+        "CTX": 262144,
+        "KV_K": "f16",
+        "KV_V": "f16",
+        "QWEN_CHECKPOINTS": 48,
+        "QWEN_CHECKPOINT_STEP": 4096
+      },
+      "changed": [
+        "DRAFT 3 -> 4"
+      ],
+      "rate_tok_s": {
+        "english_code_16k": {
+          "baseline": 18.314386,
+          "final4": 20.334058
+        },
+        "korean_thinking_16k": {
+          "baseline": 17.815329,
+          "final4": 17.362757
+        },
+        "verbatim_copy": {
+          "baseline": 29.183715,
+          "final4": 33.798154
+        }
+      },
+      "validation": "Repeated static sampled comparison, 262K capacity with 16K actual prompts; image and streamed declared-tool tests passed both isolated and production service paths. Target RANA Q6 and F16 KV unchanged. No 262K filled-context trial or guaranteed minimum TPS. Custom cost controller rejected after Korean thinking regressions. Batches 3072/4096 failed Vulkan command submission; 2560 showed no prefill benefit and reduced GTT reserve. Existing 2048 retained."
+    },
+    {
+      "id": "flash-ram-20261025",
+      "status": "reverted; owner prioritizes prefill speed",
+      "settings": {
+        "prefill": 2048,
+        "STRATA_PREFILL_RING": "32",
+        "STRATA_EMB_REUSE_ACCOUNT": "1"
+      },
+      "validation": "125K text, append reuse and 126038-token multimodal input passed; no new swap-out or OOM. Cold prefill slower; decode not improved.",
+      "results": "benchmarks/20261025-memory-and-tps.json"
+    },
+    {
+      "id": "flash-speed-restore-20261025",
+      "status": "deployed",
+      "settings": {
+        "prefill": 4096,
+        "STRATA_PREFILL_RING": "unset",
+        "STRATA_EMB_REUSE_ACCOUNT": "unset"
+      },
+      "validation": {
+        "profile": "speed first; original 4096 prefill configuration",
+        "applied": true,
+        "healthy": true,
+        "configuration_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+        "new_swap_out_pages_during_restore": 0,
+        "new_oom_kills_during_restore": 0,
+        "guard_min_available_gib": 6,
+        "discord_restarted": false,
+        "idle_available_gib": 7.916515,
+        "qwen_changed": false,
+        "validation": "Configuration matches the earlier measured 4096 baseline exactly. Engine health and router loaded/idle state checked; no new throughput benchmark in this rollback."
+      },
+      "results": "benchmarks/20261025-memory-and-tps.json"
+    }
+  ],
+  "kernel_research_20261025": {
+    "status": "completed experiments; no production change",
+    "results": "benchmarks/20261025-kernel-research.json",
+    "prototype_patch": "strata/hc-token-scheduling.patch",
+    "prototype_patch_sha256": "06d9fa7b1512d968f42bbed1e2c0a9a4dfb71ba06732502dfffc4884cbcb62b9",
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "disabled_by_default": true,
+    "reason_not_deployed": "HC token grouping was bit-exact in the microbenchmark and 256-token sampled outputs matched. At 1024 tokens the English output matched but Korean output differed, and long Korean decode regressed slightly. Q6 read/layout and scratch expansion experiments also failed the speed-first criterion.",
+    "production_flash_configuration_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+    "production_flash_binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef",
+    "new_swap_out_pages": 0,
+    "private_compile_cgroup_ooms": 1,
+    "inference_ooms": 0
+  },
+  "expert_decode_reuse_20261025": {
+    "status": "research only; not deployed",
+    "results": "benchmarks/20261025-expert-decode-reuse.json",
+    "prototype_patch": "strata/expert-decode-reuse.patch",
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "opt_in": "STRATA_EXP_MODE=9",
+    "default_changed": false,
+    "reason_not_deployed": "Selective 1024-token ABBA medians improved by less than 0.5%; no established practical end-to-end gain. No persistent RAM reduction. The wider variant regressed on Korean generation.",
+    "precision_changed": false,
+    "correctness": "384 finite bit-exact expert subgraph combinations for each variant; selective sampled 1024-token outputs matched both repeats in both languages.",
+    "new_swap_out_pages": 0,
+    "new_oom_kills": 0,
+    "production_flash_configuration_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+    "production_flash_binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef"
+  },
+  "optimization_policy": "Speed first for Flash and 27B. RAM savings are secondary; the owner permits negligible measured slowdowns. Do not lower weights/KV precision or context capacity.",
+  "dense_interleave_20261025": {
+    "status": "experimental; not deployed",
+    "results": "benchmarks/20261025-dense-interleave.json",
+    "prototype": {
+      "path": "strata/head-projection.patch",
+      "sha256": "79d8967d46a69d54af6ffc212378c7108fe114b19791d1c568ca863d52aec628",
+      "bytes": 4057
+    },
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "disabled_by_default": true,
+    "build": {
+      "STRATA_ENABLE_HIP": "ON",
+      "STRATA_ENABLE_CUDA": "OFF",
+      "CMAKE_HIP_ARCHITECTURES": "gfx1151",
+      "STRATA_PREFILL_MMQ": "ON",
+      "additional_CMAKE_HIP_FLAGS": "-DEVO_HIP_DENSE_IL=1"
+    },
+    "compare_environment": {
+      "base": {
+        "EVO_HIP_DENSE_IL": "0"
+      },
+      "candidate": {
+        "EVO_HIP_DENSE_IL": "1"
+      }
+    },
+    "final_binary_sha256": "66482096df67e4c73583da6d2b78f0a7b8fec20618690e87958becdfa957011d",
+    "decision": "Reject deployment: production-cost ABBA English median 44.05 -> 43.45 tok/s, Korean 34.35 -> 34.8. Both languages matched output hashes across all four arms. Fixed-cost-policy trials improved 1-2%, which did not establish a production gain.",
+    "precision_changed": false,
+    "new_swap_out_pages": 0,
+    "new_oom_kills": 0,
+    "qualification": "Selected finite bitwise checks and 16K input/1024 output trials only; filled 128K, vision and tools were not qualified for this candidate."
+  },
+  "bf16_lossless_20261025": {
+    "status": "isolated prototype; not integrated or deployed",
+    "results": "benchmarks/20261025-bf16-lossless.json",
+    "prototype": {
+      "path": "strata/bf16-lossless-gr-probe.cpp",
+      "sha256": "68cd6ae4a35c84ecf0c8251ebe94a0d9a149a54ec96241e50ce9173c7250f6ea",
+      "bytes": 11495
+    },
+    "source_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "changes_weight_precision": false,
+    "result": "Two actual HC-down matrices, T=1..8: finite bitwise equality and about 8-16% less kernel time. Encoded down-only payload would save 130.169 MiB; no whole-model RAM or speed gain measured. Generic HC-up regressed and is rejected.",
+    "remaining": "Replace loader representation and support prefill without retaining duplicate weights; qualify full inference before adoption.",
+    "new_swap_out_pages": 0,
+    "new_oom_kills": 0,
+    "reproduction": {
+      "placeholders": "SRC: pinned Strata source; BUILD: built HIP Strata library; ROCM: tested ROCm SDK; REPO: this repository; OUT: scratch directory; GGUF: the exact first SC117 IQ3_XXS shard.",
+      "build_argv": [
+        "${ROCM}/lib/llvm/bin/clang++",
+        "-x",
+        "hip",
+        "--offload-arch=gfx1151",
+        "--rocm-path=${ROCM}",
+        "--rocm-device-lib-path=${ROCM}/lib/llvm/amdgcn/bitcode",
+        "-O3",
+        "-DNDEBUG",
+        "-std=c++20",
+        "-DSTRATA_USE_HIP=1",
+        "-DSTRATA_WMMA_GFX11=1",
+        "-D__HIP_PLATFORM_AMD__=1",
+        "-I${SRC}/include/strata/hip_compat",
+        "-I${SRC}/include",
+        "-I${SRC}/src/kernels/cuda",
+        "-I${SRC}/third_party/ggml",
+        "-include",
+        "${SRC}/include/strata/hip_compat/cuda_runtime.h",
+        "${REPO}/runtime/strata/bf16-lossless-gr-probe.cpp",
+        "-x",
+        "none",
+        "${BUILD}/libstrata_kernels.a",
+        "-L${ROCM}/lib",
+        "-Wl,-rpath,${ROCM}/lib",
+        "-lamdhip64",
+        "-o",
+        "${OUT}/bf16-lossless-gr-probe"
+      ],
+      "run_environment": {
+        "LD_LIBRARY_PATH": "${ROCM}/lib:${ROCM}/lib/rocm_sysdeps/lib:${ROCM}/lib/llvm/lib"
+      },
+      "model_shard": "Qwen3.8-Flash-Next-GSQ-RCO-abliterated-IQ3_XXS-00001-of-00002.gguf",
+      "note": "Offsets below are absolute bytes for the tested file. Re-derive from GGUF metadata for any other file. Benchmark supports only input width 10240 and output width 320. It intentionally holds eight raw and eight encoded copies to exceed L2; these allocations are not a production memory measurement.",
+      "runs": [
+        {
+          "tensor": "blk.0.hc_attn_down.weight",
+          "argv": [
+            "${OUT}/bf16-lossless-gr-probe",
+            "${GGUF}",
+            "1717819776",
+            "10240",
+            "320"
+          ]
+        },
+        {
+          "tensor": "blk.47.hc_ffn_down.weight",
+          "argv": [
+            "${OUT}/bf16-lossless-gr-probe",
+            "${GGUF}",
+            "47325636992",
+            "10240",
+            "320"
+          ]
+        }
+      ]
+    }
+  },
+  "hc_lossless_20261026": {
+    "status": "experimental_not_deployed",
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "results": "benchmarks/20261026-hc-lossless.json",
+    "files": [
+      {
+        "path": "strata/hc-lossless-experimental.patch",
+        "sha256": "75a9d331cf7ef9a771e58caa8457f3813d115dc4f468b7e4ab4fc3c724bdae02",
+        "bytes": 27521
+      },
+      {
+        "path": "strata/hc-lossless-codec-check.cpp",
+        "sha256": "1b36a3b5fbc4da69031cf19af10eedbb676e62b35b184bbb55adf3644438421b",
+        "bytes": 1243
+      },
+      {
+        "path": "strata/hc-lossless-gpu-check.cpp",
+        "sha256": "3b88e64a5f03846550a4e5b96d8af8b950cf6a512be129869ca694e622da1d75",
+        "bytes": 6767
+      }
+    ],
+    "opt_in": {
+      "EVO_HC_LOSSLESS": "1",
+      "STRATA_HC_Q8": "0",
+      "EVO_HC_LOSSLESS_CHECK": "1 for startup GPU verification only"
+    },
+    "validation": "384 exact fused GPU cases; fixed ABBA outputs identical; 125K and image qualification passed. Decode unchanged, whole-machine RAM savings unconfirmed. Production unchanged."
+  },
+  "native_projection_arena_20261026": {
+    "status": "experimental_not_deployed",
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "results": "benchmarks/20261026-native-arena.json",
+    "allocation_probe": "benchmarks/20261026-hip-allocation.json",
+    "files": [
+      {
+        "path": "strata/native-projection-arena.patch",
+        "sha256": "a4c51399f286b6ad201e6560f4c24ff0ffbf7817cf5d5fd0af04afcd860b4f09",
+        "bytes": 8160
+      },
+      {
+        "path": "strata/hip-allocation-probe.cpp",
+        "sha256": "ff58c55e5d494e05f2868a69ebe691f36b71daa020757792925d7b79a762c4aa",
+        "bytes": 3204
+      }
+    ],
+    "opt_in": {
+      "EVO_NATIVE_ARENA": "1",
+      "EVO_NATIVE_ARENA_CHECK": "1 only for byte-for-byte startup validation",
+      "STRATA_HC_Q8": "0"
+    },
+    "decision": "Hold. Short-context allocation savings did not hold consistently at 125K plus image. Candidate image-phase available-RAM minima were worse in both orders; production original restored."
+  },
+  "prefill_hc_scratch_20261026": {
+    "status": "deployed_engine_ram_optimization",
+    "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+    "apply_after": "strata/evo-7dd5cf1.patch",
+    "files": [
+      {
+        "path": "strata/prefill-hc-scratch-experimental.patch",
+        "sha256": "8cd1d86dfaad24bab754a0b18eb8ce9af1324ae5e1c0e311200b7543aeaf7d37",
+        "bytes": 6960
+      }
+    ],
+    "results": "benchmarks/20261026-prefill-hc-scratch-parity.json",
+    "opt_in": {
+      "STRATA_PREFILL_HC_ALIAS": "1",
+      "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "1"
+    },
+    "validation": "55 exact diagnostic requests; 32 timed requests/16 exact output pairs; 44 full-context/function requests and 10 image-follow-up requests passed. RAM benefit persisted near 129K and images. Small measured slowdown accepted. One earlier image latency outlier remains unexplained but did not recur in six follow-up images. Deployed with bounded API smoke, unchanged OMP process/session and zero new swap/OOM.",
+    "performance_results": "benchmarks/20261026-prefill-hc-scratch-performance.json",
+    "qualification_results": "benchmarks/20261026-prefill-hc-scratch-qualification.json",
+    "binary_sha256": "c2c7ab1ee3af2a569e58f8baf88edc06b7a2e4bda6e5140be5fe7a831314134e",
+    "configuration_sha256": "c6fe7016adb96fd0626602705958d01ae11feb6984fe84d086551da4691bf631",
+    "vision_results": "benchmarks/20261026-prefill-hc-scratch-vision.json",
+    "deployment_results": "benchmarks/20261026-prefill-hc-scratch-deployment.json"
+  }
 }

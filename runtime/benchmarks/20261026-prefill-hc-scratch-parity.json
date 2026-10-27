@@ -1,0 +1,90 @@
+{
+  "status": "built_diagnostic_parity_passed_not_deployed",
+  "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+  "binary_sha256": "c2c7ab1ee3af2a569e58f8baf88edc06b7a2e4bda6e5140be5fe7a831314134e",
+  "requests": 55,
+  "suites": [
+    {
+      "name": "parity",
+      "rows": 27,
+      "arms": [
+        "alias",
+        "native",
+        "off"
+      ],
+      "actual_prompt_tokens": [
+        87,
+        88,
+        89,
+        4055,
+        4056,
+        4057,
+        16345,
+        16028,
+        16079
+      ],
+      "exact_output_first_logits_live_state": true,
+      "restored": true,
+      "swapout_delta_pages": 0,
+      "oom_kill_delta": 0,
+      "source_report_sha256": "b268cbde2200a6036dee17cc70f2cf27291e6a72986d907ae22a51b302bab2f5",
+      "runtime_env": null
+    },
+    {
+      "name": "boundary",
+      "rows": 28,
+      "arms": [
+        "alias",
+        "alias-account",
+        "native",
+        "off"
+      ],
+      "actual_prompt_tokens": [
+        127,
+        128,
+        129,
+        4095,
+        4096,
+        4097,
+        8193
+      ],
+      "exact_output_first_logits_live_state": true,
+      "restored": true,
+      "swapout_delta_pages": 0,
+      "oom_kill_delta": 0,
+      "source_report_sha256": "cb740e9d1fd158ac7c9d2235b433eeb94b9f97f4b2e071e66a16c1aa7c91ca7e",
+      "runtime_env": {
+        "native": {
+          "STRATA_SPEC_COST": "0",
+          "STRATA_PREFILL_HC_ALIAS": "0",
+          "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "0"
+        },
+        "off": {
+          "STRATA_SPEC_COST": "0",
+          "STRATA_PREFILL_HC_ALIAS": "0",
+          "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "0"
+        },
+        "alias": {
+          "STRATA_SPEC_COST": "0",
+          "STRATA_PREFILL_HC_ALIAS": "1",
+          "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "0"
+        },
+        "alias-account": {
+          "STRATA_SPEC_COST": "0",
+          "STRATA_PREFILL_HC_ALIAS": "1",
+          "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "1"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Diagnostics enabled; timings are not performance evidence.",
+    "First suite count_tokens API differed from actual prompt usage by 40 tokens; second suite asserts the exact actual boundary tokens.",
+    "These diagnostic runs alone do not establish full-context, vision, tools, cache/cancellation or production speculative-cost speed/RAM qualification; see subsequent qualification and deployment reports.",
+    "Static scratch-byte savings do not establish physical RAM savings."
+  ],
+  "production_restored": true,
+  "production_adopted": false,
+  "subsequent_status": "Full qualification completed; deployed. Original restoration/adoption fields describe this earlier diagnostic stage.",
+  "deployment_results": "20261026-prefill-hc-scratch-deployment.json"
+}

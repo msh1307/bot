@@ -1,0 +1,143 @@
+{
+  "status": "deployed",
+  "date_kst": "2026-10-26T08:55:34.656345+09:00",
+  "scope": "Flash HC scratch buffer lifetime reuse only; unchanged target weights, arithmetic kernels, KV precision, context, prefill batch, CPU/power policy and guards.",
+  "base_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+  "apply_after": "strata/evo-7dd5cf1.patch",
+  "patch_sha256": "8cd1d86dfaad24bab754a0b18eb8ce9af1324ae5e1c0e311200b7543aeaf7d37",
+  "binary_sha256": "c2c7ab1ee3af2a569e58f8baf88edc06b7a2e4bda6e5140be5fe7a831314134e",
+  "executable": "/home/msh/evo-llm/flash-next/engine-candidates/strata-7dd5cf1-hc-scratch/strata",
+  "config_path": "/home/msh/evo-llm/flash-next/flash.json",
+  "config_sha256": "c6fe7016adb96fd0626602705958d01ae11feb6984fe84d086551da4691bf631",
+  "environment": {
+    "STRATA_PREFILL_HC_ALIAS": "1",
+    "STRATA_PREFILL_HC_ALIAS_ACCOUNT": "1"
+  },
+  "baseline": {
+    "config_sha256": "f1dab8d802fa10f1e7592891555513a2bb568f8739fe65b684f6e1412c77e487",
+    "executable": "/home/msh/evo-llm/flash-next/engine-candidates/strata-7dd5cf1-evo/strata",
+    "binary_sha256": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef"
+  },
+  "backup": "/home/msh/evo-llm/flash-next/backups/flash-before-hc-scratch-20261026.json",
+  "rollback": [
+    "Wait until both router and OMP are idle; acquire the existing maintenance lease.",
+    "Stop evo-flash and wait for GPU memory release. Restore the retained backup to flash.json, preserving msh ownership and mode 0600.",
+    "Start evo-flash; verify health, original executable/config hashes and a bounded response. Release the maintenance lease. Do not restart OMP."
+  ],
+  "evidence": {
+    "parity": "benchmarks/20261026-prefill-hc-scratch-parity.json",
+    "performance": "benchmarks/20261026-prefill-hc-scratch-performance.json",
+    "qualification": "benchmarks/20261026-prefill-hc-scratch-qualification.json",
+    "vision": "benchmarks/20261026-prefill-hc-scratch-vision.json"
+  },
+  "qualification": {
+    "diagnostic_requests": 55,
+    "timed_requests": 32,
+    "exact_timed_output_pairs": 16,
+    "functional_requests": 44,
+    "vision_followup_requests": 10,
+    "vision_followup_images": 6,
+    "max_actual_prompt_tokens": 130031,
+    "same_kv_and_context": true
+  },
+  "decision": "Adopt measured RAM saving with negligible measured slowdown allowed by owner. No +5% slow-workload speed gain demonstrated. Qwen candidates remain held.",
+  "known_limitation": "One image-preparation latency outlier (63.45s) remains unexplained; six follow-up images did not reproduce it. No rare-latency bound, broad accuracy guarantee or concurrent-browser guarantee.",
+  "smoke_content": "323",
+  "healthy": true,
+  "deployment_swapout_delta_pages": 0,
+  "deployment_oom_delta": 0,
+  "bot_restarted": false,
+  "bot_pid_preserved": "1926178",
+  "bot_ram_sessions_retained": 1,
+  "final_state": {
+    "time": 1792972696.9723809,
+    "health": {
+      "status": "ok",
+      "model": "sc117-flash-next-iq3_xxs",
+      "router": true
+    },
+    "router": {
+      "active": "sc117-flash-next-iq3_xxs",
+      "loading": null,
+      "busy": false,
+      "waiting_requests": 0,
+      "error": null,
+      "states": {
+        "qwen3.8-27b-uncensored": "unloaded",
+        "sc117-flash-next-iq3_xxs": "loaded"
+      },
+      "maintenance": null,
+      "operation": null,
+      "flash_guard": {
+        "min_available_gib": 6,
+        "sample_seconds": 2,
+        "consecutive_samples": 3
+      }
+    },
+    "vmstat": {
+      "pswpin": 0,
+      "pswpout": 6,
+      "oom_kill": 3
+    },
+    "available_gib": 8.47494125366211,
+    "swap_used_bytes": 8192,
+    "temporary_apparent_bytes_removed": 300968215,
+    "cleanup_separate_from_optimization_measurements": true,
+    "units": {
+      "evo-omp": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "1926178",
+        "MemorySwapCurrent": "0"
+      },
+      "evo-flash": {
+        "ActiveState": "active",
+        "UnitFileState": "static",
+        "MainPID": "1971715",
+        "MemorySwapCurrent": "0"
+      },
+      "evo-qwen": {
+        "ActiveState": "inactive",
+        "UnitFileState": "enabled",
+        "MainPID": "0",
+        "MemorySwapCurrent": "[not set]"
+      },
+      "evo-hermes": {
+        "ActiveState": "inactive",
+        "UnitFileState": "masked",
+        "MainPID": "0",
+        "MemorySwapCurrent": "[not set]"
+      }
+    },
+    "bot": {
+      "engine": "omp",
+      "version": "18.11.3",
+      "state": "connected",
+      "queued": 0,
+      "sessions": 1,
+      "pending_inputs": 0,
+      "active": false,
+      "rounds": 0,
+      "tools": 0,
+      "elapsed_seconds": 0,
+      "idle_seconds": 0,
+      "updated": 1792971597
+    },
+    "config_sha256": "c6fe7016adb96fd0626602705958d01ae11feb6984fe84d086551da4691bf631",
+    "harness_files_unchanged": {
+      "/opt/evo-omp/evo_omp/tool_output.py": "5be50a5582ed46eba6f5e141297fdef68c358d60b21a26d8f02a46e93eced809",
+      "/opt/evo-omp/provider.ts": "890dd4fce46ac683d56194ec4a613f0829ba8b539c7888dc8c94a35f04f68843",
+      "/opt/evo-omp/evo_omp/rpc.py": "fedb3501344ed45772e479d8e4d7d129a5589fb20d57b9b6f9bfab5144d896d8",
+      "/opt/evo-omp/bin/omp-v18.11.3": "3122fd3c94b9794ac56aaaf3f2db617ddf55c64484a19bab2301668f5f2dfef1",
+      "/var/lib/evo-hermes/hermes/plugins/evo-web/__init__.py": "86f27fc3a82561f753ddc9297c58067ce4d8fbfd730ae82edd2f8d16ff62bb47"
+    }
+  },
+  "raw_evidence": {
+    "local_path": "runtime-work/prefill-hc-scratch-20261026/evidence.tar.gz",
+    "sha256": "188ee1abc20a3aafe2f0a2be0e8bb75110292e418dc3d339d2aaab1ea70d6622",
+    "bytes": 63000105,
+    "files_verified": 118,
+    "tracked": false,
+    "note": "Contains benchmark artifacts and reproduction controllers, not credentials or live user conversations. Every archived entry hash verified before temporary test tree removal."
+  }
+}

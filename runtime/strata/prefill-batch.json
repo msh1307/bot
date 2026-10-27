@@ -1,0 +1,31 @@
+{
+  "model": "sc117-flash-next-iq3_xxs",
+  "config_path": "/home/msh/evo-llm/flash-next/flash.json",
+  "argument": "--prefill",
+  "previous": 2048,
+  "deployed": 4096,
+  "context_tokens": 131072,
+  "kv": "int8",
+  "power_watts": 75,
+  "cpu_max_mhz": 3500,
+  "comparison_date": "2026-10-23",
+  "input_tokens": [
+    8152,
+    16347
+  ],
+  "baseline_mean_prefill_ms": [
+    11689,
+    24165
+  ],
+  "candidate_mean_prefill_ms": [
+    10432,
+    21627.5
+  ],
+  "baseline_median_generation_tps": 40.05,
+  "candidate_median_generation_tps": 38.3,
+  "candidate_min_available_gib_after_warmup": 8.336,
+  "system_swap_out_delta_pages_including_reload": 0,
+  "limits": "Two uncached inputs per size and two sampled 512-token generation requests per setting. Thinking disabled for this timing comparison. Output hashes differed. No broad accuracy, full 128K, or simultaneous browser/vision load validation.",
+  "status": "4096 restored on 2026-10-25; the slower 2048 RAM profile was rejected by the owner",
+  "current_deployed": 4096
+}

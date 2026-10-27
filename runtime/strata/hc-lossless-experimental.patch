@@ -1,0 +1,476 @@
+--- /dev/null
++++ b/include/strata/core/hc_lossless.hpp
+@@ -0,0 +1,50 @@
++#pragma once
++#include <cstdint>
++#include <cstring>
++#include <stdexcept>
++#include <vector>
++
++namespace strata::core {
++// A lossless bit encoding, not a quantizer. A 64-value block has a 4-byte
++// exponent base, 64 sign/mantissa bytes and 32 exponent-delta bytes. Blocks
++// spanning more than 16 exponents retain all original bits in the fallback.
++struct HcLossless {
++    std::vector<uint8_t> packed;
++    std::vector<uint16_t> fallback;
++    explicit HcLossless(const std::vector<uint16_t>& src) {
++        if (src.empty() || src.size() % 64) throw std::runtime_error("HC lossless: incomplete block");
++        packed.resize(src.size() / 64 * 100);
++        for (size_t b = 0; b < src.size() / 64; ++b) {
++            const uint16_t* w = src.data() + b * 64;
++            uint8_t* p = packed.data() + b * 100;
++            unsigned lo = 255, hi = 0;
++            for (int j = 0; j < 64; ++j) {
++                unsigned e = (w[j] >> 7) & 255;
++                if (e < lo) lo = e;
++                if (e > hi) hi = e;
++            }
++            uint32_t header = lo;
++            if (hi - lo > 15) {
++                if (fallback.size() / 64 >= 0x80000000ULL) throw std::runtime_error("HC lossless: fallback overflow");
++                header = 0x80000000U | static_cast<uint32_t>(fallback.size() / 64);
++                fallback.insert(fallback.end(), w, w + 64);
++            } else {
++                for (int j = 0; j < 64; ++j) {
++                    p[4 + j] = (w[j] & 127) | ((w[j] >> 8) & 128);
++                    p[68 + j / 2] |= (((w[j] >> 7) & 255) - lo) << (4 * (j % 2));
++                }
++            }
++            std::memcpy(p, &header, 4);
++        }
++    }
++    uint16_t at(size_t i) const {
++        const uint8_t* p = packed.data() + (i / 64) * 100;
++        uint32_t h;
++        std::memcpy(&h, p, 4);
++        const size_t j = i % 64;
++        if (h & 0x80000000U) return fallback[(h & 0x7fffffffU) * 64ULL + j];
++        return (p[4 + j] & 127) | ((p[4 + j] & 128) << 8) |
++               ((h + ((p[68 + j / 2] >> (4 * (j % 2))) & 15)) << 7);
++    }
++};
++} // namespace strata::core
+--- a/include/strata/core/weights.hpp
++++ b/include/strata/core/weights.hpp
+@@ -93,6 +93,9 @@
+     /// S23 experiment (STRATA_HC_Q8=1): a hyper-connection projection's Q8_0 bytes as the GGUF stores them, owned by
+     /// NativeDense, for the verify window's read (every other path keeps the pack's BF16 `data`)
+     const void* hc_q8 = nullptr;
++    // EVO_HC_LOSSLESS: exact BF16 down weights, owned by NativeDense.
++    const uint8_t* hc_lossless = nullptr;
++    const uint16_t* hc_lossless_fallback = nullptr;
+     /// Plan v0.3 P1: false when the loader SKIPPED this tensor's canonical bytes because another form serves it
+     /// (native GGUF projections, the native head).  The metadata above stays valid; `data` is null.
+     bool resident = true;
+--- a/include/strata/core/native_dense.hpp
++++ b/include/strata/core/native_dense.hpp
+@@ -43,6 +43,8 @@
+     /// STRATA_HC_Q8=1: the hyper-connection down / up projections of the layers live only as Q8_0 (the bf16 copy is not
+     /// loaded: `add_hc_skip` puts their rows in the arena's skip set, `load` quantizes them from the pack file).
+     static bool hc_q8_requested();
++    static bool hc_lossless_requested();
++    static bool add_hc_lossless_skip(const std::string& pack_dir, std::set<std::string>& skip);
+     static bool add_hc_skip(const std::string& pack_dir, std::set<std::string>& skip);
+     /// A projection's bf16 values for a path that has no Q8 kernel (the prompt path's GEMMs, the single-token read): the
+     /// resident copy, or - when the row was skipped - the Q8_0 copy dequantized into a per-stream scratch (`slot` 0 / 1:
+--- a/include/strata/kernels/fused_gr.hpp
++++ b/include/strata/kernels/fused_gr.hpp
+@@ -49,6 +49,8 @@
+     /// 32 contiguous values here ([row][col / 32]).  w_inject stays bf16.
+     const float* s_down = nullptr;
+     const float* s_up = nullptr;
++    const uint8_t* lossless_down = nullptr;
++    const uint16_t* lossless_fallback = nullptr;
+ };
+ 
+ bool fused_gr_supported(int64_t n_embd, int64_t hc, int64_t hc_lr);
+@@ -60,6 +62,7 @@
+ /// The inverse for a path with no Q8 kernel: bf16 (round to nearest even) of d * q for `n_blocks` Q8_0 blocks.
+ void fused_gr_dequant_q8_0(const uint8_t* q8, uint16_t* bf16, int64_t n_blocks, void* stream);
+ void fused_gr_quantize_q8_0(const uint16_t* bf16, uint8_t* out, int64_t n_blocks, void* stream);
++void fused_gr_unpack_lossless(const uint8_t* packed, const uint16_t* fallback, uint16_t* out, int64_t n, void* stream);
+ 
+ /// Plan v0.3 P6: the same read for up to 8 tokens that share the weights (a verify window): the weights are read
+ /// once for all of them.  `a[t]` is token t's arguments (its own R, pending write, lo, rs, inject, mixed; the four
+--- a/src/core/native_dense.cpp
++++ b/src/core/native_dense.cpp
+@@ -1,4 +1,5 @@
+ #include "strata/core/native_dense.hpp"
++#include "strata/core/hc_lossless.hpp"
+ #include <cstdlib>
+ #include "strata/core/weights.hpp"
+ #include "strata/artifact/gguf_reader.hpp"
+@@ -82,6 +83,14 @@
+     }();
+     return on;
+ }
++bool hc_lossless_env() {
++    const char* v = std::getenv("EVO_HC_LOSSLESS");
++    return v && std::strcmp(v, "1") == 0;
++}
++bool hc_lossless_name(const std::string& name) {
++    return name.rfind("blk.", 0) == 0 &&
++           (name.ends_with(".hc_attn_down.weight") || name.ends_with(".hc_ffn_down.weight"));
++}
+ bool hc_q8_name(const std::string& name) {
+     if (name == "output_hc_down.weight" || name == "output_hc_up.weight") return true;   // S25: the final mixer too
+     if (name.rfind("blk.", 0) != 0) return false;
+@@ -271,11 +280,26 @@
+     };
+     if (scratch_ || !weights_.empty()) { err = "native dense: already loaded"; return false; }
+     if (shards.empty()) { err = "native dense: at least one GGUF shard is required"; return false; }
++    if (hc_lossless_env()) {
++        if (hc_q8_env() || layer_hi >= 0 || g_layer_lb >= 0) {
++            err = "EVO_HC_LOSSLESS requires STRATA_HC_Q8=0 and one unsplit GPU"; return false;
++        }
++#if defined(STRATA_USE_HIP)
++        int dev = 0;
++        cudaDeviceProp prop{};
++        if (cudaGetDevice(&dev) != cudaSuccess || cudaGetDeviceProperties(&prop, dev) != cudaSuccess ||
++            !strata::kernels::gfx_arch_is_gfx1151(prop.gcnArchName)) {
++            err = "EVO_HC_LOSSLESS is currently validated only on gfx1151"; return false;
++        }
++#else
++        err = "EVO_HC_LOSSLESS currently requires HIP gfx1151"; return false;
++#endif
++    }
+     try {
+         std::vector<Pending> pending;
+         std::set<std::string> seen;
+         int max_in = 0;
+-        uint64_t total = 0, hc_q8_bytes = 0, allocated = 0;
++        uint64_t total = 0, hc_q8_bytes = 0, hc_lossless_bytes = 0, allocated = 0;
+         uint64_t split_count = 0, split_tensors = 0;
+         std::set<uint64_t> split_numbers;
+         bool have_architecture = false;
+@@ -459,6 +483,72 @@
+                 err = "native dense (STRATA_HC_Q8): quantizing the projections failed"; return false;
+             }
+         }
++        if (hc_lossless_env()) {
++            uint64_t raw = 0, made = 0, max_elems = 0;
++            for (auto& [name, ref] : table.table_) {
++                if (!hc_lossless_name(name)) continue;
++                if (ref.data || ref.resident || ref.kind != WeightKind::Bf16InF32 || ref.ne0 != 10240 || ref.ne1 != 320 ||
++                    ref.elements != ref.ne0 * ref.ne1 || ref.elements % 64) {
++                    err = "EVO_HC_LOSSLESS needs a skipped BF16 down matrix: " + name; return false;
++                }
++                std::vector<uint16_t> host;
++                if (!table.read_bf16_host(name, host, err)) return false;
++                HcLossless enc(host);
++                void *p = nullptr, *fb = nullptr;
++                const uint64_t nb = enc.packed.size(), nf = enc.fallback.size() * 2;
++                if (cudaMalloc(&p, nb) != cudaSuccess) { err = "HC lossless packed allocation"; return false; }
++                weights_.push_back(p);
++                if (cudaMemcpy(p, enc.packed.data(), nb, cudaMemcpyHostToDevice) != cudaSuccess) {
++                    err = "HC lossless packed upload"; return false;
++                }
++                if (nf) {
++                    if (cudaMalloc(&fb, nf) != cudaSuccess) { err = "HC lossless fallback allocation"; return false; }
++                    weights_.push_back(fb);
++                    if (cudaMemcpy(fb, enc.fallback.data(), nf, cudaMemcpyHostToDevice) != cudaSuccess) {
++                        err = "HC lossless fallback upload"; return false;
++                    }
++                }
++                ref.hc_lossless = (const uint8_t*) p;
++                ref.hc_lossless_fallback = (const uint16_t*) fb;
++                raw += host.size() * 2;
++                hc_lossless_bytes += nb + nf;
++                allocated += alloc_bytes(nb) + alloc_bytes(nf);
++                max_elems = (std::max)(max_elems, (uint64_t) ref.elements);
++                ++made;
++            }
++            if (!made) { err = "HC lossless: no eligible matrices"; return false; }
++            int dev = 0;
++            if (cudaGetDevice(&dev) != cudaSuccess || dev < 0 || dev >= 64 || g_hc_scratch[dev][0][0]) {
++                err = "HC lossless: scratch already owned or invalid device"; return false;
++            }
++            for (int cls = 0; cls < 2; ++cls) {
++                void* p = nullptr;
++                if (cudaMalloc(&p, max_elems * 2) != cudaSuccess) { err = "HC lossless: scratch allocation"; return false; }
++                weights_.push_back(p);
++                g_hc_scratch[dev][cls][0] = p;
++                allocated += alloc_bytes(max_elems * 2);
++            }
++            if (!g_hc_ev[dev][0] && cudaEventCreateWithFlags(&g_hc_ev[dev][0], cudaEventDisableTiming) != cudaSuccess) {
++                err = "HC lossless: scratch event"; return false;
++            }
++            // Diagnostic: check every uploaded tensor through the production GPU decoder.
++            const char* check = std::getenv("EVO_HC_LOSSLESS_CHECK");
++            if (check && std::strcmp(check, "1") == 0) {
++                for (const auto& [name, ref] : table.table_) {
++                    if (!ref.hc_lossless) continue;
++                    std::vector<uint16_t> want, got((size_t) ref.elements);
++                    if (!table.read_bf16_host(name, want, err)) return false;
++                    strata::kernels::fused_gr_unpack_lossless(ref.hc_lossless, ref.hc_lossless_fallback,
++                        (uint16_t*) g_hc_scratch[dev][1][0], ref.elements, nullptr);
++                    if (cudaGetLastError() != cudaSuccess ||
++                        cudaMemcpy(got.data(), g_hc_scratch[dev][1][0], got.size() * 2, cudaMemcpyDeviceToHost) != cudaSuccess ||
++                        got != want) { err = "HC lossless: exact GPU reconstruction failed: " + name; return false; }
++                }
++            }
++            std::fprintf(stderr, "EVO HC lossless: tensors=%llu raw=%llu packed=%llu scratch=%llu checked=%d\n",
++                (unsigned long long) made, (unsigned long long) raw, (unsigned long long) hc_lossless_bytes,
++                (unsigned long long) (max_elems * 4), check && std::strcmp(check, "1") == 0);
++        }
+         if (hc_q8_env()) {   // the scratches of hc_bf16_view (rows without a bf16 copy), here and not on first use
+             uint64_t elems = 0;
+             for (const auto& [name, ref] : table.table_)
+@@ -505,7 +595,7 @@
+             std::fprintf(stderr, "native dense: STRATA_Q8_PACKED=1 packed %zu Q8_0 matrices for decode (+%.1f MiB)\n",
+                          packed_count, packed_bytes / 1048576.0);
+         scratch_ = scratch.release();
+-        bytes_ = total + hc_q8_bytes;
++        bytes_ = total + hc_q8_bytes + hc_lossless_bytes;
+         allocated_ = allocated;
+         if (hc_q8_env())
+             std::fprintf(stderr, "strata: STRATA_HC_Q8=1: %.2f GiB of Q8_0 hyper-connection projections for the verify read\n",
+@@ -517,6 +607,19 @@
+     }
+ }
+ bool NativeDense::hc_q8_requested() { return hc_q8_env(); }
++bool NativeDense::hc_lossless_requested() { return hc_lossless_env(); }
++bool NativeDense::add_hc_lossless_skip(const std::string& pack_dir, std::set<std::string>& skip) {
++    std::FILE* f = std::fopen((pack_dir + "/index.txt").c_str(), "rb");
++    if (!f) return false;
++    char line[1024], name[256];
++    size_t found = 0;
++    while (std::fgets(line, sizeof line, f)) {
++        if (line[0] == '#' || std::sscanf(line, "%255s", name) != 1) continue;
++        if (hc_lossless_name(name)) { skip.insert(name); ++found; }
++    }
++    std::fclose(f);
++    return found != 0;
++}
+ 
+ bool NativeDense::add_hc_skip(const std::string& pack_dir, std::set<std::string>& skip) {
+     std::FILE* f = std::fopen((pack_dir + "/index.txt").c_str(), "rb");
+@@ -533,7 +636,7 @@
+ 
+ const uint16_t* NativeDense::hc_bf16_view(const WeightRef& w, void* stream, int slot, int cls) {
+     if (w.data != nullptr) return (const uint16_t*) w.data;
+-    if (w.hc_q8 == nullptr) return nullptr;
++    if (w.hc_q8 == nullptr && w.hc_lossless == nullptr) return nullptr;
+     // the device's scratch (allocated at load, one pair per device): the prompt path and the single-token read run one
+     // after the other on a device, and each use is stream-ordered after the previous GEMM that read the slot
+     int dev = 0;
+@@ -542,7 +645,9 @@
+     if (buf == nullptr) return nullptr;
+     // the prompt path: the scratch may still be read by a GEMM another stream enqueued (batch serving: several slots' prompts)
+     if (cls == 0 && g_hc_ev_set[dev][slot]) cudaStreamWaitEvent((cudaStream_t) stream, g_hc_ev[dev][slot], 0);
+-    strata::kernels::fused_gr_dequant_q8_0((const uint8_t*) w.hc_q8, (uint16_t*) buf, w.elements / 32, stream);
++    if (w.hc_lossless)
++        strata::kernels::fused_gr_unpack_lossless(w.hc_lossless, w.hc_lossless_fallback, (uint16_t*) buf, w.elements, stream);
++    else strata::kernels::fused_gr_dequant_q8_0((const uint8_t*) w.hc_q8, (uint16_t*) buf, w.elements / 32, stream);
+     return (const uint16_t*) buf;
+ }
+ 
+--- a/src/core/verify.cpp
++++ b/src/core/verify.cpp
+@@ -1357,6 +1357,8 @@
+                 a.q8_down = (const uint8_t*) wd[half]->hc_q8; a.q8_up = (const uint8_t*) wu[half]->hc_q8;
+                 a.q8_inject = (const uint8_t*) wi[half]->hc_q8;
+                 a.s_down = wd[half]->q8_scale; a.s_up = wu[half]->q8_scale;
++                a.lossless_down = wd[half]->hc_lossless;
++                a.lossless_fallback = wd[half]->hc_lossless_fallback;
+                 a.eps = EPS; a.lo = lo_ + t * g.hc_lr; a.rs = rs_ + t * HC;
+                 a.inject_out = inj_out + t * HC; a.mixed = mixed_ + t * N;
+                 if (qcnt_ != nullptr) {   // S26 STRATA_QFUSE: the consumer's q8_1 image written by the read itself
+--- a/src/program/generate.cpp
++++ b/src/program/generate.cpp
+@@ -3774,6 +3774,14 @@
+     // Plan v0.3 P1: tensors served in native form are not also loaded in canonical form (~2.7 GB of VRAM back
+     // to the expert cache with --native).  `--keep-canonical` loads both, as before.
+     std::set<std::string> skip;
++    if (strata::core::NativeDense::hc_lossless_requested()) {
++        if (o.keep_canonical || multi_gpu || o.native_dense_gguf.empty() ||
++            strata::core::NativeDense::hc_q8_requested() ||
++            !strata::core::NativeDense::add_hc_lossless_skip(o.pack, skip)) {
++            std::fprintf(stderr, "EVO_HC_LOSSLESS needs --native, one GPU, STRATA_HC_Q8=0 and no --keep-canonical\n");
++            return 2;
++        }
++    }
+     if (!o.keep_canonical) {
+         if (!o.native_dense_gguf.empty() &&
+             !strata::core::NativeDense::served_names(o.native_dense_gguf, o.native_ple_key, skip, err)) {
+--- a/src/kernels/cuda/fused_gr.cu
++++ b/src/kernels/cuda/fused_gr.cu
+@@ -302,7 +302,27 @@
+ // which fits all eight tokens in one 40 KiB launch and stages 160 chunks of 8 (5 per lane, half the registers held
+ // for the weight prefetch); smaller tiles raise how many blocks share an SM (the 41-block grid), e.g. three blocks
+ // of four tokens instead of one on sm_75.
+-template <int TILEV, int MAX_T = kFusedGrMaxT, bool Q8 = false>
++// Reconstruct eight BF16 words exactly, including signs, subnormals and NaN payloads.
++__device__ __forceinline__ uint4 hc_lossless8(const uint8_t* packed, const uint16_t* fallback, size_t e) {
++    const uint8_t* p = packed + (e / 64) * 100;
++    const uint32_t h = *reinterpret_cast<const uint32_t*>(p);
++    const unsigned j = (unsigned) (e % 64);
++    if (h & 0x80000000U) return *reinterpret_cast<const uint4*>(fallback + (size_t) (h & 0x7fffffffU) * 64 + j);
++    const uint2 lo = make_uint2(*reinterpret_cast<const uint32_t*>(p + 4 + j), *reinterpret_cast<const uint32_t*>(p + 8 + j));
++    const uint32_t de = *reinterpret_cast<const uint32_t*>(p + 68 + j / 2);
++    uint32_t words[4];
++#pragma unroll
++    for (int k = 0; k < 4; ++k) {
++        const uint32_t pair = (k < 2 ? lo.x : lo.y) >> (16 * (k % 2));
++        const uint32_t ed = (de >> (8 * k)) & 255;
++        const uint32_t a = (pair & 127) | ((pair & 128) << 8) | ((h + (ed & 15)) << 7);
++        const uint32_t b = ((pair >> 8) & 127) | (pair & 0x8000) | ((h + (ed >> 4)) << 7);
++        words[k] = a | (b << 16);
++    }
++    return make_uint4(words[0], words[1], words[2], words[3]);
++}
++
++template <int TILEV, int MAX_T = kFusedGrMaxT, bool Q8 = false, bool LOSSLESS = false>
+ __global__ void __launch_bounds__(THREADS) gr_down_multi_kernel(GrMulti m) {
+     constexpr int TQ = TILEV / 8 / 32;      // uint4 weight chunks per lane per tile
+     extern __shared__ __align__(16) float tile[];   // [T][TILEV]
+@@ -322,7 +342,13 @@
+         uint4 wv[TQ];
+         if (active) {
+ #pragma unroll
+-            for (int q = 0; q < TQ; ++q) wv[q] = ldw<Q8>(wmat, sq, row0 + (size_t) base + (size_t) (lane + 32 * q) * 8);
++            for (int q = 0; q < TQ; ++q) {
++                const size_t e = row0 + (size_t) base + (size_t) (lane + 32 * q) * 8;
++                if constexpr (LOSSLESS) {
++                    wv[q] = inject_block ? ldw<false>(wmat, nullptr, e) :
++                        hc_lossless8(m.a[0].lossless_down, m.a[0].lossless_fallback, e);
++                } else wv[q] = ldw<Q8>(wmat, sq, e);
++            }
+         }
+         __syncthreads();                                   // the previous tile is consumed
+         const float4* src4 = reinterpret_cast<const float4*>(m.xn);
+@@ -1259,7 +1285,7 @@
+ #endif
+     if (stamp_buf) gpu_stamp(stamp_buf, stamp_i0, (void*) st);
+     // STRATA_HC_Q8: the staged down kernel reads bf16 only, so Q8 weights take split's down kernel (the plain one)
+-    const bool staged = variant >= kHcStaged && m.a[0].s_down == nullptr;
++    const bool staged = variant >= kHcStaged && m.a[0].s_down == nullptr && m.a[0].lossless_down == nullptr;
+     int tv = 2560;
+     const int chunk_tok = down_chunk(staged, &tv);
+     const size_t per_tok = (staged ? (size_t) 2 * H_TILE : (size_t) tv) * sizeof(float);
+@@ -1303,13 +1329,19 @@
+             else if (max4) gr_down_staged_kernel<4><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+             else gr_down_staged_kernel<><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+         } else if (tv == 1280) {
+-            if (q8w) {   // STRATA_HC_REQ8
++            if (m.a[0].lossless_down) {
++                if (max4) gr_down_multi_kernel<1280, 4, false, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
++                else gr_down_multi_kernel<1280, kFusedGrMaxT, false, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
++            } else if (q8w) {   // STRATA_HC_REQ8
+                 if (max4) gr_down_multi_kernel<1280, 4, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+                 else gr_down_multi_kernel<1280, kFusedGrMaxT, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+             } else if (max4) gr_down_multi_kernel<1280, 4><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+             else gr_down_multi_kernel<1280><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+         } else {
+-            if (q8w) {   // STRATA_HC_REQ8
++            if (m.a[0].lossless_down) {
++                if (max4) gr_down_multi_kernel<2560, 4, false, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
++                else gr_down_multi_kernel<2560, kFusedGrMaxT, false, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
++            } else if (q8w) {   // STRATA_HC_REQ8
+                 if (max4) gr_down_multi_kernel<2560, 4, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+                 else gr_down_multi_kernel<2560, kFusedGrMaxT, true><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+             } else if (max4) gr_down_multi_kernel<2560, 4><<<DOWN_BLOCKS + 1, THREADS, smem, st>>>(c);
+@@ -2209,10 +2241,11 @@
+     for (int t = 0; t < n_tok; ++t) {
+         m.a[t] = a[t];
+         const FusedGrArgs& x = a[t];
+-        if (!x.R || !x.w_norm || !((x.w_down && x.w_up) || (x.q8_down && x.q8_up)) || !x.lo || !x.rs || !x.mixed || (x.w_inject && !x.inject_out) ||
++        if (!x.R || !x.w_norm || !((x.w_down && x.w_up) || (x.q8_down && x.q8_up) || (x.lossless_down && x.w_up)) || !x.lo || !x.rs || !x.mixed || (x.w_inject && !x.inject_out) ||
+             (x.apply && (!x.bo_prev || !x.inj_prev || !x.R_out)) || x.w_down != a[0].w_down || x.w_up != a[0].w_up ||
+             x.w_inject != a[0].w_inject || x.w_norm != a[0].w_norm || x.q8_down != a[0].q8_down ||
+-            x.q8_up != a[0].q8_up || x.q8_inject != a[0].q8_inject) {
++            x.q8_up != a[0].q8_up || x.q8_inject != a[0].q8_inject ||
++            x.lossless_down != a[0].lossless_down || x.lossless_fallback != a[0].lossless_fallback) {
+             std::fprintf(stderr, "fused_gr_read_multi: invalid arguments for token %d\n", t);
+             std::exit(1);
+         }
+@@ -2238,7 +2271,7 @@
+     static const bool v3 = [] { const char* v = std::getenv("STRATA_GR_V3"); return v != nullptr && std::atoi(v) != 0; }();
+     static int split3[64] = {};   // per device: 0 = not decided yet, 1 / 2 = column halves S, -1 = does not fit
+     int dev3 = 0;
+-    if (v3) {
++    if (v3 && !a[0].lossless_down) {
+         cudaGetDevice(&dev3);
+         if (dev3 >= 0 && dev3 < 64 && split3[dev3] == 0) {
+             int optin = 0;
+@@ -2269,7 +2302,7 @@
+             split3[dev3] = split;
+         }
+     }
+-    const int split = v3 && dev3 >= 0 && dev3 < 64 && a[0].s_down == nullptr && a[0].s_up == nullptr ? split3[dev3] : -1;
++    const int split = v3 && !a[0].lossless_down && dev3 >= 0 && dev3 < 64 && a[0].s_down == nullptr && a[0].s_up == nullptr ? split3[dev3] : -1;
+     if (split > 0) {   // 2 kernels; scratch = partials + sums of squares
+         float* part = xn_scratch;
+         float* ssg = xn_scratch + (size_t) n_tok * HC * 2 * PR;   // room for S = 2
+@@ -2305,7 +2338,7 @@
+     // fused_gr_read, so the multi-token read is then no longer bitwise equal to T single-token calls (gr_parity's
+     // contract); off by default for that reason.
+     static const bool split_on = std::getenv("STRATA_GR_SPLIT") && std::string(std::getenv("STRATA_GR_SPLIT")) == "1";
+-    if (split_on && a[0].s_down == nullptr) {   // its K-split down reads bf16 rows (not STRATA_HC_REQ8)
++    if (split_on && a[0].s_down == nullptr && !a[0].lossless_down) {   // its K-split down reads bf16 rows (not STRATA_HC_REQ8)
+         const bool fast = gr_fast();
+         if (fast) gr_norm_fast_kernel<<<n_tok, THREADS, 0, st>>>(m);
+         else gr_norm_multi_kernel<<<n_tok, THREADS, 0, st>>>(m);
+@@ -2368,6 +2401,14 @@
+ 
+ void fused_gr_quantize_q8_0(const uint16_t* bf16, uint8_t* out, int64_t n_blocks, void* stream) {
+     gr_quantize_q8_0_kernel<<<(unsigned) ((n_blocks + 7) / 8), 256, 0, (cudaStream_t) stream>>>(bf16, out, n_blocks);
++}
++
++__global__ void hc_unpack_lossless_kernel(const uint8_t* packed, const uint16_t* fallback, uint16_t* out, int64_t n) {
++    const int64_t e = ((int64_t) blockIdx.x * blockDim.x + threadIdx.x) * 8;
++    if (e < n) *reinterpret_cast<uint4*>(out + e) = hc_lossless8(packed, fallback, (size_t) e);
++}
++void fused_gr_unpack_lossless(const uint8_t* packed, const uint16_t* fallback, uint16_t* out, int64_t n, void* stream) {
++    hc_unpack_lossless_kernel<<<(unsigned) ((n / 8 + 255) / 256), 256, 0, (cudaStream_t) stream>>>(packed, fallback, out, n);
+ }
+ 
+ bool fused_gr_supported(int64_t n_embd, int64_t hc, int64_t hc_lr) {
+@@ -3030,7 +3071,7 @@
+     if (dev < 0 || dev >= 64) return false;
+     const hcp::DevState& st = hcp::g_dev[dev];
+     if (n_tok > st.max_t) return false;
+-    if (a[0].q8_down != nullptr || a[0].q8_up != nullptr) return false;    // STRATA_HC_Q8: the default read
++    if (a[0].q8_down != nullptr || a[0].q8_up != nullptr || a[0].lossless_down) return false;    // STRATA_HC_Q8: the default read
+     for (int t = 0; t < n_tok; ++t)
+         if (a[t].q8_mixed != nullptr) return false;                         // STRATA_QFUSE: the default read
+     hcp::launch(a, n_tok, st, (cudaStream_t) stream, hcp::kTicksRun);
+--- a/src/prefill/prefill.cpp
++++ b/src/prefill/prefill.cpp
+@@ -3181,12 +3181,17 @@
+                 if (!wn || !wd || !wu || !wi) return false;
+                 // STRATA_HC_Q8 without a bf16 copy: this path's GEMMs read bf16, so the matrices are dequantized per half
+                 core::WeightRef wd_q8, wu_q8;
+-                if (!wd->data && wd->hc_q8 && !wu->data && wu->hc_q8) {
+-                    wd_q8 = *wd; wu_q8 = *wu;
++                if (!wd->data && (wd->hc_q8 || wd->hc_lossless)) {
++                    wd_q8 = *wd;
+                     wd_q8.data = core::NativeDense::hc_bf16_view(*wd, m.cs, 0, 0);
++                    if (!wd_q8.data) { err = "prefill: down projection could not be decoded"; return false; }
++                    wd = &wd_q8;
++                }
++                if (!wu->data && wu->hc_q8) {
++                    wu_q8 = *wu;
+                     wu_q8.data = core::NativeDense::hc_bf16_view(*wu, m.cs, 1, 0);
+-                    if (!wd_q8.data || !wu_q8.data) { err = "prefill: the Q8_0 hyper-connection projections could not be dequantized"; return false; }
+-                    wd = &wd_q8; wu = &wu_q8;
++                    if (!wu_q8.data) { err = "prefill: up projection could not be decoded"; return false; }
++                    wu = &wu_q8;
+                 }
+                 pt.mark(kPfHc, cs);
+                 // the xn16 token stride of this chunk (the writers of both halves and of the fused write-backs use it)
+@@ -3250,10 +3255,9 @@
+                              m.mixed_bf_lo);
+                 }
+ 
+-                if (wd_q8.data) {   // the HC GEMMs that read the scratch are enqueued: the next user waits for them
+-                    core::NativeDense::hc_bf16_release(m.cs, 0, 0);
+-                    core::NativeDense::hc_bf16_release(m.cs, 1, 0);
+-                }
++                // The next stream waits until this stream's GEMMs have consumed its scratch.
++                if (wd_q8.data) core::NativeDense::hc_bf16_release(m.cs, 0, 0);
++                if (wu_q8.data) core::NativeDense::hc_bf16_release(m.cs, 1, 0);
+                 if (half == 0 && !core::is_qsa_layer(g, l)) {
+                     // ======================= GDN =======================
+                     const core::WeightRef *wqkv = need(v, "attn_qkv.weight", err), *wg = need(v, "attn_gate.weight", err),

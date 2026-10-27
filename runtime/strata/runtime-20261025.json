@@ -1,0 +1,26 @@
+{
+  "source_revision": "7dd5cf18e68c639a8773e096c5c79f971ea2a9f5",
+  "engine_patch": "evo-7dd5cf1.patch",
+  "preserve_existing_python_wrapper": true,
+  "additional_args": [
+    "--conversation-cache-mib",
+    "2048",
+    "--conversation-cache-slots",
+    "3",
+    "--conversation-cache-min-free-mib",
+    "8192"
+  ],
+  "environment": {
+    "STRATA_SPEC_COST": "1",
+    "STRATA_HC_Q8": "0",
+    "STRATA_ADAPT_OVERLAP": "0",
+    "STRATA_ADAPT_OVERLAP_RESIDENT": "0"
+  },
+  "retained": {
+    "max_context": 131072,
+    "kv": "int8",
+    "prompt_cache": 8,
+    "prefill": 4096
+  },
+  "benchmark": "../benchmarks/20261025-memory-and-tps.json"
+}

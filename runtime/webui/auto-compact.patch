@@ -1,0 +1,75 @@
+--- a/tools/ui/src/lib/services/chat.service.ts
++++ b/tools/ui/src/lib/services/chat.service.ts
+@@ -6,6 +6,9 @@
+  * warming. No reactive state; consumed by chatStore and its managers.
+  */
+ 
++import { applyWebCheckpoint, fetchWithWebCompaction } from './auto-compact.js';
++import { DatabaseService } from './database.service';
++import { toast } from 'svelte-sonner';
+ import { getAudioInputFormat } from '../utils/audio-format';
+ import { capImageDataURLSize } from '../utils/cap-img-size';
+ import {
+@@ -867,8 +870,11 @@
+ 		}
+ 
+ 		try {
++			const convId = messages[0] && 'convId' in messages[0] ? messages[0].convId : undefined;
++			const conversation = convId ? await DatabaseService.getConversation(convId) : undefined;
++			const warmingBody = applyWebCheckpoint(requestBody, conversation);
+ 			await fetch(API_CHAT.COMPLETIONS, {
+-				body: JSON.stringify(requestBody),
++				body: JSON.stringify(warmingBody),
+ 				headers: getJsonHeaders(),
+ 				method: 'POST',
+ 				signal
+@@ -1228,11 +1234,20 @@
+ 				ChatService.saveStreamState(conversationId, 0, options.model ?? null);
+ 			}
+ 
+-			const response = await fetch(API_CHAT.COMPLETIONS, {
+-				body: JSON.stringify(requestBody),
+-				headers,
+-				method: 'POST',
+-				signal
++			const response = await fetchWithWebCompaction(API_CHAT.COMPLETIONS, requestBody, {
++				body: JSON.stringify(requestBody), headers, method: 'POST', signal
++			}, {
++				conversationId,
++				contextSize: modelsStore.props.getModelContextSize(options.model || modelsStore.activeModelId || ''),
++				load: () => DatabaseService.getConversation(conversationId!),
++				save: (checkpoint: NonNullable<DatabaseConversation['webContextCheckpoint']>) =>
++					DatabaseService.updateConversation(conversationId!, { webContextCheckpoint: checkpoint }),
++				notify: (state: string) => {
++					const id = 'web-compact-' + conversationId;
++					if (state === 'running') toast.loading('대화 문맥 압축 중… 완료 후 이어갑니다.', { id, duration: Infinity });
++					else if (state === 'done') toast.success('문맥 압축 완료', { id, duration: 3000 });
++					else toast.dismiss(id);
++				}
+ 			});
+ 
+ 			if (!response.ok) {
+@@ -1275,6 +1290,7 @@
+ 				);
+ 			}
+ 		} catch (error) {
++			if (conversationId) ChatService.clearStreamState(conversationId);
+ 			if (isAbortError(error)) {
+ 				console.log('Chat completion request was aborted');
+ 
+--- a/tools/ui/src/lib/types/database.d.ts
++++ b/tools/ui/src/lib/types/database.d.ts
+@@ -27,6 +27,13 @@
+ 	disabledToolCategories?: ToolSource[];
+ 	forkedFromConversationId?: string;
+ 	pinned?: boolean;
++	/** Derived prompt state only; original messages remain untouched. */
++	webContextCheckpoint?: {
++		version: number;
++		covered: number;
++		fingerprint: string;
++		summary: string;
++	};
+ }
+ 
+ export interface DatabaseMessageExtraAudioFile {

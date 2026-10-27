@@ -1,0 +1,102 @@
+{
+  "date": "2026-10-26",
+  "raw_sha256": "e8c61c97d0741d7653b1d004e017af701e87f24a3d7deb186be019d90c50bd7a",
+  "scope": "Resolve one image preparation latency outlier: candidate then actual production original; same 129K prefix and three distinct 1024x1024 image cache misses per arm.",
+  "rows": [
+    {
+      "arm": "vision-4096-packed-0",
+      "fixture": "vision_255",
+      "seconds": 54.98176727700047,
+      "engine_seconds": 2.6395,
+      "outside_engine_seconds": 52.342267277000474,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 7.047855377197266,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 416.28,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 10.75390625,
+      "vision_write_bytes_observed": 0
+    },
+    {
+      "arm": "vision-4096-packed-0",
+      "fixture": "vision_254",
+      "seconds": 55.13489955407567,
+      "engine_seconds": 2.6608,
+      "outside_engine_seconds": 52.47409955407567,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 6.940525054931641,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 417.09,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 0.0,
+      "vision_write_bytes_observed": 0
+    },
+    {
+      "arm": "vision-4096-packed-0",
+      "fixture": "vision_253",
+      "seconds": 56.19423301098868,
+      "engine_seconds": 2.6149,
+      "outside_engine_seconds": 53.579333010988684,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 6.970134735107422,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 426.17,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 0.0,
+      "vision_write_bytes_observed": 0
+    },
+    {
+      "arm": "vision-4096-base-1",
+      "fixture": "vision_255",
+      "seconds": 54.935647033853456,
+      "engine_seconds": 2.6402,
+      "outside_engine_seconds": 52.295447033853456,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 6.772312164306641,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 415.91,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 10.75390625,
+      "vision_write_bytes_observed": 0
+    },
+    {
+      "arm": "vision-4096-base-1",
+      "fixture": "vision_254",
+      "seconds": 54.772182879038155,
+      "engine_seconds": 2.6304000000000003,
+      "outside_engine_seconds": 52.14178287903815,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 6.687953948974609,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 414.73,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 0.0,
+      "vision_write_bytes_observed": 0
+    },
+    {
+      "arm": "vision-4096-base-1",
+      "fixture": "vision_253",
+      "seconds": 54.765125195961446,
+      "engine_seconds": 2.6163,
+      "outside_engine_seconds": 52.14882519596144,
+      "cached_tokens": 128936,
+      "minimum_available_gib": 6.711177825927734,
+      "text": "left=red right=blue",
+      "vision_cpu_seconds_observed": 414.7,
+      "vision_major_faults_observed": 0,
+      "vision_read_mib_observed": 0.0,
+      "vision_write_bytes_observed": 0
+    }
+  ],
+  "mean_paired_latency_change_percent": 1.1185675982178234,
+  "max_paired_latency_change_percent": 2.609521679926008,
+  "swapout_delta_pages": 0,
+  "oom_delta": 0,
+  "restored_healthy": true,
+  "decision": "No repeat of the earlier 63.45s image outlier in these six requests. Accept approximately 1.1% image latency difference for the confirmed RAM saving; no image acceleration claim. The earlier outlier remains recorded and its causal origin is unresolved.",
+  "limitations": [
+    "Three image cache misses per arm, candidate then original; not a statistical bound on rare latency spikes.",
+    "Process CPU/fault/IO observations stop at the last one-second sample before process exit; they may omit final fractions of a second.",
+    "The unchanged CPU vision executable is separate from the patched inference binary."
+  ]
+}

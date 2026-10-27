@@ -1,0 +1,214 @@
+{
+  "date": "2026-10-26",
+  "status": "diagnostic_complete_no_production_change",
+  "target": "RANA Q6_K + DFlash2 Q4_K_M; Vulkan; 262144 context; F16 KV; draft depth 4; batch 2048; balanced 3500MHz / 75W",
+  "upstream_revision": "8e9dcfeb7522f302ff1e5d2bb0492283bc16d24d",
+  "sampling": {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": 20,
+    "min_p": 0,
+    "presence_penalty": 0,
+    "repeat_penalty": 1
+  },
+  "method": "Interpose exported functions around the original shared library. CLOCK_MONOTONIC and CLOCK_THREAD_CPUTIME_ID; no RNG, logits, candidate ordering or sampler state edits. One concurrent request.",
+  "rows": [
+    {
+      "fixture": "english_code_16k",
+      "seed": 42,
+      "prompt_tokens": 16049,
+      "generated_tokens": 512,
+      "input_sha256": "65571f2b68c46b1cf8dcd252417992484ea7af6ba4a0491317583f7a5ddcc106",
+      "output_sha256": "6678b3b521fbdeb7aaf46c584140ada1c7a1db7472da502ca4bad5d443967b25",
+      "all_three_outputs_equal": true,
+      "tps": {
+        "control": 20.384035223612866,
+        "sampling_probe": 20.376140361062816,
+        "phase_probe": 20.633274356893946
+      },
+      "sampling_probe": {
+        "calls": 512,
+        "excluding_sync_wall_ms": 165.308735,
+        "excluding_sync_thread_cpu_ms": 164.7605,
+        "decode_fraction_percent": 0.6592,
+        "ideal_speedup_if_sampling_were_free_percent": 0.6635
+      },
+      "phase_probe_decode_ms": 24765.822,
+      "stages": {
+        "draft": {
+          "calls": 164,
+          "wall_ms": 2288.038672,
+          "thread_cpu_ms": 1474.911217,
+          "percent_of_decode": 9.2387
+        },
+        "inject": {
+          "calls": 166,
+          "wall_ms": 327.205064,
+          "thread_cpu_ms": 144.6976,
+          "percent_of_decode": 1.3212
+        },
+        "verify_sample": {
+          "calls": 164,
+          "wall_ms": 180.824113,
+          "thread_cpu_ms": 180.66407,
+          "percent_of_decode": 0.7301
+        }
+      },
+      "unattributed_decode_percent": 88.71
+    },
+    {
+      "fixture": "korean_thinking_16k",
+      "seed": 42,
+      "prompt_tokens": 16112,
+      "generated_tokens": 512,
+      "input_sha256": "2dcaac4abd8baa761da9c23e197f0e8844e5be48e0330d9bdce4dede1cd5eca6",
+      "output_sha256": "56c1742602d6ba65ec6170e1d223acebfd2bc54f5405ae9a400965f2c2fcdfe6",
+      "all_three_outputs_equal": true,
+      "tps": {
+        "control": 17.50048126323474,
+        "sampling_probe": 17.336726627200225,
+        "phase_probe": 17.384889407948233
+      },
+      "sampling_probe": {
+        "calls": 512,
+        "excluding_sync_wall_ms": 164.771141,
+        "excluding_sync_thread_cpu_ms": 164.250899,
+        "decode_fraction_percent": 0.559,
+        "ideal_speedup_if_sampling_were_free_percent": 0.5622
+      },
+      "phase_probe_decode_ms": 29393.342,
+      "stages": {
+        "draft": {
+          "calls": 193,
+          "wall_ms": 2767.017117,
+          "thread_cpu_ms": 1779.185919,
+          "percent_of_decode": 9.4138
+        },
+        "inject": {
+          "calls": 194,
+          "wall_ms": 387.652273,
+          "thread_cpu_ms": 156.80642,
+          "percent_of_decode": 1.3188
+        },
+        "verify_sample": {
+          "calls": 191,
+          "wall_ms": 181.370766,
+          "thread_cpu_ms": 181.16346,
+          "percent_of_decode": 0.617
+        }
+      },
+      "unattributed_decode_percent": 88.6504
+    }
+  ],
+  "decision": [
+    "Do not optimize sampler cloning or CPU token selection as the primary route to the +5% target: its measured ideal removal ceiling is below 0.7% on these two unconstrained requests.",
+    "Draft generation occupies about 9.3% of decode; halving it alone falls slightly short of +5% total speed. Injection about 1.3%. These remain secondary to target verification or increasing accepted tokens per target pass.",
+    "The earlier block-verification prototype remains experimental. Its grammar semantics and fixed-workload regressions still require resolution before deployment.",
+    "No new speedup or RAM reduction is claimed by this profiling experiment."
+  ],
+  "limits": [
+    "One seed per workload and sequential control/probe ordering. TPS differences are measurement variation/overhead, not a benchmarked optimization.",
+    "Unconstrained text generation only; expensive grammars, tool schemas, images and full-context inference are not covered by these fractions.",
+    "Phase injection for n_tokens > 5 is excluded from decode. In prefill, it may wait for target GPU work; treating all injection wall time as draft compute would misattribute that cost.",
+    "Unattributed time includes target evaluation, synchronization, recurrent-state operations and server scheduling. It is not an isolated GPU-compute measurement.",
+    "Thread CPU time includes active driver waits and profiler overhead. It does not establish how much is useful arithmetic.",
+    "Sampling totals can include the first token from prefill and final overgenerated draft tokens; percentages are inclusive diagnostic bounds, not exact exclusive accounting."
+  ],
+  "safety": {
+    "profile": {
+      "original_model_restored": true,
+      "swapout_delta_bytes": 0,
+      "oom_delta": 0,
+      "minimum_available_gib": 7.743236541748047,
+      "max_temperatures_c": {
+        "k10temp": 61.5,
+        "amdgpu": 62.0,
+        "nvme": 36.85
+      }
+    },
+    "phase": {
+      "original_model_restored": true,
+      "swapout_delta_bytes": 0,
+      "oom_delta": 0,
+      "minimum_available_gib": 8.463401794433594,
+      "max_temperatures_c": {
+        "k10temp": 62.75,
+        "amdgpu": 63.0,
+        "nvme": 41.85
+      }
+    }
+  },
+  "final_services": {
+    "evo-omp": {
+      "ActiveState": "active",
+      "UnitFileState": "enabled",
+      "MainPID": "1926178",
+      "MemorySwapCurrent": "0"
+    },
+    "evo-flash": {
+      "ActiveState": "active",
+      "UnitFileState": "static",
+      "MainPID": "1929203",
+      "MemorySwapCurrent": "0"
+    },
+    "evo-qwen": {
+      "ActiveState": "inactive",
+      "UnitFileState": "enabled",
+      "MainPID": "0",
+      "MemorySwapCurrent": "[not set]"
+    },
+    "evo-hermes": {
+      "ActiveState": "inactive",
+      "UnitFileState": "masked",
+      "MainPID": "0",
+      "MemorySwapCurrent": "[not set]"
+    },
+    "evo-sampler-test": {
+      "ActiveState": "inactive",
+      "UnitFileState": "",
+      "MainPID": "0",
+      "MemorySwapCurrent": "[not set]"
+    },
+    "router": {
+      "active": "sc117-flash-next-iq3_xxs",
+      "loading": null,
+      "busy": false,
+      "waiting_requests": 0,
+      "error": null,
+      "states": {
+        "qwen3.8-27b-uncensored": "unloaded",
+        "sc117-flash-next-iq3_xxs": "loaded"
+      },
+      "maintenance": null,
+      "operation": null,
+      "flash_guard": {
+        "min_available_gib": 6,
+        "sample_seconds": 2,
+        "consecutive_samples": 3
+      }
+    }
+  },
+  "sha256": {
+    "runtime/nathan/sampler-profile/profile.cpp": "70474853515a9757d08ec7318ab7577085eb5513d7e6e73e2241570529bcb7c3",
+    "runtime/nathan/sampler-profile/phase.cpp": "321498a9524cecb68771aace238d7caaa34f0772ec98b742d19562d312d430f4",
+    "runtime-work/sampler-20261026/evidence.tar.gz": "bedd0de1f00fb5416a087dfae5c0998b30ec4725b88d1e8de8f5f550714d71c2"
+  },
+  "runtime_files_sha256": {
+    "/run/evo-sampler-20261026/profile.cpp": "70474853515a9757d08ec7318ab7577085eb5513d7e6e73e2241570529bcb7c3",
+    "/run/evo-sampler-20261026/profile.so": "d0273f71661b780381f6dbd28a7835ec48c888fc6991e9eacd54b9db9247482f",
+    "/run/evo-sampler-20261026/phase.cpp": "321498a9524cecb68771aace238d7caaa34f0772ec98b742d19562d312d430f4",
+    "/run/evo-sampler-20261026/phase.so": "31c6e34ef0eb1dea00fd1b776cc2efbfc1883582c52fa0364ad02efa149f41ca",
+    "/home/msh/evo-llm/runtimes/nathan-v0.7.8.1/vulkan/bin/libllama-common.so": "cea5c51c033f5877fb02a05b07f59b3e952c7e92d4e0c5b57fe4f73b0de26197",
+    "/home/msh/evo-llm/flash-next/engine-candidates/strata-7dd5cf1-evo/strata": "176219a0b4bee436894bcc45d0b68261b43053a4f4311e8163a72a970b8203ef"
+  },
+  "reproduce": {
+    "build_sampling": "g++ -O2 -shared -fPIC -std=c++17 profile.cpp -o profile.so -ldl",
+    "build_phases": "g++ -O2 -shared -fPIC -std=c++17 phase.cpp -o phase.so -ldl",
+    "activate": "Set LD_PRELOAD to the diagnostic .so only in an isolated one-request llama-server process using the pinned original libraries. Never add it to production units.",
+    "fixtures_and_controller": "runtime-work/sampler-20261026/evidence.tar.gz contains exact trial scripts, original helper, prefix, logs, JSON results and compiled interposers. Trial scripts target existing EVO paths; do not run against an active user task.",
+    "log_markers": [
+      "EVO_SAMPLE_STATS",
+      "EVO_PHASE"
+    ]
+  }
+}

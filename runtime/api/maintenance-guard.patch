@@ -1,0 +1,12 @@
+--- a/evo-router.py
++++ b/evo-router.py
+@@ -192,7 +192,8 @@
+ def guard():
+     low=0
+     while not GUARD_STOP.wait(2):
+-        if ACTIVE!=FLASH:low=0;continue
++        # A leased benchmark owns backend lifecycle; do not start a second model.
++        if ACTIVE!=FLASH or maintenance_status():low=0;continue
+         mem={s.split(':')[0]:int(s.split()[1])*1024 for s in pathlib.Path('/proc/meminfo').read_text().splitlines() if len(s.split())>2 and s.split()[1].isdigit()}
+         low=low+1 if mem['MemAvailable']<FLASH_RAM_MIN_GIB*1024**3 else 0
+         hot=False

@@ -1,24 +1,47 @@
 --- /dev/null
 +++ b/usr/local/bin/evo-cpu-balanced
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,41 @@
 +#!/usr/bin/python3
-+"""Apply the EVO balanced CPU policy without changing power limits."""
++"""Apply balanced EPP and an optional CPU ceiling; retain APU power limits."""
++import json
 +from pathlib import Path
++import time
 +
 +policies = list(Path('/sys/devices/system/cpu/cpufreq').glob('policy*'))
 +if not policies:
 +    raise SystemExit('No CPU frequency policies found')
++config = Path('/etc/evo-llm/power.json')
++max_mhz = json.loads(config.read_text()).get('cpu_max_mhz', 0)
++if type(max_mhz) is not int or not (max_mhz == 0 or 1000 <= max_mhz <= 6000):
++    raise SystemExit('cpu_max_mhz must be 0 (hardware maximum) or 1000..6000')
++targets = {}
 +for policy in policies:
-+    (policy / 'scaling_governor').write_text('powersave')
 +    choices = (policy / 'energy_performance_available_preferences').read_text().split()
 +    if 'balance_performance' not in choices:
 +        raise SystemExit(f'{policy.name}: balanced EPP unavailable')
++    maximum = int((policy / 'cpuinfo_max_freq').read_text())
++    target = min(max_mhz * 1000, maximum) if max_mhz else maximum
++    if target < int((policy / 'scaling_min_freq').read_text()):
++        raise SystemExit(f'{policy.name}: CPU ceiling is below the configured minimum')
++    targets[policy] = target
++for policy, target in targets.items():
++    (policy / 'scaling_governor').write_text('powersave')
 +    (policy / 'energy_performance_preference').write_text('balance_performance')
++    (policy / 'scaling_max_freq').write_text(str(target))
++for attempt in range(10):
++    if all(abs(int((p / 'scaling_max_freq').read_text())-target) <= 1000
++           for p, target in targets.items()):
++        break
++    time.sleep(.05)
++else:
++    raise SystemExit('CPU ceiling readback failed')
++for policy in policies:
 +    for name, expected in (('scaling_governor', 'powersave'),
 +                           ('energy_performance_preference', 'balance_performance')):
 +        if (policy / name).read_text().strip() != expected:
 +            raise SystemExit(f'{policy.name}: {name} readback failed')
-+print(f'Balanced CPU policy applied to {len(policies)} logical CPUs')
++print(f'Balanced CPU policy applied to {len(policies)} logical CPUs; '
++      f'ceiling {max_mhz or "hardware maximum"} MHz')
 --- a/usr/local/bin/evo-power
 +++ b/usr/local/bin/evo-power
 @@ -16,6 +16,7 @@

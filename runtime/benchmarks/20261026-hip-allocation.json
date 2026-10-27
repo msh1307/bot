@@ -1,0 +1,368 @@
+{
+  "date": "2026-10-26",
+  "device": "EVO-X2 gfx1151",
+  "method": "Independent fresh HIP processes, touched device allocations, before/allocated/freed samples; four shapes in forward and reverse order. Production model stopped under a bounded maintenance lease then restored.",
+  "measurements": [
+    {
+      "case": "packed_many",
+      "index": 0,
+      "count": 96,
+      "size": 5120000,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29323546624,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194764800,
+          "vram": 342421504,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33439088640,
+          "total": 34359738368,
+          "available": 29323288576,
+          "swapfree": 8589922304,
+          "anon": 46592000,
+          "rss": 194985984,
+          "vram": 946401280,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29339238400,
+          "swapfree": 8589922304,
+          "anon": 46592000,
+          "rss": 194985984,
+          "vram": 342421504,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 603979776,
+      "vram_bytes": 603979776,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "packed_arena",
+      "index": 1,
+      "count": 1,
+      "size": 491520000,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29353029632,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194785280,
+          "vram": 342425600,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33550237696,
+          "total": 34359738368,
+          "available": 29353029632,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 195002368,
+          "vram": 835256320,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29359267840,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 195002368,
+          "vram": 342425600,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 492830720,
+      "vram_bytes": 492830720,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "raw_many",
+      "index": 2,
+      "count": 96,
+      "size": 6553600,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29402542080,
+          "swapfree": 8589922304,
+          "anon": 46579712,
+          "rss": 194707456,
+          "vram": 342421504,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33237762048,
+          "total": 34359738368,
+          "available": 29408002048,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194928640,
+          "vram": 1147731968,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29407674368,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194928640,
+          "vram": 342425600,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 805306368,
+      "vram_bytes": 805310464,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "raw_arena",
+      "index": 3,
+      "count": 1,
+      "size": 629145600,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29401546752,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194744320,
+          "vram": 342417408,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33413922816,
+          "total": 34359738368,
+          "available": 29401546752,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194961408,
+          "vram": 971567104,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29410332672,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194961408,
+          "vram": 342421504,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 629145600,
+      "vram_bytes": 629149696,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "raw_arena",
+      "index": 4,
+      "count": 1,
+      "size": 629145600,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29409525760,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194719744,
+          "vram": 342413312,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33413922816,
+          "total": 34359738368,
+          "available": 29409525760,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194936832,
+          "vram": 971558912,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29412818944,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194936832,
+          "vram": 342413312,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 629145600,
+      "vram_bytes": 629145600,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "raw_many",
+      "index": 5,
+      "count": 96,
+      "size": 6553600,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29413748736,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194736128,
+          "vram": 342413312,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33237762048,
+          "total": 34359738368,
+          "available": 29413748736,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194957312,
+          "vram": 1147723776,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29413892096,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194957312,
+          "vram": 342417408,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 805306368,
+      "vram_bytes": 805310464,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "packed_arena",
+      "index": 6,
+      "count": 1,
+      "size": 491520000,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29436014592,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194744320,
+          "vram": 342417408,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33550237696,
+          "total": 34359738368,
+          "available": 29436014592,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194961408,
+          "vram": 835248128,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29437005824,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194961408,
+          "vram": 342417408,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 492830720,
+      "vram_bytes": 492830720,
+      "gtt_bytes": 0
+    },
+    {
+      "case": "packed_many",
+      "index": 7,
+      "count": 96,
+      "size": 5120000,
+      "samples": [
+        {
+          "phase": "before",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29385658368,
+          "swapfree": 8589922304,
+          "anon": 46583808,
+          "rss": 194691072,
+          "vram": 342425600,
+          "gtt": 25014272
+        },
+        {
+          "phase": "allocated",
+          "free": 33439088640,
+          "total": 34359738368,
+          "available": 29385658368,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194912256,
+          "vram": 946405376,
+          "gtt": 25014272
+        },
+        {
+          "phase": "freed",
+          "free": 34043068416,
+          "total": 34359738368,
+          "available": 29386682368,
+          "swapfree": 8589922304,
+          "anon": 46587904,
+          "rss": 194912256,
+          "vram": 342425600,
+          "gtt": 25014272
+        }
+      ],
+      "hip_bytes": 603979776,
+      "vram_bytes": 603979776,
+      "gtt_bytes": 0
+    }
+  ],
+  "policy": "Default per-device HIP allocator, production driver and ROCm. No weights or KV changes.",
+  "result": "Per-allocation 2MiB granularity confirmed for these two large allocation sizes. 96 x 5120000 requested bytes consumes 576MiB versus 470MiB for one equal-payload allocation. 96 x 6553600 consumes 768MiB versus 600MiB contiguous.",
+  "new_swapout_pages": 0,
+  "new_oom_events": 0,
+  "restored": true,
+  "limits": [
+    "These isolated allocation results do not establish whole-model memory savings or generation speed.",
+    "Whole-model native projection arena remains a separate experiment."
+  ]
+}
