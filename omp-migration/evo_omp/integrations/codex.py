@@ -614,8 +614,6 @@ class Bridge:
                 reply = await self.desktop(request, check=check)
             if action not in ('send', 'answer'):
                 return reply
-            if args.get('_silent'):
-                return reply  # Owner web UI follows the selected chat itself.
             job = next((j for j in self.jobs.values()
                 if j.get('source') == 'desktop' and j.get('thread_id') == thread_id), None)
             if job is None:
@@ -687,7 +685,7 @@ class Bridge:
             'pending_requests': [], 'conversation_view': {'source': 'stored_history_tail', 'complete_history': False,
                 'live_status_available': False, 'description': 'Stored recent messages; send loads this same chat in the app. Pending live requests are unavailable until loaded.'}}
 
-    async def read_history(self, thread_id, cursor=None, check=None, include_live=True):
+    async def read_history(self, thread_id, cursor=None, check=None):
         """Page visible messages, including long answers, without loading a chat."""
         native_cursor, expected_turn, index, offset = None, None, 0, 0
         if cursor is not None:
@@ -752,7 +750,7 @@ class Bridge:
             'turn_status': turn.get('status'), 'recent_messages': recent, 'next_cursor': next_cursor,
             'history_order': 'newest turn first; messages within each turn are chronological',
             'gui_attached': False, 'live_status_available': False}
-        if cursor is None and include_live:
+        if cursor is None:
             try:
                 live = await self.desktop({'action': 'status', 'thread_id': thread_id}, check=check)
                 result.update({key: live[key] for key in ('gui_attached', 'runtime_status', 'runtime_flags',
@@ -1100,8 +1098,6 @@ class Bridge:
                 'project_id': t.get('projectId'),
                 'stored_status': t.get('status', {}).get('type'), 'updated_at': t.get('updatedAt'),
                 'gui_attached': False} for t in stored.get('data', [])]
-            if args.get('_stored_only'):
-                return {'threads': threads, 'next_cursor': stored.get('nextCursor')}
             desktop_error = None
             try:
                 live = await self.desktop({'action': 'inspect', 'thread_ids': [t['thread_id'] for t in threads]})

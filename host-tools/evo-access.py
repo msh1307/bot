@@ -16,10 +16,6 @@ import struct
 import threading
 import time
 from urllib.parse import urlsplit
-from evo_access_manage import ManagementAccess
-
-MANAGEMENT = ManagementAccess()
-
 CONFIG = json.loads(Path('/etc/evo-access/config.json').read_text())
 KEY_FILE = Path('/var/lib/evo-access/key.json')
 LOCK = threading.RLock()
@@ -144,7 +140,6 @@ def close_public():
     with LOCK:
         server, PUBLIC = PUBLIC, None
     close_connections()
-    MANAGEMENT.clear()
     if server:
         server.shutdown()
         server.server_close()
@@ -174,12 +169,6 @@ def _admin_action(data):
     action = data.get('action', 'status')
     if action == 'status': return {'success':True, **public_status()}
     if action == 'logs': return access_history()
-    if action == 'management':
-        state = public_status()
-        if not state.get('listening') or not state.get('session'):
-            _admin_action({'action':'refresh','minutes':180})
-            state = public_status()
-        return MANAGEMENT.issue(state)
     if action == 'credentials':
         with LOCK:
             if not GRANT or not GRANT.get('api_key'): raise ValueError('No recoverable key exists')
@@ -358,9 +347,6 @@ class PublicHandler(BaseHTTPRequestHandler):
                         AUDIT.info(json.dumps(record,separators=(',',':')))
     def handle_public(self, method):
         path = urlsplit(self.path).path
-        if path == '/manage' or path.startswith('/manage/'):
-            return MANAGEMENT.handle(self, method, public_status(), CONNECTIONS, LOCK,
-                                     bool(CONFIG.get('tls_cert') or CONFIG.get('secure_cookie')))
         with LOCK:
             mode = GRANT['mode'] if GRANT else None
         if mode == 'api' and (path.startswith('/access/') or method == 'GET' and path == '/'):

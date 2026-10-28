@@ -81,7 +81,6 @@
 /omp-migration/evo_omp/**
 !/omp-migration/evo_omp/**/
 !/omp-migration/evo_omp/**/*.py
-!/omp-migration/evo_omp/manage.html
 /host-tools/*
 !/host-tools/evo-host-broker.py
 !/host-tools/command-runner.py
@@ -89,8 +88,6 @@
 !/host-tools/policy.example.json
 !/host-tools/README.md
 !/host-tools/evo-access.py
-!/host-tools/evo_access_manage.py
-!/host-tools/verify_management.py
 !/host-tools/windows-servers.example.json
 !/host-tools/codex-bridge/
 /host-tools/codex-bridge/*

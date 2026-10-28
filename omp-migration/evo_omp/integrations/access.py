@@ -294,18 +294,6 @@ def discord_factory(native,adapter):
         async def api(self,interaction,button): await self.perform(interaction,'select','api')
         @discord.ui.button(label='Web UI',style=discord.ButtonStyle.primary,custom_id='evo_access_web',row=0)
         async def web(self,interaction,button): await self.perform(interaction,'select','web')
-        @discord.ui.button(label='서버 관리',style=discord.ButtonStyle.secondary,custom_id='evo_access_manage',row=1)
-        async def servers(self,interaction,button):
-            await interaction.response.defer(ephemeral=True,thinking=True)
-            try:
-                result=await asyncio.to_thread(admin,{'action':'management'})
-                if not result.get('success'): raise ValueError(result.get('error','관리 화면을 열지 못했습니다.'))
-                view=discord.ui.View(timeout=300)
-                view.add_item(discord.ui.Button(label='서버 관리 열기',style=discord.ButtonStyle.link,url=result['url']))
-                await interaction.edit_original_response(content='서버 선택 · Codex 대화 · 파일 · 짧은 명령\n'
-                    +f"관리 전용 로그인 · <t:{int(result['expires_at'])}:R> 만료",view=view)
-            except Exception as error:
-                await interaction.edit_original_response(content='관리 화면 연결 실패: '+str(error)[:200])
         @discord.ui.button(label='Refresh · 3시간',style=discord.ButtonStyle.success,custom_id='evo_access_issue',row=1)
         async def refresh(self,interaction,button): await self.perform(interaction,'refresh')
         @discord.ui.button(label='닫기',style=discord.ButtonStyle.danger,custom_id='evo_access_expire',row=0)

@@ -108,9 +108,6 @@ class Bot(commands.Bot):
         await self.registry.initialize_web()
         for factory in self.registry.factories:
             factory(self, self)
-        from .management import KEY_PATH, ManagementServer
-        self.management = ManagementServer() if KEY_PATH.is_file() else None
-        if self.management is not None: await self.management.start()
         for name in ('help', 'status', 'context', 'stop', 'new', 'reset', 'compact',
                      'model', 'memory', 'alarms', 'approve', 'deny', 'whoami', 'ignore'):
             self.tree.add_command(discord.app_commands.Command(name=name,
@@ -839,8 +836,6 @@ class Bot(commands.Bot):
         if self.shutting_down:
             return
         self.shutting_down = True
-        if getattr(self, 'management', None) is not None:
-            await self.management.close()
         context.cancel_all()
         self.cancel_questions()
         if self.active:
