@@ -21,6 +21,28 @@ class Checks(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory()
         self.profile=patch.object(browser,'PROFILE',Path(self.temp.name)/'profile');self.profile.start()
     def tearDown(self): self.profile.stop();self.temp.cleanup()
+    def test_oracle_touch_cancels_old_timer_without_creating_another(self):
+        client=browser.Browser();client.instance='oracle';old=client.timer=Mock()
+        with patch.object(browser.threading,'Timer') as timer:
+            client.touch()
+        old.cancel.assert_called_once();timer.assert_not_called();self.assertIsNone(client.timer)
+    def test_stale_reaper_cannot_close_oracle(self):
+        client=browser.Browser();client.instance='oracle';client.last_used=0
+        with patch.object(browser.time,'monotonic',return_value=10000),patch.object(client,'close') as close:
+            client.reap()
+        close.assert_not_called()
+    def test_local_keeps_idle_timer_and_reaper(self):
+        client=browser.Browser()
+        with patch.object(browser.threading,'Timer') as timer:
+            client.touch()
+        timer.assert_called_once_with(900,client.reap);timer.return_value.start.assert_called_once()
+        client.last_used=0
+        with patch.object(browser.time,'monotonic',return_value=10000),patch.object(client,'close') as close:
+            client.reap()
+        close.assert_called_once()
+    def test_idle_status_reports_oracle_persistence_and_local_timeout(self):
+        client=browser.Browser();self.assertEqual(client.call({'action':'status'},self.turn)['idle_close_minutes'],15)
+        client.instance='oracle';self.assertIsNone(client.call({'action':'status'},self.turn)['idle_close_minutes'])
     def test_remote_is_first_and_local_is_startup_fallback(self):
         client=browser.Browser();calls=[]
         def launch(argv,env,turn):

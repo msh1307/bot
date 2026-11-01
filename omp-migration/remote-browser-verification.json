@@ -1,5 +1,5 @@
 {
-  "verified_at": "2026-11-01T15:27:56.292387+00:00",
+  "verified_at": "2026-11-01T15:34:30.501459+00:00",
   "scope": "Pi Discord bot only; Web UI endpoints unchanged",
   "routing": {
     "default": "Oracle over existing private SSH authentication",
@@ -8,7 +8,8 @@
     "local_fallback": "Existing EVO Headless Shell and web tools",
     "private_browser_urls": "EVO local; localhost/private IP/*.local",
     "no_replay": "Disconnected browser actions are never retried automatically; reopen first",
-    "references": "Bound to the worker which issued them; missing remote refs require the original URL"
+    "references": "Bound to the worker which issued them; missing remote refs require the original URL",
+    "idle_policy": "Oracle: no idle timer after first use; other instances including EVO fallback: 15 minutes. Explicit close/reset, disconnect and bot shutdown still close workers."
   },
   "versions": {
     "camoufox_python": "0.5.9b4",
@@ -17,9 +18,9 @@
   },
   "deployment": {
     "initial_backup": "/opt/evo-omp/backups/oracle-browser-20261101-151714",
-    "final_backup": "/opt/evo-omp/backups/oracle-browser-20261101-152605",
+    "final_backup": "/opt/evo-omp/backups/oracle-browser-20261101-153345",
     "initial_restart_utc": "Sun 2026-11-01 15:17:15 UTC",
-    "final_restart_utc": "Sun 2026-11-01 15:26:05 UTC",
+    "final_restart_utc": "Sun 2026-11-01 15:33:45 UTC",
     "before_sha256": {
       "evo_omp/browser_worker.py": "54f685062e155619687293428a22bb59bb9d33d89a3a0f534b626f914a9c82fc",
       "evo_omp/integrations/browser.py": "7166a4989db2e9413fa8d587fd785e8933473e9787ca70a3f785e0d0bfd96698",
@@ -35,13 +36,13 @@
     },
     "after_sha256": {
       "evo_omp/browser_worker.py": "24dcc68d6db53d5615e31909b2778c275adbe284160506edd6e403ac06a1686a",
-      "evo_omp/integrations/browser.py": "26390ce918368f64f663d6aa6b730e6650d4662c27be7b70d584282cea32ab0c",
+      "evo_omp/integrations/browser.py": "38592c57ca4b21eb42f6ef0cb8e5bbf7f21b0235a2dfb4828fdc1fbe960bb09a",
       "evo_omp/integrations/remote_config.py": "35874fbc9fa942409f8c6ed3eb9d0614dac3028e4f97e9cecb30c836503a4c91",
       "evo_omp/integrations/web_remote.py": "988a2d7b025dca446bd17eba920ad296d34e60d5d3a48d1c3755447887937f9f",
       "evo_omp/tools.py": "d963370b0a52886b74e96c46d9f30872ca9a69e28d1eb95719134fc9e65003c4",
       "browser_remote.py": "2ec0335b08b2b2dd5cf38d352cc028c5674f189c5ef2e5c7f8c44b85ffc9f66d",
       "web_worker.py": "fcb600eeec7d602e6fb4b3e07820967f5e9d76cb5b9abbd0aea3414daab20716",
-      "verify_browser_remote.py": "b2625b7357d3b6a49ef3006a3b9b1cde8f5d460737ae5cdaf04f4de0a71ecdd2",
+      "verify_browser_remote.py": "747aa739e0696bde6f56fc63c785357dc80c2e7676604520f5f2de8873da36a6",
       "verify_browser_contract.py": "24b8c51251d21fb8030c6d21d5f0800f783f90a7a9ce5de11d6017c95b7c6579",
       "verify_browser_live.py": "2f48f660a85dafe17daf849c379309bea90a53dd3d678f3bd3eb5fd1ef856557",
       "verify_browser_vision.py": "2ed601a757bd69ff7f09daf2ce71a1e7129f297972b949246131c237037ea730"
@@ -54,8 +55,8 @@
   },
   "tests": {
     "unit": {
-      "run": 191,
-      "passed": 185,
+      "run": 195,
+      "passed": 189,
       "skipped": 6,
       "errors": 0,
       "failures": 0
@@ -260,6 +261,42 @@
         "success": true,
         "instance": "localhost"
       }
+    },
+    "oracle_idle_persistence": {
+      "instance": "oracle",
+      "idle_close_minutes": null,
+      "timer_created": false,
+      "idle_age_simulated_seconds": 901,
+      "still_running": true,
+      "same_connection_reused": true,
+      "read_ok": true,
+      "explicit_close_works": true
+    },
+    "local_idle_regression": {
+      "lazy_status": true,
+      "dynamic_form_async_submit": true,
+      "http_only_session_cookie_restored": true,
+      "images_blocked_by_default": true,
+      "images_opt_in_loaded": true,
+      "viewport_coordinate_click": true,
+      "invalid_clicks_rejected": true,
+      "invalid_image_options_rejected": true,
+      "images_opt_in_resets_on_next_open": true,
+      "http_error_not_reported_as_success": true,
+      "find_selectors": true,
+      "inspect": true,
+      "explicit_wait_duration": true,
+      "snapshot_paging": true,
+      "stale_snapshot_rejected": true,
+      "screenshot_jpeg_bytes": 17239,
+      "fill_error_redaction": true,
+      "owner_discord_only": true,
+      "cron_read_only": true,
+      "host_credentials_not_mounted": true,
+      "cancelled_hung_script_seconds": 6.3,
+      "cancel_closes_worker": true,
+      "idle_close": true,
+      "reset_removes_profile": true
     }
   },
   "evidence_notes": [
@@ -269,7 +306,8 @@
     "Fresh-process credential import tested to prevent a browser/SSH circular import.",
     "RAM numbers are process-tree proportional set size snapshots, not reserved limits or 24-hour peaks.",
     "Oracle pswpout remained zero during live tests.",
-    "Public web extraction code copied from the exact existing deployment import closure; old Hermes service remains masked."
+    "Public web extraction code copied from the exact existing deployment import closure; old Hermes service remains masked.",
+    "Oracle idle test uses a live SSH/Camoufox worker with its last-used time aged by 901 seconds, not a 15-minute wall-clock soak. Same SSH process reused; explicit close works; local accelerated idle-close regression passed."
   ],
   "limits": [
     "No 24-hour soak performed. Availability is remote-first while the bot runs, not a browser forced permanently resident.",
