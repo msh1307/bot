@@ -88,6 +88,23 @@ def operate(req):
         raise ValueError('Use an absolute remote path (or ~/...)')
     path = path.resolve()
     action = req['action']
+    if action == 'pi_read':
+        raw = read_bytes(path)
+        mime = ('image/png' if raw.startswith(b'\x89PNG\r\n\x1a\n') else
+                'image/jpeg' if raw.startswith(b'\xff\xd8\xff') else
+                'image/gif' if raw[:6] in (b'GIF87a', b'GIF89a') else
+                'image/webp' if raw[:4] == b'RIFF' and raw[8:12] == b'WEBP' else
+                'image/bmp' if raw.startswith(b'BM') else None)
+        return {'data': base64.b64encode(raw).decode('ascii'), 'mime': mime}
+    if action == 'pi_write':
+        raw = req['content'].encode('utf-8')
+        if len(raw) > MAX_FILE:
+            raise ValueError('File exceeds 16MiB')
+        expected = req.get('_expected')
+        if '_expected' not in req and path.exists():
+            expected = fingerprint(read_bytes(path))
+        commit(path, raw, expected)
+        return {}
     offset, limit = req.get('offset', 0), req.get('limit', 100)
     if action == 'list' or action == 'read' and path.is_dir():
         items = sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name))

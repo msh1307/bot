@@ -151,8 +151,9 @@ class SSHChecks(unittest.TestCase):
     def test_inventory_and_discovery(self):
         registry = Registry()
         self.assertIn('remote_control', {d['name'] for d in registry.definitions()})
-        shell = next(d for d in registry.definitions() if d['name'] == 'shell_exec')
-        self.assertEqual(shell['parameters']['required'], ['instance', 'cmd'])
+        self.assertNotIn('shell_exec', {d['name'] for d in registry.definitions()})
+        self.assertNotIn('host_command', {d['name'] for d in registry.definitions()})
+        self.assertIn('file_transfer', {d['name'] for d in registry.definitions()})
         self.assertNotIn('shell_exec', {d['name'] for d in registry.definitions(cron=True)})
         self.assertNotIn('remote_ssh', {d['name'] for d in registry.definitions()})
         self.assertNotIn('remote_ssh', {d['name'] for d in registry.definitions(cron=True)})

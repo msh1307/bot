@@ -164,6 +164,7 @@ __pycache__/
 /omp-migration/review/
 /omp-migration/vendor-source/
 !/omp-migration/pi-runner.mjs
+!/omp-migration/pi-tools.mjs
 !/omp-migration/pi-runtime.json
 !/omp-migration/pi-migration-verification.json
 /host-tools/review/

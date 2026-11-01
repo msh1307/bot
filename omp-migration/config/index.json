@@ -12,6 +12,6 @@
     "list": "remote_control(action=\"list\")",
     "host": "/etc/evo-omp/remote-control.json"
   },
-  "update": "Host configuration/code changes use host_command with run_as=root and a reason; each execution needs owner approval.",
+  "update": "Host configuration/code changes use bash with instance=evo-host, root=true and a reason; each execution needs owner approval.",
   "credentials": "Tools use private file references. Secret values are unnecessary for discovery; keep them outside the workspace."
 }

@@ -157,23 +157,20 @@ def remote_files(args):
 
 
 def register(ctx):
-    ctx.register_tool('remote_files', 'evo_ssh_files', {
-        'name': 'remote_files',
-        'description': 'Files on a configured SSH instance, using OMP-style read/write/edit/grep/glob. '
-            'Choose instance from remote_control list. path is remote absolute or ~/...; '
-            'local_path is inside /workspace for upload/download (16MiB, bytes never enter chat). '
-            'read uses start_line+limit; list/glob/grep page with offset+limit. grep uses Python regex, '
-            'glob uses wildcard patterns. Read existing files before edit/write/upload; stale changes are rejected. '
-            'edit needs a unique literal old_string. Same private login as shell_exec; normal user only. '
-            'Owner Discord only; no automatic replay.',
+    ctx.register_tool('file_transfer', 'evo_ssh_files', {
+        'name': 'file_transfer',
+        'description': 'Upload/download a file between /workspace (local_path) and an SSH instance (path). '
+            '16MiB maximum; bytes stay out of chat. Download requires a new local_path. '
+            'Upload requires a new remote path. Use read/write/edit for text files.',
         'parameters': {'type': 'object', 'properties': {
             'instance': {'type': 'string', 'maxLength': 48},
-            'action': {'type': 'string', 'enum': list(ACTIONS)},
+            'action': {'type': 'string', 'enum': ['upload', 'download']},
             'path': {'type': 'string', 'maxLength': 4096},
-            'pattern': {'type': 'string'}, 'glob': {'type': 'string'},
-            'content': {'type': 'string'}, 'old_string': {'type': 'string'}, 'new_string': {'type': 'string'},
             'local_path': {'type': 'string'},
-            'start_line': {'type': 'integer', 'minimum': 1},
-            'offset': {'type': 'integer', 'minimum': 0},
-            'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200}},
-            'required': ['instance', 'action', 'path'], 'additionalProperties': False}}, remote_files)
+            }, 'required': ['instance', 'action', 'path', 'local_path'], 'additionalProperties': False}}, transfer)
+
+
+def transfer(args):
+    if not isinstance(args, dict) or args.get('action') not in ('upload', 'download'):
+        raise ValueError('Use upload or download; text files use read/write/edit')
+    return remote_files(args)

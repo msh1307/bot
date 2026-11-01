@@ -70,9 +70,13 @@ class Checks(unittest.TestCase):
             result = remote.remote_control({'action': 'list'})
             shell.assert_not_called(); desktop.assert_not_called(); chat.assert_not_called()
         self.assertEqual(result['defaults'], {'ssh': 'linux', 'codex': 'pc', 'rdp': 'pc'})
-        self.assertEqual(result['instances'][0]['protocols'], ['ssh'])
+        rows = {row['id']: row for row in result['instances']}
+        self.assertEqual(rows['linux']['protocols'], ['ssh'])
+        self.assertEqual(rows['linux']['shell'], 'sh')
+        self.assertEqual(rows['pc']['shell'], 'powershell')
+        self.assertEqual(rows['evo-host']['protocols'], [])
         self.assertNotIn('password', json.dumps(result))
-        self.assertEqual(result['instances'][2]['disabled'], ['rdp'])
+        self.assertEqual(rows['off']['disabled'], ['rdp'])
 
     def test_private_override_and_unavailable_default_fail_closed(self):
         self.path.write_text(json.dumps({'defaults': {'codex': 'pc'}, 'instances': {
@@ -88,7 +92,7 @@ class Checks(unittest.TestCase):
     def test_retired_ssh_route_redirects_without_dispatch(self):
         with patch.object(ssh, 'remote_ssh') as fn:
             for action in ('help', 'exec'):
-                with self.assertRaisesRegex(ValueError, 'shell_exec'):
+                with self.assertRaisesRegex(ValueError, 'bash'):
                     self.call('ssh', action, command='id -u')
             fn.assert_not_called()
 

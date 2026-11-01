@@ -294,5 +294,161 @@
       "Six optional browser/local-SSH tests skipped by existing conditions.",
       "No additional real account login or model speed benchmark."
     ]
+  },
+  "unified_coding_wrapper": {
+    "deployment": {
+      "engine": "pi",
+      "version": "1.4.0",
+      "restarted_at": "Sun 2026-11-01 14:06:41 UTC",
+      "before": {
+        "config/index.json": "45a95a0b87023de37b2ad223cf4bf2414b8c8a400a786d1410a2d57be83ccb91",
+        "evo_omp/integrations/coding.py": null,
+        "evo_omp/integrations/remote.py": "fc60ab4eb6aed9b43bfd90a22f0e5f570e98b5ed3c42a9483bdbd5cc524600a1",
+        "evo_omp/integrations/remote_files.py": "9f9c46dfd4f2b41d30c495b1ef7cafb213d6bde340c9a703fff8dd666def3099",
+        "evo_omp/remote_file_worker.py": "81c9e9b913588cf3e28508ec0aa62bc884f91db354b4d4ce5b5fc3e94778db0e",
+        "evo_omp/rpc.py": "984d8e5be2ee7dc0698c0c026d3a515aab0691e0c3039688a5dd78f3b8b9b836",
+        "evo_omp/tools.py": "3f1922033201304663e328de4391f80ae273780dbaba0de88a7532625938a1a4",
+        "instructions.txt": "050c7fa18777a2085e46cc9cc8d4796259dd51e7ee6c4ee5a928265f8f1a8cc7",
+        "pi-runner.mjs": "9341f37d9d0f7999552f31e3acffa7516a8d813626d290da3bf0aa272e9a9469",
+        "pi-tools.mjs": null,
+        "verify_pi_coding.py": null,
+        "verify_remote.py": "313f17406a569aa10b6b6e5e1ad1ecfa238bda6caf291369fd5a7f78f9916257",
+        "verify_remote_config.py": "79a10f6a70af822b6dd2e626cd84af6ababe54edce9b51d44609c5a9fc5da28c",
+        "verify_ssh.py": "8da6b5bab22b9bad3b16151c0213b37ec0ab2c766053d16b1a552ec81b49894d",
+        "verify_windows_tools.py": "040340138eef86301139c2106467995cae6fee2ecfc7fd95649bc54c4ccef5be"
+      },
+      "after": {
+        "config/index.json": "c1ab53d3a5850f123c447bc263c991f13d2aff80516d2312911821f36351074f",
+        "evo_omp/integrations/coding.py": "b3c0363ed04a3aa75f6483d4f49c7a59b5e3f0b8e2709b9f3b5f515f01d9e238",
+        "evo_omp/integrations/remote.py": "83d55a52560b748c753aa58e88b0338b2188fd2591635dbaf9e9fea23cd92a79",
+        "evo_omp/integrations/remote_files.py": "1403e5c638f1d6562ed6538fdcfdcb1cd065ee4b1f6a48bbb1276b30bd60122f",
+        "evo_omp/remote_file_worker.py": "44b2a2bfb82ca832d33b76d38f75f89ee5112c7c718abf421c2d9f16021c1a8c",
+        "evo_omp/rpc.py": "0ef4ba8393ff5cca3f958f004f0986189c49ab9ead0e51108e2f68235e820b45",
+        "evo_omp/tools.py": "f1dd786cdcde242d2f12ebe14a53eefef7a7773df8e088b2bac6d661ad98e683",
+        "instructions.txt": "a570e105515a159c527538d82a254b204cc7eee4c27ff7182e76a64704b22c39",
+        "pi-runner.mjs": "6e8e34ca36eb4ba9ab7043c8013e232ee6c1ebacc9157bedd526655f25aa11c5",
+        "pi-tools.mjs": "2648497c39463d377ba2f5f32664c9ad7ab378ec4b7ef349e2ea643c787fa33c",
+        "verify_pi_coding.py": "fae619ae799de44c1f97fc2adb16eea1c9fa046adf7996daa7720a2026ccfbcc",
+        "verify_remote.py": "9f2aa1a8de6eedc4221d1addf4b294f0a3666f4d1fe4972f7a67b07a684bc5b5",
+        "verify_remote_config.py": "e6bad4550f80d528627dbac88fc42a6e46c6cb6bf9ceed42f5084c54207a6386",
+        "verify_ssh.py": "8065afcb1cf2c4353b5a1a475518d068069972aca9b01662bd1b206dd68ce85a",
+        "verify_windows_tools.py": "2dde9d4c166c3d5ea479e97b7d2084bd2aa52b782d29f1ce5696b3b319db6d73"
+      },
+      "backup": "/opt/evo-omp/backups/wrapper-20261101-140640",
+      "context_messages_preserved": 88,
+      "active_context_exact": true,
+      "source_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "restored_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "discord_connected": true,
+      "startup_errors": false,
+      "recent_ready_log": true,
+      "pi_upstream_auth_broker_and_configuration_unchanged": true,
+      "unchanged_files_checked": 1290,
+      "model_restarted": false,
+      "post_restart_error_count": 0
+    },
+    "unit_tests": {
+      "run": 187,
+      "passed": 181,
+      "skipped": 6,
+      "failures": 0,
+      "errors": 0
+    },
+    "rdp_regressions": {
+      "passed": 21
+    },
+    "pi_regressions": {
+      "existing_instructions_and_provider_compat": true,
+      "payloads": {
+        "omp": {
+          "tools": [
+            "read",
+            "grep",
+            "glob",
+            "edit",
+            "write",
+            "bash",
+            "browser",
+            "remote_control",
+            "internet_search",
+            "web_read",
+            "user_input",
+            "wait"
+          ],
+          "schema_bytes": 11859,
+          "system_bytes": 1573
+        },
+        "pi": {
+          "tools": [
+            "read",
+            "bash",
+            "edit",
+            "write",
+            "tool_search",
+            "browser",
+            "remote_control",
+            "internet_search",
+            "web_read",
+            "user_input",
+            "wait"
+          ],
+          "schema_bytes": 13139,
+          "system_bytes": 1229
+        }
+      },
+      "pi_native_tools": true,
+      "deferred_not_in_initial_payload": true,
+      "native_read_write_edit_bash": true,
+      "config_index_native_read_and_read_only_mount": true,
+      "native_deferred_discovery_and_host_dispatch": true,
+      "settled_state": true,
+      "more_than_40_tool_rounds": 45,
+      "completed_reasoning_omitted_from_next_turn": true,
+      "unknown_tool_not_executed": true,
+      "transient_429_retry": true,
+      "retry_bound_and_failed_turn_reuse": 3,
+      "native_bash_abort_and_session_reuse": true,
+      "pi_restart_preserves_messages_exactly": 128,
+      "native_compaction_with_separate_reasoning_budget": true,
+      "incomplete_summary_preserves_context": true,
+      "omp_handoff_import": true,
+      "large_rpc_frame_round_trip_bytes": 1200016,
+      "passed": true
+    },
+    "real_transports": {
+      "local_native_edit_read_and_one_shot": true,
+      "unknown_target_and_root_without_reason_rejected": true,
+      "n100": {
+        "read_write_edit_exec": true
+      },
+      "large_file_chunk_transport": 1200010,
+      "oracle": {
+        "read_write_edit_exec": true
+      },
+      "msh-desktop": {
+        "read_write_edit_exec": true
+      },
+      "evo-host": {
+        "read_write_edit_exec": true
+      },
+      "host_guard_preserved": true,
+      "passed": true
+    },
+    "actual_model_smoke": {
+      "actual_model": "sc117-flash-next-iq3_xxs",
+      "read_only": true,
+      "remote_io_calls": 1,
+      "tool_calls": 1,
+      "answer": "WRAPPER_OK",
+      "seconds": 10.56,
+      "passed": true
+    },
+    "constraints": {
+      "shell": "one-shot",
+      "pi_upstream_patched": false,
+      "existing_auth_and_root_approval_unchanged": true,
+      "windows_command_timeout_seconds": 15,
+      "no_discord_test_posts": true
+    }
   }
 }

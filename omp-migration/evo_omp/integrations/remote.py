@@ -75,6 +75,9 @@ def catalog():
         if entry.get('disabled'):
             row['disabled'] = ['rdp']
         rows.append(row)
+        row['shell'] = 'sh' if 'ssh' in protocols else 'powershell' if 'codex' in protocols else None
+    rows.insert(0, {'id': 'evo-host', 'shell': 'sh', 'protocols': [],
+                    'note': 'EVO host; omit instance for sandbox /workspace instead.'})
     for protocol, ident in selected.items():
         if ident is not None and not any(r['id'] == ident and protocol in r['protocols'] for r in rows):
             if protocol in configured:
@@ -93,7 +96,7 @@ def remote_control(args):
     if not isinstance(action, str) or not 1 <= len(action) <= 32:
         raise ValueError('Choose an action; use list or help first')
     if protocol is not None and (not isinstance(protocol, str) or protocol not in PROTOCOLS):
-        raise ValueError('Use protocol=rdp or codex. SSH commands use shell_exec(instance, cmd).')
+        raise ValueError('Use protocol=rdp or codex. Commands use bash(command, instance).')
     ident = instances.instance_id(args)
     params = args.get('args', {})
     if (not isinstance(params, dict) or any(k in params for k in ('instance', 'server', 'protocol', 'action'))
@@ -113,14 +116,14 @@ def remote_control(args):
             return GUIDES[protocol]
         return {'usage': 'list: instances/defaults. protocol+action with action parameters in args. help(protocol): full usage.',
                 'protocols': ['codex'] if turn.cron else ['codex', 'rdp'],
-                **({} if turn.cron else {'shell': 'shell_exec(instance, cmd): SSH commands.',
-                                        'files': 'remote_files(instance, action, path): SSH read/edit/search/upload/download.'})}
+                **({} if turn.cron else {'coding': 'read/write/edit/bash take optional instance. Omit it for sandbox /workspace. '
+                                        'bash root=true requires reason and Discord approval. file_transfer uploads/downloads.'})}
     if protocol is None and action == 'list':
         if params or ident is not None:
             raise ValueError('Server list takes no instance/args; Codex chats use protocol=codex, action=list')
         return catalog()
     if protocol is None:
-        raise ValueError('Choose protocol=rdp|codex; SSH commands use shell_exec(instance, cmd).')
+        raise ValueError('Choose protocol=rdp|codex; commands use bash(command, instance).')
     if protocol == 'rdp' and action not in RDP_ACTIONS \
             or protocol == 'codex' and action not in CODEX_ACTIONS:
         raise ValueError(f'Unsupported action; use remote_control action=help protocol={protocol}, then its exact action name')
@@ -150,7 +153,7 @@ def definition(cron=False):
         'description': 'Control a configured remote instance. list returns IDs/defaults; help with protocol returns exact actions/args. '
             'Example: {"protocol":"codex","action":"send","args":{"thread_id":"ID","prompt":"Continue"}}. '
             + ('Scheduled: Codex inspection, continuation and file reads only; no start/stop/exec.' if cron else
-               'Owner Discord only. SSH: shell_exec for commands, remote_files for files. '
+               'Owner Discord only. Files/commands use read/write/edit/bash with instance. '
                'RDP secret entry needs Allow Once. No replay on timeout.'),
         'parameters': {'type': 'object', 'properties': {
             'instance': {'type': 'string', 'maxLength': 48, 'description': 'ID from list; omit for protocol default.'},

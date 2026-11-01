@@ -209,7 +209,7 @@ class Checks(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn('/private', json.dumps(result))
             desktop['enabled'] = True
             scheduled = await self.call(discover, {'action': 'list'}, context.Turn('77', cron=True))
-            self.assertIn('rdp', scheduled['instances'][0]['protocols'])
+            self.assertIn('rdp', next(r for r in scheduled['instances'] if r['id'] == 'test')['protocols'])
             with self.assertRaises(PermissionError):
                 await self.call(discover, {'action': 'list'}, context.Turn('77', platform='web'))
         self.assertFalse(self.calls)

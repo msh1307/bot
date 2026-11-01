@@ -57,6 +57,7 @@ def sandbox_argv(profile, model):
         args += ['--setenv', key, val]
     if ENGINE == 'pi':
         args += ['--ro-bind', str(ROOT / 'pi-runner.mjs'), str(ROOT / 'pi-runner.mjs'),
+                 '--ro-bind', str(ROOT / 'pi-tools.mjs'), str(ROOT / 'pi-tools.mjs'),
                  '--setenv', 'EVO_PI_RUNTIME', str(ROOT / 'bin/pi-1.4.0')]
         return args + ['/usr/bin/node', str(ROOT / 'pi-runner.mjs'), model]
     return args + [str(ROOT / 'bin/omp-v18.11.3'), '--mode', 'rpc', '--no-ui',
@@ -193,13 +194,21 @@ class OmpSession:
 
     async def send(self, data):
         raw = (json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n').encode()
-        if len(raw) > 2**20:
+        if len(raw) > (32 * 2**20 if ENGINE == 'pi' and data.get('type') == 'host_tool_result' else 2**20):
             raise ValueError('OMP request exceeded 1 MiB')
         async with self.write_lock:
             if self.process is None or self.process.returncode is not None:
                 raise ConnectionError('OMP process is not running')
-            self.process.stdin.write(raw)
-            await self.process.stdin.drain()
+            frames = [raw]
+            if len(raw) > 2**20:
+                size, ident = 384 * 1024, secrets.token_hex(12)
+                chunks = [raw[i:i + size] for i in range(0, len(raw), size)]
+                frames = [(json.dumps(dict(type='rpc_chunk', chunkId=ident, index=i, count=len(chunks),
+                    byteLength=len(raw), data=base64.b64encode(chunk).decode())) + '\n').encode()
+                    for i, chunk in enumerate(chunks)]
+            for frame in frames:
+                self.process.stdin.write(frame)
+                await self.process.stdin.drain()
 
     async def request(self, kind, *, timeout=45, **args):
         ident = secrets.token_hex(10)
@@ -321,7 +330,8 @@ class OmpSession:
                                       else json.dumps(value, ensure_ascii=False)}]}
             if not turn.cancelled.is_set():
                 try:
-                    result = compact_result(event['toolName'], result, self.profile)
+                    if event['toolName'] not in ('_pi_io', '_pi_exec'):
+                        result = compact_result(event['toolName'], result, self.profile)
                 except (OSError, ValueError, RecursionError):
                     # A storage failure must not turn a completed host action into
                     # a tool failure that encourages executing it a second time.
@@ -415,7 +425,10 @@ class OmpSession:
             self.last_event = {'thinking_delta': 'reasoning', 'text_delta': 'writing answer',
                                'toolcall_delta': 'preparing tool'}.get(subtype, 'receiving model response')
         elif kind == 'host_tool_call':
-            if self.turn is None or event.get('toolName') not in {d['name'] for d in self.definitions}:
+            allowed = {d['name'] for d in self.definitions}
+            if ENGINE == 'pi':
+                allowed |= {'_pi_io', '_pi_exec'}  # Wrapper I/O, never model-declared tools.
+            if self.turn is None or event.get('toolName') not in allowed:
                 await self.send({'type': 'host_tool_result', 'id': event['id'], 'isError': True,
                     'result': {'content': [{'type': 'text', 'text': 'Unknown tool or no active turn'}]}})
             else:
@@ -438,7 +451,7 @@ class OmpSession:
                 if event.get('type') == 'rpc_chunk':
                     ident, index, count = event['chunkId'], event['index'], event['count']
                     if not self.chunks:
-                        if index != 0 or not 0 < event['byteLength'] <= 16 * 2**20 or not 0 < count <= 128:
+                        if index != 0 or not 0 < event['byteLength'] <= 32 * 2**20 or not 0 < count <= 128:
                             raise ValueError('Invalid OMP chunk start')
                         self.chunks = [ident, 0, count, event['byteLength'], bytearray()]
                     c = self.chunks

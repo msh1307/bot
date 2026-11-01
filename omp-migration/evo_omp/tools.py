@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 from . import context
 from .screen_privacy import filter_result as filter_screen
-from .integrations import host, gmail, access, codex, browser, rdp, credential_input, ssh, remote, remote_files
+from .integrations import host, gmail, access, codex, browser, rdp, credential_input, ssh, remote, remote_files, coding
 
 STATE = Path('/var/lib/evo-omp')
 TZ = ZoneInfo('Asia/Seoul')
@@ -117,7 +117,7 @@ class Registry:
                  'evo_system_status', 'remote_control', 'schedule') if cron else self.tools
         return [dict(remote.definition(cron) if n == 'remote_control' else self.tools[n][0],
                      label=n, loadMode='essential' if n in DIRECT_TOOLS else 'discoverable')
-                for n in names if n in self.tools]
+                for n in names if n in self.tools and n not in ('host_command', 'shell_exec', 'remote_files')]
 
     async def close(self):
         await asyncio.to_thread(browser.close)
@@ -133,6 +133,8 @@ class Registry:
             raise PermissionError('This tool requires an owner Discord message')
         if name == 'user_input':
             return await context.client.user_input(args, turn)
+        if name in ('_pi_io', '_pi_exec'):
+            return await asyncio.to_thread(coding.file_io if name == '_pi_io' else coding.execute, args)
         args, share = screen_share_request(name, args, turn)
         definition, handler = self.tools[name]
         if handler is not None:

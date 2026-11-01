@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
+import { codingTools } from './pi-tools.mjs';
 
 const require = createRequire(`${process.env.EVO_PI_RUNTIME}/package.json`);
 const { parse } = require('yaml');
@@ -107,14 +108,14 @@ async function initialize(definitions, transcript) {
     cwd: '/workspace', agentDir: `${home}/pi`, modelRuntime: runtime,
     model: runtime.getModel('evo', modelId), thinkingLevel: 'high',
     settingsManager: settings, resourceLoader: loader, sessionManager: manager,
-    customTools: definitions.map(d => ({
+    customTools: [...codingTools(hostCall), ...definitions.map(d => ({
       name: d.name, label: d.label ?? d.name, description: d.description,
       parameters: d.parameters, exposure: d.loadMode === 'essential' ? 'direct' : 'deferred',
       execute: async (_id, args, signal) => {
         const result = await hostCall(d, args, signal);
         return { ...result, details: undefined };
       },
-    })),
+    }))],
   }));
   session.subscribe(event => {
     if (event.type === 'auto_compaction_start') compacting = true;
@@ -198,9 +199,29 @@ async function command(c) {
 }
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+let incoming;
 input.on('line', line => {
   let c;
-  try { c = JSON.parse(line); }
+  try {
+    c = JSON.parse(line);
+    if (c.type === 'rpc_chunk') {
+      if (!incoming) {
+        if (c.index !== 0 || !Number.isInteger(c.count) || c.count < 1 || c.count > 128
+          || !Number.isInteger(c.byteLength) || c.byteLength < 1 || c.byteLength > 32 * 1024 * 1024)
+          throw new Error('Invalid host chunks');
+        incoming = { id: c.chunkId, count: c.count, bytes: c.byteLength, parts: [], size: 0 };
+      }
+      const x = incoming, part = Buffer.from(c.data, 'base64');
+      if (x.id !== c.chunkId || x.parts.length !== c.index || x.count !== c.count
+        || x.bytes !== c.byteLength || part.length > 384 * 1024 || x.size + part.length > x.bytes)
+        throw new Error('Invalid host chunk sequence');
+      x.parts.push(part); x.size += part.length;
+      if (x.parts.length !== x.count) return;
+      incoming = undefined;
+      if (x.size !== x.bytes) throw new Error('Incomplete host chunks');
+      c = JSON.parse(Buffer.concat(x.parts).toString('utf8'));
+    } else if (incoming) throw new Error('Interleaved host chunks');
+  }
   catch { return emit({ type: 'response', success: false, error: 'Invalid JSON frame' }); }
   command(c).catch(error => emit({ type: 'response', id: c.id, command: c.type,
     success: false, error: error.message }));
