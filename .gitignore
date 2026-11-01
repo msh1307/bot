@@ -3,18 +3,15 @@
 /*
 !/.gitignore
 !/.gitattributes
-!/README.md
 !/omp-migration/
 !/host-tools/
 !/runtime/
 !/web-tools/
 /web-tools/*
 !/web-tools/*.py
-!/web-tools/README.md
 !/web-tools/verification-20261026.json
 /runtime/**
 !/runtime/**/
-!/runtime/README.md
 !/runtime/THIRD-PARTY-NOTICES.md
 !/runtime/manifest.json
 !/runtime/strata/*.patch
@@ -68,7 +65,6 @@
 !/omp-migration/requirements.txt
 !/omp-migration/rdp-requirements.txt
 !/omp-migration/provider.ts
-!/omp-migration/README.md
 !/omp-migration/patches/
 !/omp-migration/patches/*.patch
 !/omp-migration/patches/LICENSE.omp
@@ -87,7 +83,6 @@
 !/host-tools/command-runner.py
 !/host-tools/evo-host.service
 !/host-tools/policy.example.json
-!/host-tools/README.md
 !/host-tools/evo-access.py
 !/host-tools/windows-servers.example.json
 !/host-tools/rdp.example.json
