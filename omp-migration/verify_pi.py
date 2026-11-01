@@ -97,14 +97,19 @@ async def main():
                       ('read', {'path': fixture}),
                       ('edit', {'path': fixture, 'oldText': '41', 'newText': '42'}),
                       ('bash', {'command': 'cat '+fixture}),
+                      ('read', {'path': '/home/agent/config/index.json'}),
+                      ('bash', {'command': 'if touch /home/agent/config/.write-probe 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READ_ONLY; fi'}),
                       ('tool_search', {'query': 'gmail', 'limit': 1}),
                       ('gmail', {'action': 'status'})])
         assert await asyncio.wait_for(s.prompt('Synthetic tools check.', context.Turn('77')), 60) == 'VERIFIED_CONTEXT'
         results = [m for m in REQUESTS[-1]['messages'] if m['role'] == 'tool']
         assert 'value = 42' in str(results) and '3141' in str(results)
+        assert 'remote-control.json' in str(results) and 'CONFIG_READ_ONLY' in str(results)
+        assert 'CONFIG_WRITABLE' not in str(results)
         assert 'SYNTHETIC_REASONING_MARKER' in str(REQUESTS[-1]['messages'])
         assert calls == [('gmail', {'action': 'status'})], calls
         checks['native_read_write_edit_bash'] = True
+        checks['config_index_native_read_and_read_only_mount'] = True
         checks['native_deferred_discovery_and_host_dispatch'] = True
         assert await s.reusable_after_error()
         checks['settled_state'] = True

@@ -60,6 +60,9 @@
 !/omp-migration/*.py
 !/omp-migration/*.service
 !/omp-migration/config.yml
+!/omp-migration/config/
+/omp-migration/config/*
+!/omp-migration/config/index.json
 !/omp-migration/models.yml
 !/omp-migration/instructions.txt
 !/omp-migration/requirements.txt

@@ -41,7 +41,9 @@ def sandbox_argv(profile, model):
             '--ro-bind', '/etc/ssl/certs', '/etc/ssl/certs',
             '--bind', str(WORKSPACE), '/workspace',
             '--bind', str(WORKSPACE), '/tmp',
-            '--bind', str(profile), '/home/agent', '--chdir', '/workspace']
+            '--bind', str(profile), '/home/agent',
+            '--ro-bind', str(ROOT / 'config'), '/home/agent/config',
+            '--chdir', '/workspace']
     for path in ('/opt/evo-python', '/opt/evo-hermes/python'):
         if Path(path).exists():
             args += ['--ro-bind', path, path]

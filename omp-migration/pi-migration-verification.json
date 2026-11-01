@@ -213,41 +213,49 @@
     "verify_codex_questions.py",
     "verify_codex_cancellation.py"
   ],
-  "repository_upload_checks": {
-    "checked_at": "2026-11-01T12:51:29+00:00",
-    "source": "exact staged Git tree exported to temporary RAM directory",
-    "common_regression": {
-      "run": 176,
-      "passed": 170,
-      "skipped": 6,
-      "failed": 0
-    },
-    "rdp_offline_regression": {
-      "run": 21,
-      "passed": 21,
-      "failed": 0,
-      "real_login": false
-    },
-    "pi_synthetic_integration": {
+  "config_discovery": {
+    "index": "/home/agent/config/index.json",
+    "read_only": true,
+    "synthetic_checks_passed": true,
+    "real_model": {
       "passed": true,
-      "tool_rounds": 45,
-      "history_messages_restored": 124,
-      "model_inference": false
+      "model": "sc117-flash-next-iq3_xxs",
+      "read_index": true,
+      "remote_list_calls": 1,
+      "tool_calls": 4,
+      "elapsed_seconds": 22.39,
+      "no_remote_connection_or_change": true
     },
-    "windows_scripts_passed": [
-      "Verify-Desktop-Actions.js",
-      "Verify-Snapshot-Tail.js",
-      "Verify-Text-File.js"
-    ],
-    "python_files_parsed": 49,
-    "json_files_parsed": 4,
-    "markdown_changes_in_upload": false,
-    "credential_files_in_upload": false,
-    "network_map_in_upload": false,
-    "live_service_restarted": false,
-    "limits": [
-      "Six optional browser/local-SSH tests skipped by existing conditions.",
-      "No additional real account login or model speed benchmark."
-    ]
+    "deployment": {
+      "engine": "pi",
+      "version": "1.4.0",
+      "restarted_at": "Sun 2026-11-01 13:05:35 UTC",
+      "before": {
+        "evo_omp/rpc.py": "f631091f9efa9834b62f52479c51ad48b01a7e1a1b01bcbd7a65aeadecc544ab",
+        "instructions.txt": "0051161b5ce67e18b63353a574135d8ae901d85f8259417b48c7030cb9d19441",
+        "config/index.json": null,
+        "verify_pi.py": "4cd48ffc3f56037bf37346fdfbcbef8f740a9bb061455e25078df2eaa4ce2836"
+      },
+      "after": {
+        "evo_omp/rpc.py": "984d8e5be2ee7dc0698c0c026d3a515aab0691e0c3039688a5dd78f3b8b9b836",
+        "instructions.txt": "050c7fa18777a2085e46cc9cc8d4796259dd51e7ee6c4ee5a928265f8f1a8cc7",
+        "config/index.json": "45a95a0b87023de37b2ad223cf4bf2414b8c8a400a786d1410a2d57be83ccb91",
+        "verify_pi.py": "a3be2a66178486d2b58b5610b08fd5013ff6ba1d0ff8fb6ed385eda28033daa5"
+      },
+      "backup": "/opt/evo-omp/backups/config-20261101-130534",
+      "drop_in": "/etc/systemd/system/evo-omp.service.d/pi.conf",
+      "context_messages_preserved": 88,
+      "active_context_exact": true,
+      "source_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "converted_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "model_restarted": false,
+      "discord_connected": true,
+      "models_unchanged": true,
+      "recent_ready_log": true,
+      "startup_errors": false
+    },
+    "new_tool_count": 0,
+    "models_yml_modified": false,
+    "credentials_or_server_map_added_to_index": false
   }
 }
