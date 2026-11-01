@@ -1,0 +1,289 @@
+{
+  "verified_at": "2026-11-01T15:27:56.292387+00:00",
+  "scope": "Pi Discord bot only; Web UI endpoints unchanged",
+  "routing": {
+    "default": "Oracle over existing private SSH authentication",
+    "browser": "Camoufox; one persistent owner profile",
+    "public_web": "Anonymous public-web worker; separate disposable render contexts",
+    "local_fallback": "Existing EVO Headless Shell and web tools",
+    "private_browser_urls": "EVO local; localhost/private IP/*.local",
+    "no_replay": "Disconnected browser actions are never retried automatically; reopen first",
+    "references": "Bound to the worker which issued them; missing remote refs require the original URL"
+  },
+  "versions": {
+    "camoufox_python": "0.5.9b4",
+    "camoufox_browser": "156.0.1-beta.36",
+    "oracle_os": "Oracle Linux 9.8 aarch64"
+  },
+  "deployment": {
+    "initial_backup": "/opt/evo-omp/backups/oracle-browser-20261101-151714",
+    "final_backup": "/opt/evo-omp/backups/oracle-browser-20261101-152605",
+    "initial_restart_utc": "Sun 2026-11-01 15:17:15 UTC",
+    "final_restart_utc": "Sun 2026-11-01 15:26:05 UTC",
+    "before_sha256": {
+      "evo_omp/browser_worker.py": "54f685062e155619687293428a22bb59bb9d33d89a3a0f534b626f914a9c82fc",
+      "evo_omp/integrations/browser.py": "7166a4989db2e9413fa8d587fd785e8933473e9787ca70a3f785e0d0bfd96698",
+      "evo_omp/integrations/remote_config.py": "d849c96e3ada2e2abc50f1ef0e02f7cd1d0572f83cf25e570d3ece3fde6e8498",
+      "evo_omp/integrations/web_remote.py": null,
+      "evo_omp/tools.py": "3254d53cfa675e5f4c2a40583cf02a244d1924624fb298eae1363cbbe1c631e4",
+      "browser_remote.py": null,
+      "web_worker.py": null,
+      "verify_browser_remote.py": null,
+      "verify_browser_contract.py": "b3ef8c7ef4178154aa57adeb8b261d0786ca0ca567227324597105aff5ed6c83",
+      "verify_browser_live.py": "29db4d9cf46fd3e9c9affa9bc114712fb8ffaa4475e7dc8ac4d40d3acc8f2190",
+      "verify_browser_vision.py": "f3bfa2547a232cd5ad36bc2599b9c041ed71e0e21003f4a699f386bbac10b7ad"
+    },
+    "after_sha256": {
+      "evo_omp/browser_worker.py": "24dcc68d6db53d5615e31909b2778c275adbe284160506edd6e403ac06a1686a",
+      "evo_omp/integrations/browser.py": "26390ce918368f64f663d6aa6b730e6650d4662c27be7b70d584282cea32ab0c",
+      "evo_omp/integrations/remote_config.py": "35874fbc9fa942409f8c6ed3eb9d0614dac3028e4f97e9cecb30c836503a4c91",
+      "evo_omp/integrations/web_remote.py": "988a2d7b025dca446bd17eba920ad296d34e60d5d3a48d1c3755447887937f9f",
+      "evo_omp/tools.py": "d963370b0a52886b74e96c46d9f30872ca9a69e28d1eb95719134fc9e65003c4",
+      "browser_remote.py": "2ec0335b08b2b2dd5cf38d352cc028c5674f189c5ef2e5c7f8c44b85ffc9f66d",
+      "web_worker.py": "fcb600eeec7d602e6fb4b3e07820967f5e9d76cb5b9abbd0aea3414daab20716",
+      "verify_browser_remote.py": "b2625b7357d3b6a49ef3006a3b9b1cde8f5d460737ae5cdaf04f4de0a71ecdd2",
+      "verify_browser_contract.py": "24b8c51251d21fb8030c6d21d5f0800f783f90a7a9ce5de11d6017c95b7c6579",
+      "verify_browser_live.py": "2f48f660a85dafe17daf849c379309bea90a53dd3d678f3bd3eb5fd1ef856557",
+      "verify_browser_vision.py": "2ed601a757bd69ff7f09daf2ce71a1e7129f297972b949246131c237037ea730"
+    },
+    "config_before_sha256": "642737eb009d8b3ba6a6bd1f1a1982c63b644234660d41c9de22ee9cdcf71ccb",
+    "config_after_sha256": "85020411025bbf9f16bdb3bd1477de66ba9354d690e81c843f8f71010046aa7e",
+    "messages_preserved": 88,
+    "discord_connected": true,
+    "models_restarted": false
+  },
+  "tests": {
+    "unit": {
+      "run": 191,
+      "passed": 185,
+      "skipped": 6,
+      "errors": 0,
+      "failures": 0
+    },
+    "rdp_offline": {
+      "run": 21,
+      "passed": 21
+    },
+    "local_browser_contract": {
+      "lazy_status": true,
+      "dynamic_form_async_submit": true,
+      "http_only_session_cookie_restored": true,
+      "images_blocked_by_default": true,
+      "images_opt_in_loaded": true,
+      "viewport_coordinate_click": true,
+      "invalid_clicks_rejected": true,
+      "invalid_image_options_rejected": true,
+      "images_opt_in_resets_on_next_open": true,
+      "http_error_not_reported_as_success": true,
+      "find_selectors": true,
+      "inspect": true,
+      "explicit_wait_duration": true,
+      "snapshot_paging": true,
+      "stale_snapshot_rejected": true,
+      "screenshot_jpeg_bytes": 17239,
+      "fill_error_redaction": true,
+      "owner_discord_only": true,
+      "cron_read_only": true,
+      "host_credentials_not_mounted": true,
+      "cancelled_hung_script_seconds": 6.3,
+      "cancel_closes_worker": true,
+      "idle_close": true,
+      "reset_removes_profile": true
+    },
+    "pi_rpc": {
+      "existing_instructions_and_provider_compat": true,
+      "payloads": {
+        "omp": {
+          "tools": [
+            "read",
+            "grep",
+            "glob",
+            "edit",
+            "write",
+            "bash",
+            "browser",
+            "remote_control",
+            "internet_search",
+            "web_read",
+            "user_input",
+            "wait"
+          ],
+          "schema_bytes": 12299,
+          "system_bytes": 1573
+        },
+        "pi": {
+          "tools": [
+            "read",
+            "bash",
+            "edit",
+            "write",
+            "tool_search",
+            "browser",
+            "remote_control",
+            "internet_search",
+            "web_read",
+            "user_input",
+            "wait"
+          ],
+          "schema_bytes": 13233,
+          "system_bytes": 1229
+        }
+      },
+      "pi_native_tools": true,
+      "deferred_not_in_initial_payload": true,
+      "native_read_write_edit_bash": true,
+      "config_index_native_read_and_read_only_mount": true,
+      "native_deferred_discovery_and_host_dispatch": true,
+      "settled_state": true,
+      "more_than_40_tool_rounds": 45,
+      "completed_reasoning_omitted_from_next_turn": true,
+      "unknown_tool_not_executed": true,
+      "transient_429_retry": true,
+      "retry_bound_and_failed_turn_reuse": 3,
+      "native_bash_abort_and_session_reuse": true,
+      "pi_restart_preserves_messages_exactly": 128,
+      "native_compaction_with_separate_reasoning_budget": true,
+      "incomplete_summary_preserves_context": true,
+      "omp_handoff_import": true,
+      "large_rpc_frame_round_trip_bytes": 1200016,
+      "passed": true
+    },
+    "browser_live": {
+      "startup_seconds": 8.007,
+      "open": {
+        "engine": "Camoufox",
+        "instance": "oracle",
+        "fallback": null,
+        "success": true,
+        "http_status": 200
+      },
+      "text_read": true,
+      "screenshot_bytes": 12294,
+      "click_and_form": true,
+      "memory": {
+        "oracle": {
+          "browser": {
+            "pss_mib": 666.24,
+            "swap_mib": 0.0,
+            "processes": 11
+          },
+          "web": {
+            "pss_mib": 339.77,
+            "swap_mib": 0.0,
+            "processes": 5
+          },
+          "pswpout": 0
+        },
+        "evo_transport": {
+          "pss_mib": 2.68,
+          "swap_mib": 0.0
+        }
+      },
+      "persistence": {
+        "cookie": true,
+        "storage": true
+      }
+    },
+    "web_live": {
+      "search": {
+        "success": true,
+        "instance": "oracle",
+        "backend": "parallel_free",
+        "seconds": 1.853,
+        "bytes": 1353,
+        "returned": 3,
+        "error": null
+      },
+      "read": {
+        "success": true,
+        "instance": "oracle",
+        "bytes": 1230,
+        "error": null
+      },
+      "render": {
+        "success": true,
+        "instance": "oracle",
+        "warning": null,
+        "content_ok": true,
+        "renderer": null,
+        "keys": [
+          "success",
+          "ref",
+          "url",
+          "total_lines",
+          "version",
+          "offset",
+          "content",
+          "next_offset",
+          "untrusted",
+          "execution_instance"
+        ]
+      },
+      "memory": {
+        "browser": {
+          "pss_mib": 422.61,
+          "swap_mib": 0.0,
+          "processes": 9
+        },
+        "web": {
+          "pss_mib": 616.98,
+          "swap_mib": 0.0,
+          "processes": 10
+        },
+        "pswpout": 0
+      },
+      "image": {
+        "content_types": [
+          "text",
+          "image_url"
+        ],
+        "instance": "oracle"
+      }
+    },
+    "forced_ssh_failure": {
+      "browser": {
+        "instance": "localhost",
+        "engine": "Chrome Headless Shell",
+        "fallback": "Remote start failed; using a separate local login profile",
+        "seconds": 0.579,
+        "ok": true
+      },
+      "memory": {
+        "pss_mib": 353.89,
+        "swap_mib": 0.0
+      },
+      "search": {
+        "success": true,
+        "instance": "localhost"
+      },
+      "ref_read": {
+        "success": true,
+        "instance": "localhost"
+      }
+    }
+  },
+  "evidence_notes": [
+    "Tests use the registered Registry.call path, no Discord messages posted.",
+    "Rendered web read returned expected pathlib content and started ten Oracle public-web processes; browser_engine metadata is omitted by the existing compact page payload.",
+    "Native image_url result is the expected web_image format; no OCR service.",
+    "Fresh-process credential import tested to prevent a browser/SSH circular import.",
+    "RAM numbers are process-tree proportional set size snapshots, not reserved limits or 24-hour peaks.",
+    "Oracle pswpout remained zero during live tests.",
+    "Public web extraction code copied from the exact existing deployment import closure; old Hermes service remains masked."
+  ],
+  "limits": [
+    "No 24-hour soak performed. Availability is remote-first while the bot runs, not a browser forced permanently resident.",
+    "Google/Gemini/X account login and anti-bot acceptance not tested.",
+    "Remote and local login profiles are separate; original EVO cookies were not copied.",
+    "Explicit search engines relying on EVO SearXNG may use local fallback.",
+    "Oracle does not expose a public browser port."
+  ],
+  "reproduce": [
+    "Run unit discovery over verify_*.py TestCase classes with local browser fixtures; RDP tests use rdp-runtime.",
+    "As bot user: OUT=<private tmp directory> venv/bin/python verify_browser_contract.py",
+    "As bot user: EVO_HARNESS=pi venv/bin/python verify_pi.py /opt/evo-omp <private report directory>",
+    "Registered browser: open https://docs.python.org/3/library/pathlib.html, read, fill/click synthetic DOM form, screenshot, close/open and test a dummy cookie/storage value; remove dummy values.",
+    "Registered internet_search query site:docs.python.org pathlib Path documentation limit=3; web_read result ref; web_read Python docs render=always backend=local; web_image Python logo URL.",
+    "Forced connection failure in a temporary private config using loopback port 9; confirm local open/search/ref read, remove the temporary config."
+  ]
+}

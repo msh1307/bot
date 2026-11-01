@@ -4,6 +4,10 @@
     "rdp": "windows-pc",
     "codex": "windows-pc"
   },
+  "browser": {
+    "instance": "cloud-server",
+    "runtime": "/home/opc/.local/share/evo-browser"
+  },
   "instances": {
     "linux-server": {
       "host": "192.0.2.10",

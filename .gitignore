@@ -78,6 +78,7 @@
 !/omp-migration/harness-recheck-20261026.json
 !/omp-migration/tool-inventory-verification.json
 !/omp-migration/tool-schema-verification.json
+!/omp-migration/remote-browser-verification.json
 /omp-migration/evo_omp/**
 !/omp-migration/evo_omp/**/
 !/omp-migration/evo_omp/**/*.py

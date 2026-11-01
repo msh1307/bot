@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from evo_omp import context
 from evo_omp.tools import Registry
 from evo_omp.integrations import browser
+browser.remote_launch = lambda **kwargs: None  # Local-only disposable fixture.
 
 
 class Fixture(BaseHTTPRequestHandler):

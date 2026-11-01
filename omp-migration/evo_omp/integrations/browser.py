@@ -1,9 +1,11 @@
-"""One lazy, owner-only Headless Shell session in a private bwrap."""
+"""One owner browser: private SSH Camoufox first, local Headless Shell fallback."""
 import contextlib
+import ipaddress
 import json
 import os
 from pathlib import Path
 import selectors
+import shlex
 import shutil
 import signal
 import subprocess
@@ -11,6 +13,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 from .. import context
+from . import remote_config
 
 ENGINE = 'Chrome Headless Shell'
 PROFILE = Path('/var/lib/evo-omp/browser')
@@ -22,6 +25,26 @@ MAX_TEXT = 200000
 READ_ONLY = {'open','read','tree','find','inspect','links','wait','status','screenshot'}
 ACTIONS = ['open','read','tree','find','inspect','links','click','fill','press',
            'select','check','scroll','wait','evaluate','screenshot','status','close','reset']
+
+
+def remote_launch(reset=False,web=False):
+    from . import ssh
+    settings = (remote_config.document(remote_config.CONFIG) or {}).get('browser')
+    if not settings: return None
+    entry = ssh.configuration()['servers'][settings['instance']]
+    root = settings['runtime']
+    command = 'exec '+shlex.quote(root+'/venv/bin/python')+' '+shlex.quote(root+'/browser_remote.py')
+    if reset: command += ' --reset'
+    if web: command += ' --web'
+    argv,env = ssh.transport(entry, command)
+    return argv,env,settings['instance']
+
+
+def local_url(url):
+    hostname = urlsplit(url).hostname or ''
+    if hostname == 'localhost' or hostname.endswith('.local'): return True
+    try: return not ipaddress.ip_address(hostname).is_global
+    except ValueError: return False
 
 
 def sandbox_argv():
@@ -54,6 +77,7 @@ class Browser:
         self.serial = self.last_used = 0
         self.url = self.version = None
         self.images_enabled = False
+        self.engine, self.instance, self.fallback = ENGINE, 'localhost', None
 
     def running(self): return self.process is not None and self.process.poll() is None
 
@@ -107,18 +131,36 @@ class Browser:
             if len(self.buffer)>MAX_FRAME: raise ConnectionError('Browser response exceeded 4 MiB')
         raise TimeoutError('Browser operation timed out; it was not automatically retried')
 
-    def start(self,turn):
+    def launch(self,argv,env,turn):
+        self.process = subprocess.Popen(argv,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,start_new_session=True,bufsize=0,env=env)
+        self.selector = selectors.DefaultSelector(); self.selector.register(self.process.stdout,selectors.EVENT_READ)
+        ready = self.request('ready',{},turn,25)
+        self.version = ready['version']; self.engine = ready.get('engine',ENGINE)
+
+    def start(self,turn,local=False):
         if self.running(): return
         self.close()
+        self.fallback = None
+        if not local:
+            launch = remote_launch()
+            if launch:
+                argv,env,instance = launch
+                try:
+                    self.launch(argv,env,turn); self.instance = instance
+                    return
+                except InterruptedError:
+                    self.close(); raise
+                except (OSError,ValueError,TimeoutError,json.JSONDecodeError) as exc:
+                    self.close()
+                    self.fallback = type(exc).__name__
         if PROFILE.is_symlink(): raise ValueError('Unexpected browser profile path')
         PROFILE.mkdir(mode=0o700,parents=True,exist_ok=True); PROFILE.chmod(0o700)
         if any(p.is_symlink() for p in (PROFILE/'chromium',PROFILE/'session-cookies.json')):
             raise ValueError('Unexpected browser profile symlink')
-        self.process = subprocess.Popen(sandbox_argv(),stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,start_new_session=True,bufsize=0,
-            env={'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'})
-        self.selector = selectors.DefaultSelector(); self.selector.register(self.process.stdout,selectors.EVENT_READ)
-        try: self.version = self.request('ready',{},turn,25)['version']
+        try:
+            self.launch(sandbox_argv(),{'PATH':'/usr/bin:/bin','LANG':'C.UTF-8'},turn)
+            self.instance = 'localhost'
         except BaseException: self.close(); raise
 
     def enter_secret(self,selector,origins,field,value,turn):
@@ -177,21 +219,34 @@ class Browser:
             if turn.cancelled.is_set(): raise InterruptedError('Browser operation interrupted')
             if action=='status':
                 return {'running':self.running(),'url':self.url if self.running() else None,
-                    'engine':ENGINE,'version':self.version,'cookies_saved':(PROFILE/'session-cookies.json').is_file(),
+                    'engine':self.engine,'instance':self.instance,'fallback':self.fallback,'version':self.version,
                     'persistent_profile':True,'images_enabled':self.images_enabled,'media_blocked':True,
                     'idle_close_minutes':IDLE_SECONDS//60,'shared_owner_session':True}
             if action in ('close','reset'):
                 self.close()
                 if action=='reset':
+                    launch = remote_launch(reset=True)
+                    if launch:
+                        argv,env,_ = launch
+                        done = subprocess.run(argv,env=env,capture_output=True,timeout=20)
+                        if done.returncode: raise ConnectionError('Remote reset failed; remote profile was not confirmed deleted')
                     if PROFILE.is_symlink(): raise ValueError('Unexpected browser profile path')
                     if PROFILE.exists(): shutil.rmtree(PROFILE)
                 return {'success':True,'closed':True,'profile_kept':action=='close'}
             try:
-                self.start(turn)
+                local = action=='open' and local_url(fields['url'])
+                if action=='open' and self.running() and (local != (self.instance=='localhost')):
+                    self.close()
+                was_running = self.running()
+                self.start(turn,local=local)
+                if not was_running and action!='open':
+                    raise ValueError('Browser session ended; open the page before continuing')
                 result = self.request('call',fields,turn,fields['timeout_ms']/1000+5)
                 if 'url' in result: self.url = result['url']
                 if 'images_enabled' in result: self.images_enabled = result['images_enabled']
                 if 'text' in result: result['text'] = context.redact_sensitive_text(result['text'])
+                result['instance'] = self.instance
+                if self.fallback: result['fallback'] = 'Remote start failed; using a separate local login profile'
                 return result
             except (OSError,TimeoutError,InterruptedError,json.JSONDecodeError): self.close(); raise
             finally:
@@ -223,7 +278,8 @@ def close(): CLIENT.close()
 
 def register(ctx):
     ctx.register_tool('browser','evo_browser',{'name':'browser',
-        'description':'Drive one shared local Chrome Headless Shell browser. '
+        'description':'Drive one shared browser: remote Camoufox, local Headless Shell fallback. '
+            'Private IP/localhost URLs use EVO. Remote and local logins are separate. '
             'open/tree show controls and CSS selectors; read shows visible text; find searches control names. '
             'Use observed selectors for inputs/clicks, or click with viewport x,y after screenshot. '
             'screenshot returns the image; share=true also sends it to the current Discord channel. '

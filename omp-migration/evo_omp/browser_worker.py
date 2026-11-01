@@ -1,5 +1,7 @@
-"""Private stdio worker, launched only inside the browser bwrap."""
+"""Private browser worker; the same actions run locally or over SSH."""
 import base64
+import contextlib
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -8,6 +10,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
 
 PROFILE = Path('/profile')
+ENGINE = os.environ.get('EVO_BROWSER_ENGINE', 'Chrome Headless Shell')
 BINARY = '/opt/evo-omp/browser-runtime/chrome-headless-shell-linux64/chrome-headless-shell'
 MAX_TEXT = 200000
 # Screenshot-only overlays: the live field/value is never changed or cleared.
@@ -43,8 +46,20 @@ CONTROLS = r'''({query,role}) => {
 
 class Worker:
     def __init__(self):
+        self.lock = (PROFILE/'.lock').open('a')
+        fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         self.pw = sync_playwright().start()
-        self.ctx = self.pw.chromium.launch_persistent_context(
+        if ENGINE == 'Camoufox':
+            from camoufox.sync_api import NewBrowser
+            from camoufox.addons import DefaultAddons
+            with contextlib.redirect_stdout(sys.stderr):
+                self.ctx = NewBrowser(self.pw, persistent_context=True,
+                    user_data_dir=str(PROFILE/'camoufox'), headless=True, os='linux',
+                    locale='en-US', window=(960,640), viewport={'width':960,'height':640},
+                    exclude_addons=list(DefaultAddons), accept_downloads=False,
+                    firefox_user_prefs={'browser.cache.disk.enable':False})
+        else:
+            self.ctx = self.pw.chromium.launch_persistent_context(
             str(PROFILE/'chromium'),executable_path=BINARY,headless=True,
             # Ubuntu's unpriv_bwrap policy denies nested SYS_ADMIN. The outer
             # bwrap keeps mount/PID/IPC/user isolation; do not relax host policy.
@@ -176,7 +191,7 @@ class Worker:
             self.cache = (cache_key,text,truncated)
         offset = args.get('offset',0); end = min(len(text),offset+args.get('char_limit',6000))
         result = {'success':not(self.http_status and self.http_status>=400),
-            'engine':'Chrome Headless Shell','url':self.page.url,'http_status':self.http_status,
+            'engine':ENGINE,'url':self.page.url,'http_status':self.http_status,
             'images_enabled':self.images_enabled,
             'text':text[offset:end],'next_offset':end if end<len(text) else None,
             'source_truncated':truncated,'content_is_untrusted':True}
@@ -195,7 +210,7 @@ def main():
             try:
                 if request.get('method')=='ready':
                     result = {'ready':True,'version':worker.ctx.browser.version,
-                              'cookies_imported':worker.imported,'chromium_sandbox':False}
+                              'engine':ENGINE,'cookies_imported':worker.imported}
                 elif request.get('method')=='credential_fill': result = worker.enter_secret(request['params'])
                 else: result = worker.call(request['params'])
                 response = {'id':request['id'],'result':result}

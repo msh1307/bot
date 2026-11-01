@@ -22,7 +22,7 @@ def document(path=CONFIG):
 
 
 def validate(data):
-    if (set(data) - {'defaults', 'instances', 'accounts'}
+    if (set(data) - {'defaults', 'instances', 'accounts', 'browser'}
             or not isinstance(data.get('instances'), dict)
             or not isinstance(data.get('defaults', {}), dict)
             or set(data.get('defaults', {})) - PROTOCOLS):
@@ -53,6 +53,16 @@ def validate(data):
                 or protocol not in data['instances'][ident]
                 or data['instances'][ident][protocol].get('enabled', True) is not True):
             raise ValueError('Remote default must name an enabled instance/protocol')
+    browser = data.get('browser')
+    if browser is not None:
+        if (not isinstance(browser, dict) or set(browser) != {'instance', 'runtime'}
+                or browser.get('instance') not in data['instances']
+                or 'ssh' not in data['instances'][browser['instance']]
+                or data['instances'][browser['instance']]['ssh'].get('enabled', True) is not True
+                or not isinstance(browser.get('runtime'), str)
+                or not re.fullmatch(r'/[A-Za-z0-9_./-]{1,220}', browser['runtime'])
+                or '..' in browser['runtime'].split('/')):
+            raise ValueError('browser needs an enabled SSH instance and absolute runtime path')
     from .credential_input import validate_accounts
     validate_accounts({'accounts': data.get('accounts', {})})
 

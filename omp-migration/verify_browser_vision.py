@@ -17,6 +17,7 @@ from evo_omp import context
 from evo_omp.rpc import OmpSession
 from evo_omp.tools import Registry
 from evo_omp.integrations import browser
+browser.remote_launch = lambda **kwargs: None  # Local-only disposable fixture.
 
 OUT = Path(os.environ['OUT'])
 OUT.mkdir(mode=0o700, parents=True, exist_ok=True)

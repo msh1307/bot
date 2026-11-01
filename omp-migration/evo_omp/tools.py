@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 from . import context
 from .screen_privacy import filter_result as filter_screen
-from .integrations import host, gmail, access, codex, browser, rdp, credential_input, remote, remote_files, coding
+from .integrations import host, gmail, access, codex, browser, rdp, credential_input, remote, remote_files, coding, web_remote
 
 STATE = Path('/var/lib/evo-omp')
 TZ = ZoneInfo('Asia/Seoul')
@@ -121,6 +121,7 @@ class Registry:
 
     async def close(self):
         await asyncio.to_thread(browser.close)
+        await asyncio.to_thread(web_remote.CLIENT.close)
         await asyncio.to_thread(rdp.close)
 
     async def call(self, name, args, turn):
@@ -140,10 +141,14 @@ class Registry:
         if handler is not None:
             result = await asyncio.to_thread(handler, args)
         else:
-            result = await asyncio.to_thread(http_json, '/tools', {'tool': name, 'params': args})
-            if 'error' in result:
-                raise RuntimeError(result['error'])
-            result = result.get('plain_text', result)
+            result = await asyncio.to_thread(web_remote.call,name,args,turn)
+            instance = web_remote.CLIENT.instance
+            if result is None:
+                result = await asyncio.to_thread(http_json, '/tools', {'tool': name, 'params': args})
+                if 'error' in result: raise RuntimeError(result['error'])
+                result = result.get('plain_text', result)
+                instance = 'localhost'
+            result = web_remote.remember(result,instance)
             if name == 'web_image' and isinstance(result, str) and '\ndata:image/' in result:
                 text, data_url = result.rsplit('\n', 1)
                 import base64

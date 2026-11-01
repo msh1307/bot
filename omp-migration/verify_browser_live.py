@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from evo_omp import context
 from evo_omp.tools import Registry
 from evo_omp.integrations import browser
+browser.remote_launch = lambda **kwargs: None  # Keep this local baseline isolated.
 
 OUT = Path(os.environ['OUT'])
 OUT.mkdir(mode=0o700, parents=True, exist_ok=True)
