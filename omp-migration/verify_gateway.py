@@ -1,9 +1,11 @@
 """Capture the Discord boundary to verify steering without sending messages."""
 import asyncio
+import time
 import ast
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from evo_omp import context
 from evo_omp.gateway import Bot
 from evo_omp.context import OWNER
@@ -27,6 +29,7 @@ class Session:
     last_progress = pending_text = ''
     on_progress = None
     def __init__(self):
+        self.last_activity = time.monotonic()
         self.stop = asyncio.Event(); self.started = asyncio.Event(); self.inputs = []
         self.closed = self.aborts = 0
     async def prompt(self, text, turn, images=None):
@@ -63,6 +66,23 @@ class CaptureBot(Bot):
     async def session(self, key, cron=False): return self.fake
 
 async def main():
+    from evo_omp import gateway
+    fake = SimpleNamespace(worker_failure=None, start=AsyncMock())
+    class Startup:
+        async def __aenter__(self): return fake
+        async def __aexit__(self, *args): pass
+        start = fake.start
+        worker_failure = None
+    with patch.object(gateway, 'Bot', return_value=Startup()), \
+            patch.dict(gateway.os.environ, {'DISCORD_BOT_TOKEN': 'SYNTHETIC_ONLY'}), \
+            patch.object(gateway, 'Path') as path, \
+            patch.object(context, 'secret_values', []), \
+            patch.object(asyncio.get_running_loop(), 'add_signal_handler'):
+        path.return_value.exists.return_value = False
+        await gateway.main()
+        path.assert_called_once_with('/etc/evo-omp/gmail.json')
+        fake.start.assert_awaited_once_with('SYNTHETIC_ONLY')
+    print('PASS startup never reads retired remote configuration')
     for p in (Path(__file__).parent / 'evo_omp').rglob('*.py'):
         source = p.read_text()
         assert 'HERMES_SESSION_' not in source, p

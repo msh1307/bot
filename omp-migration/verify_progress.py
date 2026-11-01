@@ -1,5 +1,6 @@
 """Captured Discord status lifecycle checks; no Discord/model/host requests."""
 import asyncio
+import time
 from contextlib import suppress
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -45,6 +46,7 @@ class Channel:
             raise http_error()
         self.events.append(text)
         notice = Notice(self)
+        notice.view = kwargs.get('view')
         self.notices.append(notice)
         self.sent.set()
         return notice
@@ -57,18 +59,20 @@ class Channel:
 
 
 async def main():
-    session = SimpleNamespace(tools=2)
-    with patch.object(gateway, 'PROGRESS_INTERVAL', .01):
+    session = SimpleNamespace(tools=2, rounds=1, last_event='waiting for model',
+        last_activity=time.monotonic(), last_progress='', flush_progress=lambda: None)
+    bot = CaptureBot()
+    with patch.object(gateway, 'PROGRESS_INTERVAL', .01), patch.object(gateway, 'STATUS_INTERVAL', .005):
         channel = Channel()
-        async with gateway.Bot.progress(None, channel, session):
+        async with bot.progress(channel, session):
             await asyncio.sleep(0)
         assert not channel.messages
-        async with gateway.Bot.progress(None, channel, session, enabled=False):
+        async with bot.progress(channel, session, enabled=False):
             await asyncio.sleep(.03)
         assert not channel.messages
         print('PASS short turns and scheduled turns produce no status message')
 
-        async with gateway.Bot.progress(None, channel, session):
+        async with bot.progress(channel, session):
             await asyncio.wait_for(channel.sent.wait(), 1)
             session.tools = 7
             await asyncio.sleep(.04)
@@ -84,7 +88,7 @@ async def main():
 
         for failure in ('send', 'edit', 'delete'):
             channel = Channel(failure)
-            async with gateway.Bot.progress(None, channel, session):
+            async with bot.progress(channel, session):
                 await asyncio.sleep(.05)
             assert len(channel.messages) == 1
             if channel.notices:
@@ -94,7 +98,7 @@ async def main():
         for fail in (False, True):
             channel = Channel()
             try:
-                async with gateway.Bot.progress(None, channel, session):
+                async with bot.progress(channel, session):
                     await asyncio.wait_for(channel.sent.wait(), 1)
                     if fail:
                         raise ValueError('captured task failure')
@@ -105,7 +109,7 @@ async def main():
 
         channel = Channel()
         async def pending():
-            async with gateway.Bot.progress(None, channel, session):
+            async with bot.progress(channel, session):
                 await asyncio.Future()
         task = asyncio.create_task(pending())
         await asyncio.wait_for(channel.sent.wait(), 1)
@@ -128,6 +132,8 @@ async def main():
             await asyncio.wait_for(bot.queue.join(), 2)
             assert bot.fake.inputs == ['long', 'correction']
             assert bot.channel.notices[0].deleted
+            assert bot.channel.notices[0].view.children[0].label == '진행 보기'
+            assert bot.channel.notices[0].view.is_finished()
             assert bot.channel.messages[-1] == 'answer:correction'
             assert 'answer:long' not in bot.channel.messages
             assert bot.channel.events.index('deleted') < bot.channel.events.index('answer:correction')

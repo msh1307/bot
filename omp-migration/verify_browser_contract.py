@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -16,13 +17,39 @@ from evo_omp.integrations import browser
 class Fixture(BaseHTTPRequestHandler):
     def log_message(self,*args): pass
     def do_GET(self):
+        if self.path == '/cookie':
+            self.send_response(200);self.end_headers();self.wfile.write(self.headers.get('Cookie', '').encode());return
         if self.path=='/pixel.png':
             import io
             from PIL import Image
             out=io.BytesIO();Image.new('RGB',(4,4),'red').save(out,format='PNG')
             self.send_response(200);self.send_header('Content-Type','image/png');self.end_headers();self.wfile.write(out.getvalue());return
-        body = '<title>Contract fixture</title><h1>CONTRACT_OK</h1><input id="text" aria-label="Audit input"><button id="button" onclick="this.textContent=\'CLICKED_OK\'">Audit button</button><img id="pixel" src="/pixel.png"><pre>'+'ROW\n'*5000+'</pre>'
+        if self.path == '/form':
+            body = '''<title>Dynamic form</title><button id="reveal" onclick="reveal()">New request</button>
+                <main id="content"></main><script>
+                function reveal() {
+                  document.querySelector('#content').innerHTML = `<form id="request">
+                    <label>Email<input name="email" type="email" required></label>
+                    <label>Plan<select name="plan"><option value="basic">Basic</option><option value="pro">Pro</option></select></label>
+                    <label>Accept<input name="accept" type="checkbox" required></label>
+                    <button type="submit">Send request</button></form>`;
+                  document.querySelector('#request').onsubmit = async e => {
+                    e.preventDefault();const f=new FormData(e.target);
+                    const r=await fetch('/submit',{method:'POST',body:new URLSearchParams(f)});
+                    document.querySelector('#content').textContent=await r.text();
+                  };
+                }</script>'''
+        else:
+            body = '<title>Contract fixture</title><h1>CONTRACT_OK</h1><input id="text" aria-label="Audit input"><button id="button" onclick="this.textContent=\'CLICKED_OK\'">Audit button</button><img id="pixel" src="/pixel.png"><pre>'+'ROW\n'*5000+'</pre>'
         self.send_response(403 if self.path=='/blocked' else 200);self.send_header('Content-Type','text/html');self.end_headers();self.wfile.write(body.encode())
+
+    def do_POST(self):
+        from urllib.parse import parse_qs
+        fields = parse_qs(self.rfile.read(int(self.headers['Content-Length'])).decode())
+        valid = self.path == '/submit' and fields == {'email': ['audit@example.test'], 'plan': ['pro'], 'accept': ['on']}
+        self.send_response(200 if valid else 400)
+        self.send_header('Set-Cookie', 'audit_session=restored; HttpOnly; SameSite=Lax; Path=/')
+        self.end_headers();self.wfile.write(b'DYNAMIC_FORM_OK' if valid else b'WRONG_FORM_VALUES')
 
 
 async def main():
@@ -35,6 +62,47 @@ async def main():
     async def call(action,**args): return await reg.call('browser',dict(action=action,**args),turn)
     try:
         assert not (await call('status'))['running'];result['lazy_status'] = True
+        await call('open',url=f'http://127.0.0.1:{server.server_port}/form')
+        await call('click',selector='#reveal')
+        fields = json.loads((await call('find',query='Email',role='textbox'))['text'])
+        await call('fill',selector=fields[0]['selector'],value='audit@example.test')
+        await call('select',selector='select[name="plan"]',value='pro')
+        await call('check',selector='input[name="accept"]',checked=True)
+        await call('press',selector='input[name="email"]',key='Enter')
+        await call('wait',selector='#content:text-is("DYNAMIC_FORM_OK")')
+        assert 'DYNAMIC_FORM_OK' in (await call('read'))['text'];result['dynamic_form_async_submit'] = True
+        await call('close')
+        await call('open',url=f'http://127.0.0.1:{server.server_port}/form')
+        cookies = await call('evaluate',script="fetch('/cookie').then(r=>r.text())")
+        assert 'audit_session=restored' in json.loads(cookies['text']);result['http_only_session_cookie_restored'] = True
+        if '--model' in sys.argv:
+            import urllib.request
+            from evo_omp.rpc import OmpSession
+            with urllib.request.urlopen('http://127.0.0.1:8080/evo/status', timeout=5) as response:
+                state = json.load(response)
+            status = json.loads(Path('/run/evo-omp/status.json').read_text())
+            if state.get('busy') or state.get('loading') or status.get('active') or status.get('queued'):
+                raise RuntimeError('Live model/bot busy; defer the optional model check')
+            calls = []
+            async def handler(name, args, current):
+                calls.append(dict(tool=name, **args))
+                return await reg.call(name, args, current)
+            session = OmpSession('browser-form-audit', state['active'], [reg.tools['browser'][0]], handler)
+            try:
+                await session.start()
+                started = time.monotonic()
+                answer = await asyncio.wait_for(session.prompt(
+                    f'Use only the browser tool to open http://127.0.0.1:{server.server_port}/form . '
+                    'Click New request, inspect the newly displayed form and submit email audit@example.test, '
+                    'plan Pro, Accept checked. Read and report the confirmation text. '
+                    'Use normal form actions, not JavaScript evaluation or shell commands. '
+                    'This is a synthetic local fixture; no login is needed. Keep the answer short.', turn), 240)
+                actions = {c.get('action') for c in calls}
+                assert 'DYNAMIC_FORM_OK' in answer and {'open','click','fill','select','check'} <= actions, (answer, calls)
+                result['model_form'] = {'model': state['active'], 'answer': answer,
+                    'calls': calls, 'seconds': round(time.monotonic()-started, 2)}
+            finally:
+                await session.close()
         await call('open',url=f'http://127.0.0.1:{server.server_port}')
         loaded = await call('evaluate',script="document.querySelector('#pixel').naturalWidth")
         assert loaded['text']=='0';result['images_blocked_by_default'] = True

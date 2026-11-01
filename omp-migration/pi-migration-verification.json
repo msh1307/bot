@@ -1,0 +1,253 @@
+{
+  "recorded_at": "2026-11-01T12:31:26Z",
+  "pi": {
+    "version": "1.4.0",
+    "upstream_patched": false,
+    "node": "v22.22.1"
+  },
+  "integration": {
+    "existing_instructions_and_provider_compat": true,
+    "payloads": {
+      "omp": {
+        "tools": [
+          "read",
+          "grep",
+          "glob",
+          "edit",
+          "write",
+          "bash",
+          "browser",
+          "remote_control",
+          "internet_search",
+          "web_read",
+          "user_input",
+          "wait"
+        ],
+        "schema_bytes": 11858,
+        "system_bytes": 1423
+      },
+      "pi": {
+        "tools": [
+          "read",
+          "bash",
+          "edit",
+          "write",
+          "tool_search",
+          "browser",
+          "remote_control",
+          "internet_search",
+          "web_read",
+          "user_input",
+          "wait"
+        ],
+        "schema_bytes": 12256,
+        "system_bytes": 1080
+      }
+    },
+    "pi_native_tools": true,
+    "deferred_not_in_initial_payload": true,
+    "native_read_write_edit_bash": true,
+    "native_deferred_discovery_and_host_dispatch": true,
+    "settled_state": true,
+    "more_than_40_tool_rounds": 45,
+    "completed_reasoning_omitted_from_next_turn": true,
+    "unknown_tool_not_executed": true,
+    "transient_429_retry": true,
+    "retry_bound_and_failed_turn_reuse": 3,
+    "native_bash_abort_and_session_reuse": true,
+    "pi_restart_preserves_messages_exactly": 124,
+    "native_compaction_with_separate_reasoning_budget": true,
+    "incomplete_summary_preserves_context": true,
+    "omp_handoff_import": true,
+    "large_rpc_frame_round_trip_bytes": 1200016,
+    "passed": true
+  },
+  "common_regression": {
+    "run": 132,
+    "passed": 128,
+    "skipped": 4,
+    "failed": 0,
+    "scripts_passed": [
+      "verify_gateway.py",
+      "verify_progress.py",
+      "verify_recovery.py",
+      "verify_codex_cancellation.py",
+      "verify_tool_output.py"
+    ]
+  },
+  "real_checks": {
+    "before": {
+      "available_kib": 7570764,
+      "swap_used_kib": 8,
+      "pswpout_pages": 6
+    },
+    "live_omp_context_import": {
+      "messages": 88,
+      "exact": true,
+      "source_sha256": "7c3011f570bfa3ec22663f991442c12612056739811fc239c9eac38ffe546e5c",
+      "projected_sha256": "bf99ce09f9a77f419ec514c0200253de24ae19c363776b70328b5752aeac9b99"
+    },
+    "real_model": {
+      "model": "sc117-flash-next-iq3_xxs",
+      "answer": "74261",
+      "tools": 1,
+      "rounds": 2,
+      "elapsed_seconds": 7.81
+    },
+    "after": {
+      "available_kib": 8003680,
+      "swap_used_kib": 8,
+      "pswpout_pages": 6
+    },
+    "passed": true
+  },
+  "deployment": {
+    "engine": "pi",
+    "version": "1.4.0",
+    "restarted_at": "Sun 2026-11-01 12:29:25 UTC",
+    "before": {
+      "evo_omp/rpc.py": "425fcf1e6243b2b800d602a22175cda9a8cee0ef1f8df7b1274b1a8a17675fbb",
+      "evo_omp/gateway.py": "b2c52def444fdf6c533e973074cb76c4fb05d44ae7ef8ca167886804a40d3361",
+      "pi-runner.mjs": null,
+      "verify_pi.py": null,
+      "README.md": "771528f730c01ab1a0f158a88ec1482a6af2fdf8116beae4a56957937051bf37",
+      "pi-runtime.json": null
+    },
+    "after": {
+      "evo_omp/rpc.py": "f631091f9efa9834b62f52479c51ad48b01a7e1a1b01bcbd7a65aeadecc544ab",
+      "evo_omp/gateway.py": "f3967c89bcc83e73e4f33a4b0aa063f0a84b9075d786bf245f491db1f4878f10",
+      "pi-runner.mjs": "9341f37d9d0f7999552f31e3acffa7516a8d813626d290da3bf0aa272e9a9469",
+      "verify_pi.py": "4cd48ffc3f56037bf37346fdfbcbef8f740a9bb061455e25078df2eaa4ce2836",
+      "README.md": "1dd6af2a423e068f3bc7f1bd4c1f32753d2ca18f7618eac6672eca93cad0705a",
+      "pi-runtime.json": "8fae8a6539aa82f05e103edf5e0a75d05897586775c79a2aa4569cb6f34930c7"
+    },
+    "backup": "/opt/evo-omp/backups/pi-20261101-122924",
+    "drop_in": "/etc/systemd/system/evo-omp.service.d/pi.conf",
+    "context_messages_preserved": 88,
+    "active_context_exact": true,
+    "source_transcript_sha256": "7c3011f570bfa3ec22663f991442c12612056739811fc239c9eac38ffe546e5c",
+    "converted_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+    "model_restarted": false,
+    "discord_connected": true,
+    "recent_ready_log": true,
+    "startup_errors": false
+  },
+  "post_restart": {
+    "status": {
+      "engine": "pi",
+      "version": "1.4.0",
+      "state": "connected",
+      "queued": 0,
+      "sessions": 1,
+      "pending_inputs": 0,
+      "active": false,
+      "rounds": 0,
+      "tools": 0,
+      "elapsed_seconds": 0,
+      "idle_seconds": 0,
+      "updated": 1793536170
+    },
+    "service_metrics": {
+      "MemoryCurrent": "113156096",
+      "MemoryPeak": "153477120",
+      "MemorySwapCurrent": "0",
+      "TasksCurrent": "16"
+    },
+    "new_traceback_or_error": false
+  },
+  "behavior_changes": {
+    "native_tools": [
+      "read",
+      "bash",
+      "edit",
+      "write",
+      "tool_search"
+    ],
+    "grep_and_glob": "bash commands",
+    "deferred_tools": "native tool_search discovery; previous xd:// adapter is not used by Pi",
+    "context_window": 131072,
+    "compaction_threshold": 119072,
+    "compaction_reserve_tokens": 12000,
+    "compaction_recent_tokens": 12000,
+    "previous_omp_threshold": 60000,
+    "omp_shake": "not available in native Pi",
+    "completed_reasoning_trim": "preserved",
+    "inference_models_or_server_modified": false
+  },
+  "limits": [
+    "Only one short actual Flash-Next native read test; no claim of higher model TPS or long-run reliability.",
+    "Qwen model, live RDP/browser account login and a full-context model run were not retested.",
+    "verify_rdp.py needs the separate Python 3.12 rdp-runtime; it cannot import aardwolf in the bot Python 3.14 venv. Existing RDP worker/config unchanged.",
+    "Four optional browser/local-SSH checks skipped by their existing test conditions.",
+    "Pi tool schema 12256 bytes vs OMP 11858; system 1080 vs 1423. This is bytes, not token counts; no material payload reduction claimed."
+  ],
+  "codex_integration": {
+    "checked_at": "2026-11-01T12:36:44Z",
+    "passed": true,
+    "engine": "pi-1.4.0",
+    "path": [
+      "Pi SDK in bwrap",
+      "host_tool RPC",
+      "Registry.call",
+      "remote_control",
+      "Codex TLS bridge",
+      "Windows app-server"
+    ],
+    "provider": "scripted local SSE, no model inference",
+    "discord_identity": "isolated owner adapter, no Discord messages",
+    "codex_connection": "actual configured authenticated TLS endpoint",
+    "action": "list",
+    "response_fields": [
+      "success",
+      "instance",
+      "jobs",
+      "threads",
+      "next_cursor"
+    ],
+    "returned_threads": 2,
+    "real_send_or_chat_mutation": false,
+    "live_bot_restarted": false
+  },
+  "codex_regression_scripts_passed": [
+    "verify_codex_existing.py",
+    "verify_codex_questions.py",
+    "verify_codex_cancellation.py"
+  ],
+  "repository_upload_checks": {
+    "checked_at": "2026-11-01T12:51:29+00:00",
+    "source": "exact staged Git tree exported to temporary RAM directory",
+    "common_regression": {
+      "run": 176,
+      "passed": 170,
+      "skipped": 6,
+      "failed": 0
+    },
+    "rdp_offline_regression": {
+      "run": 21,
+      "passed": 21,
+      "failed": 0,
+      "real_login": false
+    },
+    "pi_synthetic_integration": {
+      "passed": true,
+      "tool_rounds": 45,
+      "history_messages_restored": 124,
+      "model_inference": false
+    },
+    "windows_scripts_passed": [
+      "Verify-Desktop-Actions.js",
+      "Verify-Snapshot-Tail.js",
+      "Verify-Text-File.js"
+    ],
+    "python_files_parsed": 49,
+    "json_files_parsed": 4,
+    "markdown_changes_in_upload": false,
+    "credential_files_in_upload": false,
+    "network_map_in_upload": false,
+    "live_service_restarted": false,
+    "limits": [
+      "Six optional browser/local-SSH tests skipped by existing conditions.",
+      "No additional real account login or model speed benchmark."
+    ]
+  }
+}

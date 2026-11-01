@@ -10,11 +10,13 @@ from zoneinfo import ZoneInfo
 
 from croniter import croniter
 from . import context
-from .integrations import host, gmail, access, codex, browser
+from .screen_privacy import filter_result as filter_screen
+from .integrations import host, gmail, access, codex, browser, rdp, credential_input, ssh, remote, remote_files
 
 STATE = Path('/var/lib/evo-omp')
 TZ = ZoneInfo('Asia/Seoul')
 JOB_LOCK = threading.Lock()
+DIRECT_TOOLS = {'internet_search', 'web_read', 'browser', 'remote_control', 'user_input', 'wait'}
 
 
 def http_json(path, payload=None):
@@ -28,15 +30,65 @@ def http_json(path, payload=None):
     return json.loads(raw)
 
 
+def screen_share_request(name, args, turn):
+    params = args.get('args', {}) if name == 'remote_control' else args
+    if name not in ('browser', 'remote_control') or not isinstance(params, dict) or 'share' not in params:
+        return args, False
+    share = params['share']
+    if (type(share) is not bool or args.get('action') != 'screenshot'
+            or name == 'remote_control' and args.get('protocol') != 'rdp'):
+        raise ValueError('share is a boolean for browser/RDP screenshot only')
+    if share and context.live_owner() is not turn:
+        raise PermissionError('Screenshot sharing requires a live owner Discord message')
+    params = dict(params)
+    params.pop('share')
+    return (dict(args, args=params) if name == 'remote_control' else params), share
+
+
+async def share_screen(result, turn):
+    """Upload only the privacy-filtered image, in memory, to this turn's channel."""
+    import base64
+    from contextlib import closing
+    import io
+    import discord
+    if context.live_owner() is not turn:
+        raise PermissionError('Screenshot sharing requires a live owner Discord message')
+    images = [b for b in result.get('content', []) if isinstance(b, dict) and b.get('type') == 'image'] \
+        if isinstance(result, dict) else []
+    if len(images) != 1:
+        raise ValueError('Screenshot sharing requires one filtered image')
+    block = images[0]
+    mime, data = block.get('mimeType'), block.get('data')
+    if mime not in ('image/jpeg', 'image/png') or not isinstance(data, str) or len(data) > 600000:
+        raise ValueError('Invalid screenshot attachment')
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except ValueError:
+        raise ValueError('Invalid screenshot attachment') from None
+    if not raw or len(raw) > 450000:
+        raise ValueError('Invalid screenshot attachment')
+    try:
+        client = context.client
+        channel = client.get_channel(int(turn.channel))
+        if channel is None:
+            channel = await asyncio.wait_for(client.fetch_channel(int(turn.channel)), 15)
+        if context.live_owner() is not turn or channel.id != int(turn.channel):
+            raise PermissionError('Screenshot destination is no longer active')
+        with closing(discord.File(io.BytesIO(raw), filename='screen.' + ('jpg' if mime == 'image/jpeg' else 'png'))) as attachment:
+            await asyncio.wait_for(channel.send(file=attachment, allowed_mentions=discord.AllowedMentions.none()), 30)
+    except (PermissionError, InterruptedError):
+        raise
+    except Exception:
+        raise RuntimeError('Screenshot upload failed; delivery is uncertain. Do not automatically retry.') from None
+
+
 class Registry:
     def __init__(self):
         self.tools, self.commands, self.factories = {}, {}, []
-        for module in (host, gmail, access, codex, browser):
+        for module in (host, gmail, access, codex, browser, credential_input, ssh, remote, remote_files):
             module.register(self)
 
     def register_tool(self, name, toolset, definition, handler):
-        if name == 'workspace_download':
-            return  # Native sandbox bash downloads files without a host tool.
         self.tools[name] = (dict(definition, label=name, loadMode='essential'), handler)
 
     def register_command(self, name, handler, description):
@@ -62,11 +114,14 @@ class Registry:
 
     def definitions(self, cron=False):
         names = ('internet_search', 'web_read', 'web_image', 'browser',
-                 'evo_system_status', 'codex_task', 'schedule') if cron else self.tools
-        return [self.tools[n][0] for n in names if n in self.tools]
+                 'evo_system_status', 'remote_control', 'schedule') if cron else self.tools
+        return [dict(remote.definition(cron) if n == 'remote_control' else self.tools[n][0],
+                     label=n, loadMode='essential' if n in DIRECT_TOOLS else 'discoverable')
+                for n in names if n in self.tools]
 
     async def close(self):
         await asyncio.to_thread(browser.close)
+        await asyncio.to_thread(rdp.close)
 
     async def call(self, name, args, turn):
         if turn.cancelled.is_set():
@@ -74,10 +129,11 @@ class Registry:
         if turn.user != context.OWNER:
             raise PermissionError('Owner session required')
         if turn.cron and name not in ('internet_search', 'web_read', 'web_image',
-                                    'browser', 'evo_system_status', 'codex_task', 'schedule'):
+                                    'browser', 'evo_system_status', 'remote_control', 'schedule'):
             raise PermissionError('This tool requires an owner Discord message')
         if name == 'user_input':
             return await context.client.user_input(args, turn)
+        args, share = screen_share_request(name, args, turn)
         definition, handler = self.tools[name]
         if handler is not None:
             result = await asyncio.to_thread(handler, args)
@@ -91,6 +147,11 @@ class Registry:
                 import base64
                 image = image_content(base64.b64decode(data_url.split(',', 1)[1], validate=True))
                 return {'content': [{'type': 'text', 'text': text}, image]}
+        if name in ('browser', 'remote_control'):
+            result = await asyncio.to_thread(filter_screen, result)
+        if share:
+            await share_screen(result, turn)
+            result = dict(result, shared_to_discord=True)
         return context.redact_sensitive_text(result) if isinstance(result, str) else result
 
 
@@ -192,8 +253,8 @@ def schedule(args):
     if t is None:
         raise PermissionError('Schedules require an owner Discord message')
     action = args.get('action', 'list')
-    if t.cron and action != 'note':
-        raise PermissionError('A scheduled run can only update its own progress note')
+    if t.cron and action not in ('read', 'note'):
+        raise PermissionError('A scheduled run can only read its own task or update its progress note')
     with JOB_LOCK:
         jobs = load_jobs()
         if action == 'note':
@@ -209,13 +270,98 @@ def schedule(args):
             save_jobs(jobs)
             return {'saved': True, 'job_id': t.job_id}
         if action == 'list':
-            return {'jobs': [{k: j.get(k) for k in ('id', 'name', 'enabled', 'running', 'continuation', 'schedule', 'until', 'quiet', 'next_run_at', 'last_status')}
-                             for j in jobs]}
-        ident = args.get('id')
+            query = args.get('query', '')
+            if not isinstance(query, str) or len(query) > 200:
+                raise ValueError('query must be at most 200 characters')
+            terms = query.casefold().split()
+            matches = [j for j in jobs if all(term in (j['name'] + '\n' + j['prompt']).casefold()
+                                             for term in terms)]
+            matches.sort(key=lambda j: (not j.get('running', False), not j.get('enabled', False)))
+            return {'jobs': [dict({k: j[k] for k in ('id', 'name', 'enabled', 'running', 'continuation',
+                                    'schedule', 'until', 'quiet', 'next_run_at', 'last_status') if k in j},
+                                 summary=' '.join(j['prompt'].split())[:140]) for j in matches]}
+        ident = args.get('id', t.job_id if t.cron else None)
         job = next((j for j in jobs if j['id'] == ident), None)
+        if job is None and not t.cron and isinstance(ident, str):
+            # Exact unique names are convenient; partial matches are discovery only.
+            names = [j for j in jobs if ' '.join(j['name'].split()).casefold()
+                     == ' '.join(ident.split()).casefold()]
+            if len(names) > 1:
+                raise ValueError('Several schedules have that name. Use list(query=...) and select an ID.')
+            job = names[0] if names else None
+            if job is not None:
+                ident = job['id']
+        if action == 'read':
+            if t.cron and (ident != t.job_id or job is not None and job['channel'] != t.channel):
+                raise PermissionError('A scheduled run can only read its own task')
+            if job is None:
+                raise ValueError('Unknown schedule. Use list(query=...) then its ID or exact unique name.')
+            return {'job': dict(job)}
+        if action == 'update':
+            if job is None:
+                raise ValueError('Unknown schedule. Use list(query=...) then its ID or exact unique name.')
+            changes = set(args) - {'action', 'id'}
+            if not changes or changes - {'name', 'prompt', 'at', 'cron', 'until', 'quiet'}:
+                raise ValueError('Update accepts name, prompt, at or cron, until, quiet')
+            updated = dict(job)
+            for key in ('name', 'prompt', 'quiet'):
+                if key in args:
+                    updated[key] = args[key]
+            if (not isinstance(updated['name'], str) or not 1 <= len(updated['name']) <= 100
+                    or not isinstance(updated['prompt'], str) or not 1 <= len(updated['prompt']) <= 8000):
+                raise ValueError('Provide a name (1..100 chars) and prompt (1..8000 chars)')
+            timing_changed = bool(changes & {'at', 'cron'})
+            if timing_changed:
+                if ('at' in args) == ('cron' in args):
+                    raise ValueError('Use exactly one of at or cron')
+                if 'at' in args:
+                    if not isinstance(args['at'], str) or not args['at']:
+                        raise ValueError('at must be a future ISO date/time')
+                    updated['schedule'] = {'kind': 'at', 'at': args['at']}
+                    updated.pop('until', None)
+                    updated['quiet'] = False
+                else:
+                    if (not isinstance(args['cron'], str) or len(args['cron'].split()) != 5
+                            or not croniter.is_valid(args['cron'])):
+                        raise ValueError('cron must be a valid five-field expression')
+                    if updated.get('continuation'):
+                        raise ValueError('Callbacks run once; create a separate recurring schedule')
+                    updated['schedule'] = {'kind': 'cron', 'expr': args['cron']}
+                if 'quiet' in args:
+                    updated['quiet'] = args['quiet']
+            if 'until' in args:
+                updated.pop('until', None)
+                if args['until'] is not None:
+                    if updated['schedule']['kind'] != 'cron' or not isinstance(args['until'], str):
+                        raise ValueError('until is only for recurring cron schedules')
+                    end = datetime.fromisoformat(args['until'])
+                    if end.tzinfo is None:
+                        end = end.replace(tzinfo=TZ)
+                    updated['until'] = end.astimezone(TZ).isoformat()
+            if (not isinstance(updated.get('quiet', False), bool)
+                    or updated.get('quiet') and not updated.get('until')):
+                raise ValueError('quiet requires a recurring schedule with an end time')
+            if timing_changed:
+                updated['next_run_at'] = next_run(updated).isoformat()
+                if datetime.fromisoformat(updated['next_run_at']) <= datetime.now(TZ):
+                    raise ValueError('Reminder time must be in the future')
+            if (updated.get('until') and datetime.fromisoformat(updated['next_run_at'])
+                    > datetime.fromisoformat(updated['until'])):
+                raise ValueError('No scheduled check occurs before the end time')
+            if updated['prompt'] != job['prompt']:
+                updated.pop('note', None)
+            # Revoke a queued old claim; its stale completion cannot overwrite this edit.
+            updated['running'] = False
+            updated['last_status'] = 'pending' if updated['enabled'] else 'paused'
+            if t.cancelled.is_set():
+                raise InterruptedError('Task interrupted; schedule was not updated')
+            jobs[jobs.index(job)] = updated
+            save_jobs(jobs)
+            return dict({k: updated[k] for k in ('id', 'name', 'enabled', 'schedule', 'until', 'quiet', 'next_run_at') if k in updated},
+                        changed=sorted(changes), summary=' '.join(updated['prompt'].split())[:140])
         if action in ('delete', 'pause', 'resume'):
             if job is None:
-                raise ValueError('Unknown schedule id')
+                raise ValueError('Unknown schedule. Use list(query=...) then its ID or exact unique name.')
             if action == 'delete':
                 jobs.remove(job)
             else:
@@ -232,7 +378,7 @@ def schedule(args):
             save_jobs(jobs)
             return {'success': True, 'id': ident, 'action': action}
         if action not in ('create', 'defer'):
-            raise ValueError('Use list, create, defer, pause, resume or delete')
+            raise ValueError('Use list, read, update, create, defer, pause, resume or delete')
         # Completed callbacks are not permanent reminders and must not fill the job limit.
         terminal = {'ok', 'error', 'interrupted', 'delivery_failed', 'cancelled', 'interrupted_by_restart'}
         jobs = [j for j in jobs if not (j.get('continuation') and not j.get('enabled')
@@ -302,18 +448,22 @@ MEMORY_SCHEMA = {
                    'Write or delete only when the owner asks to remember, update or forget something.',
     'parameters': {'type': 'object', 'properties': {
         'action': {'type': 'string', 'enum': ['list', 'read', 'write', 'delete']},
-        'name': {'type': 'string'}, 'text': {'type': 'string'}}, 'required': ['action']}}
+        'name': {'type': 'string', 'maxLength': 80, 'description': '.md filename from list; required for read/write/delete.'},
+        'text': {'type': 'string', 'maxLength': 16000}}, 'required': ['action'], 'additionalProperties': False}}
 SCHEDULE_SCHEMA = {
-    'description': 'Owner schedules, Asia/Seoul. Repeated checks: create ONE five-field cron with '
-                   'optional ISO until; at runs once. quiet=true with until hides intermediate replies '
-                   'and sends the final summary. Verify the returned recurrence before claiming it is active. '
-                   'A scheduled run may only use action=note to save its next-run progress (max 4000 chars; '
-                   'no secrets). defer after_seconds resumes the current interactive task, not a cron job. '
-                   'list/pause/delete manage jobs; /stop cancels running work. Root still needs approval.',
+    'description': 'Owner schedules, Asia/Seoul. list(query) searches names/instructions; active jobs first, short summaries. '
+                   'read(id) shows the full task/note. id also accepts an exact unique name; ambiguous names need an ID. '
+                   'Edit existing jobs with update, not create: only supplied name/prompt/at/cron/until/quiet change. '
+                   'Paused jobs stay paused until resume. cron repeats; at runs once. quiet+until sends only the final summary; '
+                   'until=null removes the end. Verify the returned schedule/changed fields. '
+                   'defer(after_seconds,prompt) resumes this interactive task once. pause/delete manage jobs; /stop stops current work. '
+                   'Scheduled runs: own read/note only, no secrets. Root still needs approval.',
     'parameters': {'type': 'object', 'properties': {
-        'action': {'type': 'string', 'enum': ['list', 'create', 'defer', 'pause', 'resume', 'delete', 'note']},
-        'id': {'type': 'string'}, 'name': {'type': 'string'}, 'prompt': {'type': 'string'},
-        'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': 'string'},
+        'action': {'type': 'string', 'enum': ['list', 'read', 'update', 'create', 'defer', 'pause', 'resume', 'delete', 'note']},
+        'id': {'type': 'string', 'description': 'ID or exact unique name from list; omit for a scheduled run reading itself.'},
+        'query': {'type': 'string', 'maxLength': 200, 'description': 'list only: words matched in the name or instructions.'},
+        'name': {'type': 'string'}, 'prompt': {'type': 'string'},
+        'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': ['string', 'null']},
         'quiet': {'type': 'boolean'}, 'text': {'type': 'string', 'maxLength': 4000},
         'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 86400}}, 'required': ['action']}}
 WAIT_SCHEMA = {

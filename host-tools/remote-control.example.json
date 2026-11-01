@@ -1,0 +1,59 @@
+{
+  "defaults": {
+    "ssh": "linux-server",
+    "rdp": "windows-pc",
+    "codex": "windows-pc"
+  },
+  "instances": {
+    "linux-server": {
+      "host": "192.0.2.10",
+      "ssh": {
+        "account": "linux-login",
+        "port": 22,
+        "known_hosts": "/etc/evo-omp/ssh/known_hosts"
+      }
+    },
+    "cloud-server": {
+      "host": "198.51.100.10",
+      "ssh": {
+        "account": "cloud-login",
+        "port": 22,
+        "known_hosts": "/etc/evo-omp/ssh/cloud-server.known_hosts",
+        "sudo_nopasswd": true
+      }
+    },
+    "windows-pc": {
+      "host": "192.0.2.20",
+      "rdp": {
+        "account": "desktop-login",
+        "port": 3389,
+        "domain": ".",
+        "certificate_file": "/etc/evo-omp/certs/desktop-rdp.pem"
+      },
+      "codex": {
+        "port": 4500,
+        "token_file": "/etc/evo-omp/credentials/desktop-codex.token",
+        "ca": "/etc/evo-omp/certs/desktop-codex.pem",
+        "cwd": "C:\\Work"
+      }
+    }
+  },
+  "accounts": {
+    "linux-login": {
+      "username": "operator",
+      "ssh_instances": ["linux-server"],
+      "password_file": "/etc/evo-omp/ssh/linux-server.password",
+      "sudo_password_file": "/etc/evo-omp/ssh/linux-server.password"
+    },
+    "cloud-login": {
+      "username": "opc",
+      "ssh_instances": ["cloud-server"],
+      "identity_file": "/etc/evo-omp/ssh/cloud-server.key"
+    },
+    "desktop-login": {
+      "username": "operator",
+      "rdp_instances": ["windows-pc"],
+      "password_file": "/etc/evo-omp/credentials/desktop.password"
+    }
+  }
+}

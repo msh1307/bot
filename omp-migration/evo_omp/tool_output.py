@@ -11,7 +11,7 @@ FIELD_BYTES = 4096
 EDGE_BYTES = 1024
 MAX_FILES = 64
 MAX_BYTES = 16 * 2**20
-TOOLS = {'host_command', 'codex_task', 'browser', 'gmail'}
+TOOLS = {'host_command', 'browser', 'gmail', 'remote_control', 'shell_exec'}
 
 
 def dumps(value):

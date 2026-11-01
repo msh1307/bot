@@ -374,7 +374,7 @@ class DesktopIPC {
     if (state.pending_requests.length || state.runtime_flags.length) throw new DesktopError('waiting_for_input',
       'This GUI thread is waiting for approval/input. Respond in the desktop app first.');
     const clientUserMessageId = crypto.randomUUID();
-    const input = [{type: 'text', text: args.prompt}];
+    const input = [{type: 'text', text: args.prompt, text_elements: []}];
     const active = state.turn_status === 'inProgress';
     const method = active ? 'thread-follower-steer-turn' : 'thread-follower-start-turn';
     const params = active ? {conversationId: id, input, clientUserMessageId,

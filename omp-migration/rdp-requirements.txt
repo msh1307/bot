@@ -1,0 +1,2 @@
+# Separate Python 3.12 worker; keep these dependencies out of the live bot venv.
+aardwolf==0.2.16

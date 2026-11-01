@@ -1,5 +1,5 @@
 [Unit]
-Description=EVO owner Discord assistant using Oh My Pi
+Description=EVO owner Discord assistant using Pi
 Wants=network-online.target
 After=network-online.target evo-host.service evo-router.service
 Conflicts=evo-hermes.service
@@ -13,6 +13,7 @@ Group=evo-hermes
 Environment=HOME=/var/lib/evo-omp
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+Environment=EVO_HARNESS=pi
 Environment=TZ=Asia/Seoul
 EnvironmentFile=/etc/evo-omp/discord.env
 WorkingDirectory=/opt/evo-omp

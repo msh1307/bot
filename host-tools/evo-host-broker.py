@@ -36,14 +36,16 @@ def validate(payload):
     if '```' in command or any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs')
                               and c not in '\n\t' for c in command):
         raise ValueError('Hidden/control characters and code fences are not allowed')
-    reason = payload.get('reason', '')
-    if not isinstance(reason, str) or not 1 <= len(reason.strip()) <= 160:
-        raise ValueError('Explain the command in 1 to 160 characters')
-    if any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs') for c in reason):
-        raise ValueError('Reason must be plain text')
     run_as = payload.get('run_as', 'evo-hermes')
     if run_as not in POLICY['users']:
         raise ValueError('Only evo-hermes or explicitly approved root is available')
+    reason = payload.get('reason', '')
+    if not isinstance(reason, str) or len(reason.strip()) > 160:
+        raise ValueError('Reason must be text, at most 160 characters')
+    if run_as == 'root' and not reason.strip():
+        raise ValueError('Root commands require a reason (1 to 160 characters)')
+    if any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs') for c in reason):
+        raise ValueError('Reason must be plain text')
     timeout = payload.get('timeout', 60)
     if type(timeout) is not int or not 1 <= timeout <= POLICY['max_timeout']:
         raise ValueError('Timeout must be an integer from 1 to 120 seconds')

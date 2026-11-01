@@ -47,12 +47,12 @@ async def main():
             rpc.sandbox_argv = argv
             REQUESTS.clear(); STEPS.clear()
             session = rpc.OmpSession('schema-audit', 'sc117-flash-next-iq3_xxs',
-                                     registry.definitions(), host, cfg)
+                                     [dict(d, loadMode='essential') for d in registry.definitions()], host, cfg)
             try:
                 await session.start()
                 if name == 'candidate':
-                    STEPS.append(('read', {'path': '/home/agent/tool-help/codex_task.json:raw',
-                                          'i': 'Read the current full Codex tool specification'}))
+                    STEPS.append(('read', {'path': '/home/agent/tool-help/remote_control.json:raw',
+                                          'i': 'Read the current remote control tool specification'}))
                 answer = await asyncio.wait_for(session.prompt('Private tool-schema check.',
                                 context.Turn('990826359704154225')), 45)
                 assert answer == 'VERIFIED_CONTEXT'
@@ -63,7 +63,8 @@ async def main():
                         saved = json.loads((session.profile / 'tool-help' / (tool + '.json')).read_text())
                         assert saved == full[tool], tool
                     result = next(m for m in REQUESTS[-1]['messages'] if m['role'] == 'tool')
-                    assert 'file_list' in str(result['content']) and 'request_id' in str(result['content'])
+                    assert 'protocol' in str(result['content']) and 'args' in str(result['content'])
+                    assert 'remote_control' in str(result['content'])
                     checks['full_help_matches_current_request'] = True
                     checks['native_read_help_passed'] = True
             finally:
@@ -72,7 +73,9 @@ async def main():
             assert structure(captured['full']) == structure(captured['candidate'])
             checks['all_schema_constraints_preserved'] = True
             checks['tool_count'] = len(captured['candidate'])
-            assert checks['tool_count'] == 19
+            assert {t['function']['name'] for t in captured['candidate']} == {
+                'read', 'grep', 'glob', 'edit', 'write', 'bash',
+                *(t['name'] for t in registry.definitions())}
             checks['user_input_present'] = any(t['function']['name'] == 'user_input' for t in captured['candidate'])
         (report / 'schemas.json').write_text(json.dumps(captured, ensure_ascii=False, indent=2))
         result = {'passed': True, 'model_inference': False, 'discord_posts': 0,

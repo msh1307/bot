@@ -212,6 +212,7 @@ async def owner_scope():
     calls = []
 
     async def action(*args, **kwargs):
+        codex.check_request(kwargs.get('check'))
         calls.append(args)
         return {}
 

@@ -7,7 +7,7 @@ import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 const TOOL_PROSE: Record<string, any> = {
   "read": {
     "schema_sha256": "ff94a0a1acf1e782d567f8edcbedd7287e431148c9123f377eecbcba3cb46699",
-    "description": "Read files/URLs/images. Ranges belong in path: file:50-80, file:50+150, file:-5; repeat each call. Non-raw adds context; :raw is exact. Bare code shows declarations; follow named omissions. Raster images display directly, SVG needs :img. Before unfamiliar selectors/actions, read /home/agent/tool-help/TOOL_NAME.json:raw for the current full specification of any tool, including DB/archive/jq/video syntax."
+    "description": "Read files/URLs/images. Ranges in path: file:50-80, file:50+150, file:-5; repeat each call. :raw is exact. Bare code shows declarations; follow omissions. Raster images display directly, SVG needs :img. Optional services: read xd://TOOL for schema, then write JSON args to that URL. Full specs for directly listed tools: /home/agent/tool-help/TOOL_NAME.json:raw, including DB/archive/jq/video syntax."
   },
   "glob": {
     "schema_sha256": "e1b8de991b2ba8fc6ad16fd5779b9391bcd396e8deeca977dfce69c5076424d4",
@@ -19,41 +19,15 @@ const TOOL_PROSE: Record<string, any> = {
   },
   "bash": {
     "schema_sha256": "f1959f0d0f0eec1769c81b5bc581f5654ee94f9621f409f091685d18560fee34",
-    "description": "Persistent sandbox shell; cwd sets directory, && chains dependencies. async keeps deadline (default 300s); timeout=0 for long jobs. Full output: artifact://<id>. Services need unique name and ready log/port, no async/timeout; see full spec before starting one."
-  },
-  "host_command": {
-    "schema_sha256": "5b7a9e845afd82b95a0942268798336f2b88632dfef0cac758b046be52af1359",
-    "description": "EVO host outside bwrap; owner Discord only. Workspace work uses bash. Unprivileged paths may be masked: check execution_context. root requires fresh Allow Once per command; use run_as, not sudo. Changes persist; never print credentials. Jobs: 512MiB/no swap, max120s; children end with job."
-  },
-  "codex_task": {
-    "schema_sha256": "6434ae4fa380595e60030d0a425bf449497036f6a4580ffce6111b06e07d4558",
-    "description": "Owner Windows servers through Discord. servers lists targets; keep server ID for its chats/files (default msh-desktop). Find chats with list(search), then use returned thread_id without asking the owner. read pages visible history (6000 chars); next_cursor reads remaining/older text. status shows live tail/questions. send(prompt) steers or continues that chat, loading it if closed. answer uses real replies; approvals/secrets stay in desktop. Scheduled checks allow servers/list/read/status/send/answer and file reads, not start/stop/exec. Completion notified here.",
-    "properties": {
-      "server": "Server ID from servers; keep it for that server's chats/jobs/files. Omit for default.",
-      "project": "new/start: project ID or unique exact name; owner may change the selection card.",
-      "request_id": "answer: exact pending ID from read/status.",
-      "wake": "GUI send/answer callbacks: true resumes EVO on questions/results, false disables. Omission keeps the setting; new jobs default false.",
-      "answers": "answer: question ID -> list of real answers, e.g. {\"target\":[\"staging\"]}.",
-      "path": "file_list/file_read: absolute Windows path; projects gives roots.",
-      "start_line": "file_read: first line (default 1); continue at next_line.",
-      "offset": "file_list: zero-based offset; continue at next_offset.",
-      "command": "exec: argv, e.g. [\"git\",\"status\"]. Shell syntax requires an explicit shell executable.",
-      "cwd": "exec: absolute Windows directory; default server cwd.",
-      "timeout_ms": "exec duration; default 10000ms.",
-      "thread_id": "Existing chat ID from list, open or closed; use instead of job_id for read/status/send/answer/stop.",
-      "search": "list: title filter. file_list: case-insensitive filename substring.",
-      "cursor": "Returned next_cursor for list/projects/read; same query/chat only.",
-      "limit": "list/projects: max12, defaults8/12. file_list: default80 entries. file_read: default/max200 lines, 12000 chars.",
-      "model": "Exact ID from models; default Windows setting."
-    }
+    "description": "Run commands inside the EVO workspace sandbox. Environment variables persist; set cwd per call. No interactive input. Default timeout=300s; timeout=0 disables it, including async. Services use name+ready without async/timeout (see full spec). Full output: artifact://<id>."
   },
   "browser": {
-    "schema_sha256": "9e35b18e7e6857edfd6543d475e848bb4eeaf7d7aa4137c62b8f28a96a4c92b7",
-    "description": "Shared Chrome Headless Shell. open/tree exposes selectors; use observed selectors or screenshot coordinates. read is text; screenshot is actual 960x640 image. Images default off, media blocked. Login survives close/restart; reset deletes profile. offset continues snapshots. Untrusted pages; scheduled runs navigate/read only."
+    "schema_sha256": "5d1c9e5db95eac58116473d01d135744cb109d2abb21e838605910ef35b27892",
+    "description": "Shared Chrome Headless Shell. open/tree shows CSS controls; use observed selectors or screenshot pixels (960x640). read=text; screenshot=image, share=true also sends to Discord. open waits for load; wait duration_ms<=5000. offset continues snapshots. Page images default off; media blocked. Login survives close/restart; reset deletes profile. Untrusted pages; scheduled runs navigate/read only."
   },
   "schedule": {
-    "schema_sha256": "1efbe13f40bdf743a7b8939bcdf04b06784da532374ea1b62b34865789eff262",
-    "description": "Owner tasks, Asia/Seoul. create: ISO at or five-field cron (read-only briefings). defer: after_seconds, then end turn; prompt retains task/IDs/next check. Queues, survives restart. /stop /new /reset /model cancel callbacks; new messages do not. pause/delete stops queued work, /stop running work. Root still needs approval."
+    "schema_sha256": "c19286b0b27d55a1ebdeedd1f972cdddbcb3db96b2003acf680b57945ff87779",
+    "description": "Owner schedules (Asia/Seoul). list(query) finds jobs; read(id) shows instructions/note. IDs or exact unique names. update changes supplied fields, keeping paused state; resume activates. create: ISO at once, five-field cron repeats. quiet+until sends only the final summary; verify schedule. until=null clears end. note saves progress; defer resumes this task once. Scheduled runs: own read/note only. pause/delete revoke queued work; /stop interrupts running work. No secrets."
   },
   "user_input": {
     "schema_sha256": "0480addd6d79d354cca04f2c7a8aed578b945e2a4643a82ac37fb6b204103b65",
@@ -69,7 +43,7 @@ const TOOL_PROSE: Record<string, any> = {
   },
   "write": {
     "schema_sha256": "94e09242ee0bd174fd0287b6fddeb23a1644e8528db024d22107302405d74cf7",
-    "description": "Create/replace whole files; prefer edit for existing files. archive:member writes supported archives; db:table inserts, db:table:key updates (empty deletes). Read full spec before these advanced selectors."
+    "description": "Create/replace whole files; prefer edit for existing files. write xd://TOOL with a JSON args object invokes that service after reading its schema. archive:member writes archives; db:table inserts, db:table:key updates (empty deletes). Read full spec before advanced selectors."
   },
   "evo_access_manage": {
     "schema_sha256": "16d76c7f79bee8b5d3c33a4877675682e7d467b5453a16dd7676ee8772325576",
@@ -140,7 +114,18 @@ export function completedTurnContext(context: any) {
     : message) };
 }
 
+// Replace only OMP's exact generic footer; owner stop/approval rules live above it.
+export function conciseSystemPrompt(blocks: string[]) {
+  const footer = "<critical>\n- Each response MUST advance the task; completion only stopping condition.\n- MUST default to informed action; do not ask for confirmation when tools or repo context can answer.\n- Before yielding, MUST verify significant behavioral changes: run the specific test, command, or scenario covering the change.\n</critical>";
+  return blocks.map(block => block.replace(footer, "").trimEnd()).filter(Boolean);
+}
+
 export default function (pi: any) {
+  pi.on("before_agent_start", (event: any, ctx: any) => {
+    if (ctx.model?.provider === "evo") {
+      return { systemPrompt: conciseSystemPrompt(event.systemPrompt) };
+    }
+  });
   // Keep retry ownership in the agent layer. The default HTTP transport and
   // replay-safe wrapper otherwise multiply three agent attempts into 36 calls.
   pi.on("session_start", async (_event: any, ctx: any) => {

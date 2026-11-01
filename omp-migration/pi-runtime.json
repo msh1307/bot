@@ -1,0 +1,11 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "1.4.0",
+  "upstream": "https://github.com/earendil-works/pi/releases/tag/v1.4.0",
+  "install_manifest": "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-coding-agent-install-package.json",
+  "install_manifest_sha256": "9792b34aba5a94320fde5c68600eac4a5720d0d63ebc527d462bd125665b29ee",
+  "install_lockfile": "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-coding-agent-install-package-lock.json",
+  "install_lockfile_sha256": "eb2c76ac270f099f2af3cbc6ccd08c3d22bf562b914af3690d1abba985461ade",
+  "install_directory": "/opt/evo-omp/bin/pi-1.4.0",
+  "upstream_modifications": false
+}

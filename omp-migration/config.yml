@@ -16,6 +16,8 @@ advisor:
 telemetry:
   otlpExportEnabled: false
 tools:
+  xdev: true
+  xdevDocs: catalog
   artifactSpillThreshold: 12
   artifactHeadBytes: 1
   artifactTailBytes: 1

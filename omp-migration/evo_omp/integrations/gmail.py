@@ -1,5 +1,4 @@
 """On-demand, read-only Gmail for the live owner Discord session."""
-import contextlib
 import email
 from email import policy
 from html.parser import HTMLParser

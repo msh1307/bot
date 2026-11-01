@@ -2,23 +2,17 @@
 import asyncio
 import hashlib
 import json
-import os
 from pathlib import Path
-import re
-import secrets
 import socket
 import threading
 import time
-import unicodedata
 from collections import OrderedDict
-from urllib.parse import unquote, urljoin, urlsplit
 
 OWNER = '543004181842362379'
 WORKSPACE = Path('/var/lib/evo-hermes/workspace')
 SOCKET = '/run/evo-host/broker.sock'
 CLIENT = LOOP = None
 HOST_LOCK = threading.Lock()
-DOWNLOAD_LOCK = threading.Lock()
 ROOT_REFUSALS = OrderedDict()
 ROOT_EXECUTIONS = OrderedDict()
 
@@ -104,7 +98,7 @@ async def post_root_approval(data, session_key, chat_id):
 
         async def interaction_check(self, interaction):
             if str(interaction.user.id) != OWNER:
-                await interaction.response.send_message('Only the owner can approve root access.',
+                await interaction.response.send_message('Only the owner can approve this action.',
                                                         ephemeral=True)
                 return False
             return True
@@ -143,7 +137,8 @@ async def post_root_approval(data, session_key, chat_id):
 
     command = _redact_approval_command(data['command']).replace('```', "'''")
     reason = _redact_approval_command(data['description']).replace('```', "'''")
-    preview = '**Root command — approve this execution only**\n```bash\n' \
+    title = data.get('title', 'Root command — approve this execution only')
+    preview = '**' + title + '**\n```bash\n' \
               + command + '\n```\n' + reason[:220]
     if len(preview) > 1850:
         raise ValueError('Root command is too long to display in full for approval')
@@ -156,6 +151,55 @@ async def post_root_approval(data, session_key, chat_id):
         await view.message.edit(content=preview + '\n\n' + view.label, view=view,
                                 allowed_mentions=discord.AllowedMentions.none())
     return view
+
+
+def approve_once(turn, command, description, execution_key, kind='root'):
+    """Exact owner approval; no session lease and no secret in the preview."""
+    from ..context import live_owner, wait_for_approval
+    if live_owner() is not turn or not discord_connected() or not turn.id or turn.cancelled.is_set():
+        return dict(success=False, error='Approval requires a connected live owner turn')
+    refusal_key = turn.key if kind == 'root' else kind + ':' + turn.key
+    if root_turn_refused(refusal_key, turn.id):
+        return dict(success=False, retryable=False, approval_status='refused_this_turn',
+                    error='Approval was denied or expired this turn. Wait for a new owner message.')
+    if execution_key in ROOT_EXECUTIONS:
+        return dict(success=False, retryable=False, approval_status='duplicate_execution',
+                    error='This approved action already executed this turn. Use its existing result.')
+    root_view = None
+
+    def notify(data):
+        nonlocal root_view
+        future = asyncio.run_coroutine_threadsafe(post_root_approval(data, turn.key, turn.channel), LOOP)
+        try:
+            root_view = future.result(timeout=15)
+        except Exception:
+            future.cancel()
+            raise
+
+    data = {'command': command, 'description': description}
+    if kind == 'credential':
+        data['title'] = 'Secret entry — approve this input only'
+    decision = wait_for_approval(turn.key, notify, data)
+    approved = decision.get('resolved') and decision.get('choice') == 'once' and not decision.get('cancelled')
+    if root_view is not None:
+        label = 'Approved once.' if approved else 'Not approved; command was not run.'
+        update = asyncio.run_coroutine_threadsafe(root_view.finish(label), LOOP)
+        try:
+            update.result(timeout=5)
+        except Exception:
+            update.cancel()
+            raise
+    if not approved:
+        remember_root_refusal(refusal_key, turn.id)
+        return dict(success=False, retryable=False, approval_status='denied_or_expired',
+                    error='Not approved; no action ran. Wait for a new owner message before requesting approval again.')
+    if turn.cancelled.is_set() or not discord_connected():
+        return dict(success=False, error='Approved action cancelled before execution')
+    return None
+
+
+def approve_root_once(turn, command, description, execution_key):
+    return approve_once(turn, command, description, execution_key)
 
 
 def host_command(args, **kwargs):
@@ -194,51 +238,11 @@ def host_command(args, **kwargs):
         # saved patterns, or an automatic reviewer for this privileged path.
         if ticket['payload']['run_as'] == 'root':
             execution_key = root_command_key(session_key, turn_id, ticket['payload'])
-            if execution_key in ROOT_EXECUTIONS:
-                return result(dict(success=False, retryable=False, approval_status='duplicate_execution',
-                    error='This root command already executed this turn. No new approval or execution occurred. '
-                          'Use its existing result; a fresh execution needs a new owner turn.'))
-            from ..context import wait_for_approval
-            chat_id = turn.channel
-            if not chat_id or not str(chat_id).isdigit():
-                return result(dict(success=False, error='No live Discord approval destination'))
-
-            root_view = None
-
-            def notify_root(data):
-                nonlocal root_view
-                future = asyncio.run_coroutine_threadsafe(
-                    post_root_approval(data, session_key, chat_id), LOOP)
-                try:
-                    root_view = future.result(timeout=15)
-                except Exception:
-                    future.cancel()
-                    raise
-
-            decision = wait_for_approval(session_key, notify_root, {
-                'command': '# EVO root; cwd=' + ticket['payload']['cwd'] + '\n'
-                           + ticket['payload']['command'],
-                'description': 'Root access: ' + ticket['payload']['reason']
-                               + ' (this command only)',
-            })
-            approved = decision.get('resolved') and decision.get('choice') == 'once' \
-                       and not decision.get('cancelled')
-            if root_view is not None:
-                # /approve resolves the same native queue without clicking this
-                # card; close it too so it cannot later claim a false timeout.
-                label = 'Approved once.' if approved else 'Not approved; command was not run.'
-                update = asyncio.run_coroutine_threadsafe(root_view.finish(label), LOOP)
-                try:
-                    update.result(timeout=5)
-                except Exception:
-                    update.cancel()
-                    raise
-            if not approved:
-                remember_root_refusal(session_key, turn_id)
-                return result(dict(success=False,
-                    retryable=False, approval_status='denied_or_expired',
-                    error='Root command was not approved once by the Discord owner; not executed. '
-                          'Do not request root again until a new owner message. Sandbox work is still available.'))
+            refusal = approve_root_once(turn,
+                '# EVO root; cwd=' + ticket['payload']['cwd'] + '\n' + ticket['payload']['command'],
+                'Root access: ' + ticket['payload']['reason'] + ' (this command only)', execution_key)
+            if refusal:
+                return result(refusal)
         def cancelled():
             return is_interrupted() or not discord_connected()
         if cancelled():
@@ -266,22 +270,16 @@ def register(ctx):
     ctx.register_platform_handler('discord', discord_factory)
     ctx.register_tool('host_command', 'evo_host', {
         'name': 'host_command',
-        'description': 'Run a command on the EVO host outside bwrap, only in the authenticated owner Discord '
-                       'session. Unprivileged commands execute directly; run_as=root ALWAYS requires '
-                       'a new Allow Once approval in Discord, including apt update. Session/permanent '
-                       'approval never applies to root. Use carefully: host changes persist. '
-                       'Use bash for ordinary /workspace work. Default unprivileged; select run_as=root '
-                       'instead of sudo when administrator access is needed. Approved root commands use '
-                       'the real host filesystem and normal root capabilities without bwrap or path masks. '
-                       'APT may use its normal _apt download sandbox. Ordinary host jobs remain restricted '
-                       'and see masked placeholders for protected files such as /home/msh/mshsrv. '
-                       'Use credentials internally; never print them. Read execution_context before '
-                       'interpreting file metadata. Each job has a 512 MiB/no-swap resource limit and '
-                       'a maximum 120-second timeout. Background children end with the command.',
+        'description': 'Run one command on the EVO server itself. Use bash for workspace work. '
+                       'Omit reason for non-root; run_as=root needs a reason and fresh Discord Allow Once '
+                       '(use run_as, not sudo). Non-root protected files may be masked; check execution_context. '
+                       'Owner Discord only. Limit 120s/512MiB/no swap; no interactive input or surviving '
+                       'background jobs. Never print credentials.',
         'parameters': {'type': 'object', 'properties': {
             'command': {'type': 'string', 'maxLength': 1000},
-            'reason': {'type': 'string', 'maxLength': 160},
+            'reason': {'type': 'string', 'maxLength': 160,
+                       'description': 'Omit for non-root. Required only for run_as=root.'},
             'cwd': {'type': 'string', 'default': '/workspace'},
             'run_as': {'type': 'string', 'enum': ['evo-hermes', 'root'], 'default': 'evo-hermes'},
             'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 120, 'default': 60}},
-            'required': ['command', 'reason']}}, host_command)
+            'required': ['command']}}, host_command)

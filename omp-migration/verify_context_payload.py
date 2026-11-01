@@ -87,7 +87,7 @@ async def main():
                 await session.start()
                 for i, (name, args) in enumerate((
                         ('host_command', {'command': 'echo synthetic', 'reason': 'Synthetic audit only'}),
-                        ('browser', {'action': 'status'}), ('codex_task', {'action': 'list'}))):
+                        ('browser', {'action': 'status'}), ('remote_control', {'protocol': 'codex', 'action': 'list'}))):
                     STEPS.append((name, args))
                     assert await session.prompt(f'FIXTURE_REQUEST_{i}: Inspect evidence only.',
                                                 context.Turn('990826359704154225')) == 'VERIFIED_CONTEXT'

@@ -52,7 +52,8 @@ async def main():
                             context.Turn('990826359704154225')), 90)
         assert answer == 'VERIFIED_CONTEXT', answer
         tools = {t['function']['name']: t['function'] for t in REQUESTS[0]['tools']}
-        assert len(tools) == 19 and 'task' not in tools, sorted(tools)
+        assert set(tools) == {'read', 'grep', 'glob', 'edit', 'write', 'bash',
+                             *(t['name'] for t in registry.definitions() if t['loadMode'] == 'essential')}, sorted(tools)
         assert 'Multi-round search MUST use Task' not in tools['grep']['description']
         results = [m for m in REQUESTS[-1]['messages'] if m['role'] == 'tool']
         assert len(results) == 2 and all('rev-B29' in str(m['content']) for m in results)

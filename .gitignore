@@ -66,6 +66,7 @@
 !/omp-migration/models.yml
 !/omp-migration/instructions.txt
 !/omp-migration/requirements.txt
+!/omp-migration/rdp-requirements.txt
 !/omp-migration/provider.ts
 !/omp-migration/README.md
 !/omp-migration/patches/
@@ -89,6 +90,10 @@
 !/host-tools/README.md
 !/host-tools/evo-access.py
 !/host-tools/windows-servers.example.json
+!/host-tools/rdp.example.json
+!/host-tools/credential-input.example.json
+!/host-tools/ssh.example.json
+!/host-tools/remote-control.example.json
 !/host-tools/codex-bridge/
 /host-tools/codex-bridge/*
 !/host-tools/codex-bridge/server.js
@@ -112,9 +117,14 @@ __pycache__/
 **/discord.env
 **/gmail.json
 **/codex-remote.json
+**/remote-control.json
+**/ssh.json
 **/migration.json
 **/mshsrv
 **/oauth
+**/accounts.json
+*.password
+*.totp
 **/id_rsa
 **/id_rsa.pub
 **/id_ed25519
@@ -155,6 +165,9 @@ __pycache__/
 /omp-migration/memory/
 /omp-migration/review/
 /omp-migration/vendor-source/
+!/omp-migration/pi-runner.mjs
+!/omp-migration/pi-runtime.json
+!/omp-migration/pi-migration-verification.json
 /host-tools/review/
 *.tgz
 *.tar.gz

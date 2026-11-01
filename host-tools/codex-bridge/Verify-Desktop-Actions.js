@@ -28,6 +28,8 @@ function client(current, answer = null) {
   let call = calls.at(-1);
   assert.equal(call.method,'thread-follower-start-turn');assert.equal(call.version,2);
   assert.equal(call.params.turnStart.request.threadId,threadId);
+  assert.deepEqual(call.params.turnStart.request.input,
+    [{type:'text',text:'verification only',text_elements:[]}]);
   assert.equal(call.params.turnStart.context.inheritThreadSettings,true);
   assert.equal(result.turn_id,'verification-next-turn');assert.equal(result.mode,'start_turn');
   assert(!('model' in call.params.turnStart.request));assert(!('sandboxPolicy' in call.params.turnStart.request));
@@ -39,6 +41,9 @@ function client(current, answer = null) {
   assert.equal(call.params.conversationId,threadId);assert.equal(result.mode,'steer');
   assert.equal(result.turn_id,'verification-turn');
   assert.equal(call.params.restoreMessage.id,call.params.clientUserMessageId);
+  assert.deepEqual(call.params.input,
+    [{type:'text',text:'verification steer',text_elements:[]}]);
+  assert.deepEqual(call.params.restoreMessage.input,call.params.input);
   assert.deepEqual(call.params.restoreMessage.context,{attachments:[],commentAttachments:[]});
   assert(!('turns' in call.params));
 

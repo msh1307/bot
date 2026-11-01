@@ -1,4 +1,4 @@
-"""Bounded upstream OMP RPC transport; native coding tools stay inside bwrap."""
+"""Pi/OMP transport; native coding tools stay inside bwrap."""
 import asyncio
 import base64
 import codecs
@@ -20,6 +20,10 @@ ROOT = Path('/opt/evo-omp')
 WORKSPACE = Path('/var/lib/evo-hermes/workspace')
 RUNTIME = Path('/run/evo-omp')
 LOG = logging.getLogger('evo-omp.rpc')
+ENGINE = os.environ.get('EVO_HARNESS', 'omp')
+if ENGINE not in ('omp', 'pi'):
+    raise ValueError('EVO_HARNESS must be omp or pi')
+ENGINE_VERSION = '1.4.0' if ENGINE == 'pi' else '18.11.3'
 
 
 def sandbox_argv(profile, model):
@@ -49,6 +53,10 @@ def sandbox_argv(profile, model):
            'PI_NO_TITLE': '1', 'PI_NO_PTY': '1', 'EVO_COMPLETED_REASONING_CONTEXT': '1'}
     for key, val in env.items():
         args += ['--setenv', key, val]
+    if ENGINE == 'pi':
+        args += ['--ro-bind', str(ROOT / 'pi-runner.mjs'), str(ROOT / 'pi-runner.mjs'),
+                 '--setenv', 'EVO_PI_RUNTIME', str(ROOT / 'bin/pi-1.4.0')]
+        return args + ['/usr/bin/node', str(ROOT / 'pi-runner.mjs'), model]
     return args + [str(ROOT / 'bin/omp-v18.11.3'), '--mode', 'rpc', '--no-ui',
                    '--session-dir', '/home/agent/sessions',
                    '--no-extensions', '--no-skills', '--no-rules',
@@ -74,6 +82,8 @@ class OmpSession:
         self.last_text, self.error = '', ''
         self.last_progress = ''
         self.pending_text = ''
+        self.reasoning_tail, self.live_text = '', ''
+        self.reasoning_chars = 0
         self.on_progress = None
         self.transport_error = ''
         self.stderr_tail = ''
@@ -152,7 +162,7 @@ class OmpSession:
             raise RuntimeError('OMP startup failed: ' + (detail or 'no ready frame'))
         exit_wait.cancel()
         await self.request('negotiate_protocol', protocolVersion=2)
-        await self.request('set_event_filter', events=['message_end', 'turn_start',
+        await self.request('set_event_filter', events=['message_update', 'message_end', 'turn_start',
             'tool_execution_start', 'tool_execution_end', 'agent_start', 'agent_end',
             'auto_compaction_start', 'auto_compaction_end'], messageUpdates='delta')
         await self.request('set_host_tools', tools=self.definitions)
@@ -174,7 +184,8 @@ class OmpSession:
             if result.get('cancelled'):
                 raise RuntimeError('OMP session recovery was cancelled')
         state = await self.request('get_state')
-        if state.get('model', {}).get('api') != 'evo-bounded-completions':
+        expected_api = 'evo-pi-completions' if ENGINE == 'pi' else 'evo-bounded-completions'
+        if state.get('model', {}).get('api') != expected_api:
             raise RuntimeError('EVO retry limiter did not activate; refusing an unbounded provider')
         return self
 
@@ -238,6 +249,8 @@ class OmpSession:
         self.last_text, self.error = '', ''
         self.last_progress = ''
         self.pending_text = ''
+        self.reasoning_tail, self.live_text = '', ''
+        self.reasoning_chars = 0
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
         self.last_event = 'waiting for model'
@@ -272,6 +285,8 @@ class OmpSession:
         finally:
             self.pending.pop(ident, None)
             self.prompts.pop(ident, None)
+            self.reasoning_tail, self.live_text = '', ''
+            self.reasoning_chars = 0
             if self.turn is turn:
                 self.turn = None
             self.last_used = time.monotonic()
@@ -365,6 +380,8 @@ class OmpSession:
         elif kind == 'turn_start':
             self.flush_progress()
             self.last_text = ''
+            self.reasoning_tail, self.live_text = '', ''
+            self.reasoning_chars = 0
             self.last_event = 'waiting for model'
             self.rounds += 1
         elif kind == 'tool_execution_start':
@@ -384,7 +401,15 @@ class OmpSession:
             LOG.info('compaction_start reason=%s action=%s', event.get('reason'), event.get('action'))
             self.last_event = 'compacting'
         elif kind == 'message_update' and self.last_event != 'compacting':
-            subtype = (event.get('assistantMessageEvent') or {}).get('type')
+            update = event.get('assistantMessageEvent') or {}
+            subtype, delta = update.get('type'), update.get('delta')
+            if isinstance(delta, str):
+                # Bounded observer state only: never a prompt, transcript or log.
+                if subtype == 'thinking_delta':
+                    self.reasoning_tail = (self.reasoning_tail + delta[-1400:])[-1400:]
+                    self.reasoning_chars += len(delta)
+                elif subtype == 'text_delta':
+                    self.live_text = (self.live_text + delta[-600:])[-600:]
             self.last_event = {'thinking_delta': 'reasoning', 'text_delta': 'writing answer',
                                'toolcall_delta': 'preparing tool'}.get(subtype, 'receiving model response')
         elif kind == 'host_tool_call':
@@ -477,6 +502,8 @@ class OmpSession:
 
     async def close(self):
         self.closing = True
+        self.reasoning_tail, self.live_text = '', ''
+        self.reasoning_chars = 0
         self.transport_error = self.transport_error or 'OMP session closed'
         if self.turn:
             self.turn.cancelled.set()

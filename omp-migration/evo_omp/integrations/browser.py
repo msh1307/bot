@@ -121,6 +121,19 @@ class Browser:
         try: self.version = self.request('ready',{},turn,25)['version']
         except BaseException: self.close(); raise
 
+    def enter_secret(self,selector,origins,field,value,turn):
+        with self.lock:
+            if not self.running(): raise ValueError('Open the login page first')
+            if turn.cancelled.is_set(): raise InterruptedError('Credential input interrupted')
+            try:
+                self.request('credential_fill', {'selector':selector,'origins':origins,
+                    'field':field,'value':value},turn,20)
+            except BaseException:
+                self.close()
+                raise
+            finally:
+                if self.running(): self.touch()
+
     def call(self,args,turn):
         action = args.get('action')
         if action not in ACTIONS: raise ValueError('Unknown browser action')
@@ -213,7 +226,7 @@ def register(ctx):
         'description':'Drive one shared local Chrome Headless Shell browser. '
             'open/tree show controls and CSS selectors; read shows visible text; find searches control names. '
             'Use observed selectors for inputs/clicks, or click with viewport x,y after screenshot. '
-            'screenshot returns the actual 960x640 image directly, without saving a file. '
+            'screenshot returns the image; share=true also sends it to the current Discord channel. '
             'open waits for page load by default. wait duration_ms pauses up to 5 seconds. '
             'offset continues a snapshot with the same arguments. Images are blocked by default; '
             'open images=true loads page images when needed. Media stays blocked. '
@@ -222,6 +235,7 @@ def register(ctx):
         'parameters':{'type':'object','properties':{
             'action':{'type':'string','enum':ACTIONS},'url':{'type':'string'},
             'images':{'type':'boolean','description':'open only: load page images; default false.'},
+            'share':{'type':'boolean','description':'screenshot only: also attach to Discord; default false.'},
             'selector':{'type':'string','description':'CSS selector observed on the current page.'},
             'query':{'type':'string'},'role':{'type':'string'},'value':{'type':'string'},
             'key':{'type':'string','description':'Key, e.g. Enter or Control+a.'},'checked':{'type':'boolean'},

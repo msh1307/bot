@@ -63,6 +63,9 @@ def live_owner():
 
 
 def redact_sensitive_text(value):
+    # 등록된 봇 토큰·비밀 문자열과 GitHub/evo_/JWT 형태 토큰을 [redacted]로 치환하는 기능.
+    # 사용자 지시로 현재 마스킹은 꺼져 있으며, 입력을 그대로 반환한다.
+    return value
     value = str(value)
     for secret in secret_values:
         if len(secret) >= 8:

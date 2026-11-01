@@ -1,4 +1,4 @@
-"""Small owner-only Discord frontend. OMP owns the model/tool execution loop."""
+"""Small owner-only Discord frontend; Pi/OMP owns model/tool execution."""
 import asyncio
 from collections import OrderedDict
 import contextlib
@@ -15,7 +15,7 @@ import discord
 from discord.ext import commands
 from . import context
 from .discord_text import messages as discord_messages, units as discord_units
-from .rpc import OmpSession, WORKSPACE
+from .rpc import OmpSession, WORKSPACE, ENGINE, ENGINE_VERSION
 from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run, image_content, cancel_deferred
 from .user_input import PendingInput, QuestionView
 
@@ -24,6 +24,7 @@ DEFAULT_MODEL = 'sc117-flash-next-iq3_xxs'
 MODELS = {'flash': DEFAULT_MODEL, '27b': 'qwen3.8-27b-uncensored'}
 STATUS_INTERVAL = 30
 PROGRESS_INTERVAL = 60
+DETAIL_INTERVAL = 10
 IGNORE_PATH = STATE / 'ignored_channels.json'
 
 
@@ -69,9 +70,196 @@ def progress_text(session, seconds, include_text=True):
     if idle >= STATUS_INTERVAL:
         phase += f' · 마지막 이벤트 {idle}초 전'
     text = f'⏳ 작업 중 · {elapsed} · {session.rounds}회 · 도구 {session.tools}회\n{phase}'
-    if include_text and session.last_progress:
-        text += '\n최근 중간 답변: ' + discord.utils.escape_markdown(session.last_progress)
+    preview = getattr(session, 'live_text', '') or session.last_progress
+    if include_text and preview:
+        text += '\n최근 중간 답변: ' + discord.utils.escape_markdown(preview)
     return context.redact_sensitive_text(text)
+
+
+def progress_detail(active):
+    session = active['session']
+    text = progress_text(session, time.monotonic() - active['start'], include_text=False)
+
+    def tail(value, limit):
+        escaped = discord.utils.escape_markdown(context.redact_sensitive_text(value))
+        raw = escaped.encode('utf-16-le')
+        return ('…' if len(raw) > limit * 2 else '') + raw[-limit * 2:].decode('utf-16-le', errors='ignore')
+
+    public = getattr(session, 'live_text', '') or session.last_progress
+    if public:
+        text += '\n\n최근 중간 답변:\n' + tail(public, 350)
+    reasoning = getattr(session, 'reasoning_tail', '')
+    if reasoning:
+        text += f'\n\n로컬 추론 일부 · 현재 응답 {session.reasoning_chars:,}자 수신 · 확정 결과 아님:\n' + tail(reasoning, 1050)
+    else:
+        text += '\n\n현재 수신된 로컬 추론 없음.'
+    return text.encode('utf-16-le')[:3800].decode('utf-16-le', errors='ignore')
+
+
+def progress_embed(active, show_reasoning=False):
+    session = active['session']
+    embed = discord.Embed(title='작업 진행', colour=0x5865F2,
+        description=progress_text(session, time.monotonic() - active['start'], include_text=False),
+        timestamp=discord.utils.utcnow())
+
+    def tail(value, limit):
+        value = discord.utils.escape_markdown(context.redact_sensitive_text(value))
+        raw = value.encode('utf-16-le')
+        return ('…\n' if len(raw) > limit * 2 else '') + raw[-limit * 2:].decode('utf-16-le', errors='ignore')
+
+    public = getattr(session, 'live_text', '') or session.last_progress
+    embed.add_field(name='최근 중간 답변', inline=False,
+                    value=tail(public, 600) if public else '아직 수신된 중간 답변 없음')
+    if show_reasoning:
+        reasoning = getattr(session, 'reasoning_tail', '')
+        embed.add_field(name='추론 원문 · 최근 부분', inline=False,
+                        value=tail(reasoning, 950) if reasoning else '현재 수신된 추론 없음')
+    count = getattr(session, 'reasoning_chars', 0)
+    embed.set_footer(text=f'10초 자동 갱신 · 현재 응답 추론 {count:,}자 수신 · 확정 결과 아님')
+    return embed
+
+
+class ProgressDetailView(discord.ui.View):
+    def __init__(self, parent):
+        # Discord interaction tokens last 15 minutes; expire before that boundary.
+        super().__init__(timeout=840)
+        self.parent, self.message = parent, None
+        self.show_reasoning = False
+        self.updater = None
+        self.lock = asyncio.Lock()
+
+    def bind(self, message):
+        self.message = message
+        if self.updater is None:
+            self.updater = asyncio.create_task(self.update())
+
+    def stop(self):
+        super().stop()
+        if self.updater is not None and self.updater is not asyncio.current_task():
+            self.updater.cancel()
+
+    async def close(self, text='작업이 종료되었거나 중단되었습니다.'):
+        self.stop()
+        async with self.lock:
+            if self.message is not None:
+                with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
+                    await asyncio.wait_for(self.message.edit(content=text, embed=None, view=None,
+                        allowed_mentions=discord.AllowedMentions.none()), 3)
+
+    async def on_timeout(self):
+        await self.close('미리보기가 만료되었습니다. 진행 보기를 다시 눌러주세요.')
+
+    async def update(self):
+        try:
+            while not self.is_finished():
+                await asyncio.sleep(DETAIL_INTERVAL)
+                async with self.lock:
+                    active = self.parent.current_active()
+                    if active is None:
+                        break
+                    await asyncio.wait_for(self.message.edit(content=None,
+                        embed=progress_embed(active, self.show_reasoning),
+                        allowed_mentions=discord.AllowedMentions.none()), 5)
+            await self.close()
+        except (discord.HTTPException, asyncio.TimeoutError) as error:
+            LOG.warning('progress_detail_update_failed class=%s', type(error).__name__)
+            await self.close('자동 갱신이 중지되었습니다. 진행 보기를 다시 눌러주세요.')
+
+    async def render(self, interaction, toggle=False):
+        active, error = self.parent.inspect(interaction)
+        if self.is_finished():
+            error = '미리보기가 종료되었습니다. 진행 보기를 다시 눌러주세요.'
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+        await interaction.response.defer()
+        async with self.lock:
+            active, error = self.parent.inspect(interaction)
+            if error or self.is_finished():
+                await interaction.followup.send(error or '종료된 미리보기입니다.', ephemeral=True)
+                return
+            if toggle:
+                self.show_reasoning = not self.show_reasoning
+                self.reasoning.label = '추론 숨기기' if self.show_reasoning else '추론 보기'
+            # Use the new component token; editing also renews this view's timeout.
+            self.message = await interaction.original_response()
+            await self.message.edit(content=None,
+                embed=progress_embed(active, self.show_reasoning), view=self,
+                allowed_mentions=discord.AllowedMentions.none())
+
+    @discord.ui.button(label='새로고침', style=discord.ButtonStyle.secondary)
+    async def refresh(self, interaction, button):
+        await self.render(interaction)
+
+    @discord.ui.button(label='추론 보기', style=discord.ButtonStyle.secondary)
+    async def reasoning(self, interaction, button):
+        await self.render(interaction, toggle=True)
+
+    @discord.ui.button(label='중단', style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction, button):
+        _, error = self.parent.inspect(interaction)
+        if error:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
+        await interaction.response.defer()
+        # Acknowledging Discord yields control; recheck before stopping a task.
+        if self.parent.current_active() is None:
+            await self.close()
+            return
+        await self.parent.bot.stop_active()
+        await self.close('작업을 중단했습니다.')
+
+
+class ProgressView(discord.ui.View):
+    def __init__(self, bot, channel, session):
+        super().__init__(timeout=None)
+        self.bot, self.channel, self.session = bot, channel, session
+        self.turn = bot.active['turn'] if bot.active else None
+        self.detail = None
+        self.open_lock = asyncio.Lock()
+
+    def current_active(self):
+        active = self.bot.active
+        if (active and active['channel'] == self.channel and active['session'] is self.session
+                and active['turn'] is self.turn and not active['turn'].cancelled.is_set()):
+            return active
+        return None
+
+    def inspect(self, interaction):
+        if str(interaction.user.id) != context.OWNER or str(interaction.channel_id) != self.channel:
+            return None, '오너만 해당 채널에서 볼 수 있습니다.'
+        active = self.current_active()
+        return active, None if active else '이 작업은 종료되었거나 중단되었습니다.'
+
+    async def close(self):
+        self.stop()
+        if self.detail is not None:
+            await self.detail.close()
+
+    @discord.ui.button(label='진행 보기', style=discord.ButtonStyle.secondary)
+    async def inspect_progress(self, interaction, button):
+        await interaction.response.defer()
+        async with self.open_lock:
+            active, error = self.inspect(interaction)
+            if error:
+                await interaction.followup.send(error, ephemeral=True)
+                return
+            if self.detail is not None and not self.detail.is_finished() and self.detail.message is not None:
+                try:
+                    async with self.detail.lock:
+                        await asyncio.wait_for(self.detail.message.edit(content=None,
+                            embed=progress_embed(active, self.detail.show_reasoning),
+                            allowed_mentions=discord.AllowedMentions.none()), 5)
+                    return
+                except discord.HTTPException as error:
+                    if error.status not in (401, 404):
+                        raise
+                    self.detail.stop()
+            # A new/expired preview needs one private message, not a fresh model call.
+            self.detail = ProgressDetailView(self)
+            message = await interaction.followup.send(embed=progress_embed(active), view=self.detail,
+                ephemeral=True, wait=True, allowed_mentions=discord.AllowedMentions.none())
+            self.detail.bind(message)
 
 
 class Bot(commands.Bot):
@@ -188,7 +376,7 @@ class Bot(commands.Bot):
     async def on_ready(self):
         self.initialized = True
         self.write_status('working' if self.active else 'connected')
-        LOG.info('discord_connected bot_id=%s engine=omp-18.11.3', self.user.id)
+        LOG.info('discord_connected bot_id=%s engine=%s-%s', self.user.id, ENGINE, ENGINE_VERSION)
 
     async def on_resumed(self):
         self.write_status('working' if self.active else 'connected')
@@ -554,7 +742,7 @@ class Bot(commands.Bot):
         if not enabled:
             yield
             return
-        notice, started = None, time.monotonic()
+        notice, view, started = None, None, time.monotonic()
         last_update, last_phase = started, None
         updates = asyncio.Queue(maxsize=16)
         delivered = False
@@ -581,7 +769,7 @@ class Bot(commands.Bot):
                     updates.task_done()
 
         async def update():
-            nonlocal notice, last_update, last_phase
+            nonlocal notice, view, last_update, last_phase
             while True:
                 await asyncio.sleep(STATUS_INTERVAL)
                 self.write_status('working')
@@ -601,8 +789,10 @@ class Bot(commands.Bot):
                 text = progress_text(session, now - started, include_text=False)
                 try:
                     if notice is None:
+                        if view is None and self.active and self.active['session'] is session:
+                            view = ProgressView(self, str(channel.id), session)
                         notice = await asyncio.wait_for(channel.send(text,
-                            allowed_mentions=discord.AllowedMentions.none()), 5)
+                            view=view, allowed_mentions=discord.AllowedMentions.none()), 5)
                     else:
                         await asyncio.wait_for(notice.edit(content=text,
                             allowed_mentions=discord.AllowedMentions.none()), 5)
@@ -625,6 +815,8 @@ class Bot(commands.Bot):
             session.pending_text = ''
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            if view is not None:
+                await view.close()
             try:
                 await asyncio.wait_for(updates.join(), 3 if context.is_interrupted() else 15)
             except asyncio.TimeoutError:
@@ -636,7 +828,7 @@ class Bot(commands.Bot):
                 with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
                     if session.last_progress and not delivered and (not finished or context.is_interrupted()):
                         text = '⏹ 작업 중단 · 마지막 중간 답변\n' + discord.utils.escape_markdown(session.last_progress)
-                        await asyncio.wait_for(notice.edit(content=text,
+                        await asyncio.wait_for(notice.edit(content=text, view=None,
                             allowed_mentions=discord.AllowedMentions.none()), 3)
                     else:
                         await asyncio.wait_for(notice.delete(), 3)
@@ -702,7 +894,7 @@ class Bot(commands.Bot):
         if state == 'working' and not self.is_ready():
             state = 'disconnected'
         a = self.active
-        data = {'engine': 'omp', 'version': '18.11.3', 'state': state,
+        data = {'engine': ENGINE, 'version': ENGINE_VERSION, 'state': state,
                 'queued': self.queue.qsize(), 'sessions': len(self.sessions),
                 'pending_inputs': len(self.questions),
                 'active': bool(a), 'rounds': a['session'].rounds if a else 0,
@@ -725,7 +917,7 @@ class Bot(commands.Bot):
             if name in self.registry.commands:
                 return await self.registry.commands[name](args)
             if name == 'help':
-                return '/status · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access · /ignore\n새 메시지를 보내면 같은 채널의 진행 중 작업을 중단하고 이어서 처리합니다.'
+                return '/status [detail] · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access · /ignore\n새 메시지를 보내면 같은 채널의 진행 중 작업을 중단하고 이어서 처리합니다.'
             if name == 'ignore':
                 mode = args.strip().lower()
                 if mode not in ('', 'on', 'off', 'status'):
@@ -749,23 +941,27 @@ class Bot(commands.Bot):
                 return ('이 채널의 일반 메시지를 무시합니다. /ignore로 해제할 수 있습니다.'
                         if enable else '이 채널의 일반 메시지에 다시 응답합니다.')
             if name == 'whoami':
-                return '오너 · 관리자 권한 · OMP 18.11.3 · root는 매번 Allow Once 승인'
+                return f'오너 · 관리자 권한 · {ENGINE} {ENGINE_VERSION} · root는 매번 Allow Once 승인'
             if name in ('status', 'context'):
                 a = self.active
+                if name == 'status' and args.strip().lower() in ('detail', 'thinking', 'reasoning'):
+                    if not a or a['channel'] != key or a['turn'].cancelled.is_set():
+                        return '이 채널에 진행 중인 작업이 없습니다.'
+                    return progress_detail(a)
                 if name == 'context':
                     s = self.sessions.get(key)
                     if s:
                         state = await s.request('get_state')
-                        return f"OMP · {s.model}\nContext: " + json.dumps(state.get('contextUsage'), ensure_ascii=False)
+                        return f"{ENGINE} · {s.model}\nContext: " + json.dumps(state.get('contextUsage'), ensure_ascii=False)
                     return '열린 대화가 없습니다.'
                 if a:
                     if a['channel'] in self.questions:
                         return '답변 대기 중 · 무활동 5분 후 재개 · 타이핑하면 대기 연장'
                     s = a['session']
-                    return f"OMP · {s.model}\n" + progress_text(s, time.monotonic() - a['start']) + f"\n대기 {self.queue.qsize()}개"
+                    return f"{ENGINE} · {s.model}\n" + progress_text(s, time.monotonic() - a['start']) + f"\n대기 {self.queue.qsize()}개"
                 if any(s.compacting for s in self.sessions.values()):
-                    return 'OMP 대화 압축 중 · /stop으로 이 채널의 압축을 중단할 수 있습니다.'
-                return f"OMP 대기 중 · 모델 {self.models.get(key, DEFAULT_MODEL)} · 열린 대화 {len(self.sessions)}개"
+                    return f'{ENGINE} 대화 압축 중 · /stop으로 이 채널의 압축을 중단할 수 있습니다.'
+                return f"{ENGINE} 대기 중 · 모델 {self.models.get(key, DEFAULT_MODEL)} · 열린 대화 {len(self.sessions)}개"
             if name in ('approve', 'deny'):
                 n = context.resolve_approval('discord:' + key, 'once' if name == 'approve' else 'deny', args.strip() or None)
                 return '처리했습니다.' if n else '해당 채널에 유효한 승인 요청이 없습니다.'
@@ -878,15 +1074,10 @@ async def main():
     if not token:
         raise SystemExit('Discord token is not configured')
     context.secret_values.append(token)
-    for path in ('/etc/evo-omp/gmail.json', '/etc/evo-omp/codex-remote.json'):
-        p = Path(path)
-        if p.exists():
-            data = json.loads(p.read_text())
-            if p.name == 'codex-remote.json':
-                for entry in data.get('servers', {'default': data}).values():
-                    context.secret_values.append(entry['token'])
-            else:
-                context.secret_values += [v for v in data.values() if isinstance(v, str) and len(v) >= 8]
+    p = Path('/etc/evo-omp/gmail.json')
+    if p.exists():
+        data = json.loads(p.read_text())
+        context.secret_values += [v for v in data.values() if isinstance(v, str) and len(v) >= 8]
     bot = Bot()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
