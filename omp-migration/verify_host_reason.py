@@ -68,16 +68,12 @@ class Checks(unittest.TestCase):
         self.assertNotIn('PRIVATE_COMMAND_MARKER', text)
         self.assertNotIn('PRIVATE_REASON_MARKER', text)
 
-    def test_schema_explains_conditional_requirement(self):
+    def test_host_is_an_internal_approval_backend(self):
         definitions = {}
         registry = SimpleNamespace(register_platform_handler=lambda *_: None,
             register_tool=lambda name, group, definition, handler: definitions.update({name: definition}))
         host.register(registry)
-        schema = definitions['host_command']['parameters']
-        self.assertEqual(schema['required'], ['command'])
-        self.assertEqual(schema['properties']['reason']['description'],
-                         'Omit for non-root. Required only for run_as=root.')
-        self.assertIn('Omit reason for non-root', definitions['host_command']['description'])
+        self.assertNotIn('host_command', definitions)
 
     def test_root_card_and_execution_key_preserved(self):
         turn = context.Turn('77')

@@ -66,7 +66,7 @@ class CodingChecks(unittest.TestCase):
                 'run_as': 'root', 'reason': 'Owner test', 'timeout': 60})
     def test_host_uses_existing_broker(self):
         with patch.object(host, 'host_command', return_value='{"success":true,"exit_code":0,"output":"ok"}') as run:
-            coding.execute({'instance': 'evo-host', 'command': 'id'})
+            coding.execute({'instance': 'localhost', 'command': 'id'})
             self.assertEqual(run.call_args.args[0], {'command': 'id', 'timeout': 60})
     def test_windows_default_and_no_elevation(self):
         with patch.dict(codex.SERVERS, {'fixture': object()}), \
@@ -126,8 +126,8 @@ async def integration(root, report, live=False):
             import secrets
             marker = 'pi-wrapper-' + secrets.token_hex(8)
             targets = [('n100', '/tmp/'+marker+'/code.py'),
-                       ('msh-desktop', 'C:/Users/msh1307/Documents/ChatGPT/EVO-X2/.pi-migration-work/'+marker+'/code.py'),
-                       ('evo-host', '/var/lib/evo-hermes/workspace/.'+marker+'/code.py')]
+                       ('desktop', 'C:/Users/msh1307/Documents/ChatGPT/EVO-X2/.pi-migration-work/'+marker+'/code.py'),
+                       ('localhost', '/var/lib/evo-hermes/workspace/.'+marker+'/code.py')]
             if '--oracle' in sys.argv:
                 targets.insert(1, ('oracle', '/tmp/'+marker+'/code.py'))
             # All tests create a unique directory; cleanup is restricted to that directory.
@@ -137,7 +137,7 @@ async def integration(root, report, live=False):
                     ('read', {'instance': ident, 'path': path}),
                     ('edit', {'instance': ident, 'path': path, 'edits': [{'oldText': '41', 'newText': '42'}]}),
                     ('read', {'instance': ident, 'path': path})])
-                shell = ("[Console]::Write('PI_EXEC_OK'); Get-Content -LiteralPath '"+path+"'" if ident == 'msh-desktop'
+                shell = ("[Console]::Write('PI_EXEC_OK'); Get-Content -LiteralPath '"+path+"'" if ident == 'desktop'
                          else 'printf PI_EXEC_OK; cat '+path)
                 STEPS.append(('bash', {'instance': ident, 'command': shell}))
                 await session.prompt('Synthetic real transport fixture check.', context.Turn('77'))
@@ -157,7 +157,7 @@ async def integration(root, report, live=False):
                     results['large_file_chunk_transport'] = len(payload)
                 turn = context.Turn('77'); token = context.current.set(turn)
                 try:
-                    if ident == 'msh-desktop':
+                    if ident == 'desktop':
                         directory = path.rsplit('/',1)[0]
                         cleanup = "Remove-Item -LiteralPath '"+directory+"' -Recurse -Force"
                     else:
@@ -166,7 +166,7 @@ async def integration(root, report, live=False):
                     assert marker in cleanup and len(marker) > 16
                     await asyncio.to_thread(coding.execute, {'instance':ident, 'command':cleanup})
                 finally: context.current.reset(token)
-            REQUESTS.clear(); STEPS.append(('read', {'instance':'evo-host','path':'/opt/evo-omp/instructions.txt'}))
+            REQUESTS.clear(); STEPS.append(('read', {'instance':'localhost','path':'/opt/evo-omp/instructions.txt'}))
             await session.prompt('Synthetic host protected-view check.', context.Turn('77'))
             text = str([m['content'] for m in REQUESTS[-1]['messages'] if m['role'] == 'tool'])
             assert 'Could not' in text or 'Permission' in text or 'error' in text.lower(), text[-2000:]

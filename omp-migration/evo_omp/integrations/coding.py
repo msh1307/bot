@@ -109,7 +109,7 @@ def file_io(args):
         req['content'] = args['content']
     if 'expected' in args:
         req['_expected'] = args['expected']
-    if ident == 'evo-host':
+    if ident == 'localhost':
         return checked(host_file(req))
     servers = ssh.configuration()['servers']
     if ident not in servers:
@@ -134,7 +134,7 @@ def execute(args):
         raise ValueError('Use command text and optional root=true')
     if root and (not isinstance(args.get('reason'), str) or not args['reason'].strip()):
         raise ValueError('root=true requires a reason for fresh Discord approval')
-    if ident == 'evo-host':
+    if ident == 'localhost':
         return checked(host.host_command({'command': command, 'timeout': timeout,
             **({'run_as': 'root', 'reason': args['reason']} if root else {})}))
     if ident in codex.SERVERS:

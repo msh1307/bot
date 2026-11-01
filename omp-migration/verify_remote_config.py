@@ -63,7 +63,7 @@ class Checks(unittest.TestCase):
             rows = remote.catalog()
         self.assertEqual(rows['defaults'], self.data['defaults'])
         self.assertEqual({r['id']: r['protocols'] for r in rows['instances']},
-                         {'evo-host': [], 'pc': ['rdp', 'codex'], 'linux': ['ssh'], 'cloud': ['ssh']})
+                         {'localhost': [], 'pc': ['rdp', 'codex'], 'linux': ['ssh'], 'cloud': ['ssh']})
         text = json.dumps(rows)
         self.assertNotIn('SYNTHETIC_PRIVATE', text)
         self.assertNotIn(str(self.secret), text)

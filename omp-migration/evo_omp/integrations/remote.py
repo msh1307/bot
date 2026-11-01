@@ -75,9 +75,9 @@ def catalog():
         if entry.get('disabled'):
             row['disabled'] = ['rdp']
         rows.append(row)
-        row['shell'] = 'sh' if 'ssh' in protocols else 'powershell' if 'codex' in protocols else None
-    rows.insert(0, {'id': 'evo-host', 'shell': 'sh', 'protocols': [],
-                    'note': 'EVO host; omit instance for sandbox /workspace instead.'})
+        row['shell'] = 'bash' if 'ssh' in protocols else 'powershell' if 'codex' in protocols else None
+    rows.insert(0, {'id': 'localhost', 'shell': 'bash', 'protocols': [],
+                    'description': 'EVO host. Omit instance for sandbox /workspace.'})
     for protocol, ident in selected.items():
         if ident is not None and not any(r['id'] == ident and protocol in r['protocols'] for r in rows):
             if protocol in configured:

@@ -450,5 +450,114 @@
       "windows_command_timeout_seconds": 15,
       "no_discord_test_posts": true
     }
+  },
+  "simplified_instances": {
+    "deployment": {
+      "engine": "pi",
+      "version": "1.4.0",
+      "restarted_at": "Sun 2026-11-01 14:31:53 UTC",
+      "before": {
+        "config/index.json": "c1ab53d3a5850f123c447bc263c991f13d2aff80516d2312911821f36351074f",
+        "evo_omp/integrations/codex.py": "dfd486a5c436211ada3846259b7a40ff89356dcf211e9ac489e49ce8f7db5888",
+        "evo_omp/integrations/coding.py": "b3c0363ed04a3aa75f6483d4f49c7a59b5e3f0b8e2709b9f3b5f515f01d9e238",
+        "evo_omp/integrations/host.py": "b2d927d262157ac4534380f0fac898c1fa0d9eacc2166323b99d46211ec2a4fa",
+        "evo_omp/integrations/remote.py": "83d55a52560b748c753aa58e88b0338b2188fd2591635dbaf9e9fea23cd92a79",
+        "evo_omp/integrations/remote_files.py": "1403e5c638f1d6562ed6538fdcfdcb1cd065ee4b1f6a48bbb1276b30bd60122f",
+        "evo_omp/integrations/ssh.py": "8b137cbad4ddc6199222947fee484097b51f8772a667a8af3e87fc099d91da22",
+        "evo_omp/remote_file_worker.py": "44b2a2bfb82ca832d33b76d38f75f89ee5112c7c718abf421c2d9f16021c1a8c",
+        "evo_omp/tool_output.py": "370aac8292457ec0455586da6dacc4d866fc79c1e094833b8a17986713871259",
+        "evo_omp/tools.py": "f1dd786cdcde242d2f12ebe14a53eefef7a7773df8e088b2bac6d661ad98e683",
+        "pi-tools.mjs": "2648497c39463d377ba2f5f32664c9ad7ab378ec4b7ef349e2ea643c787fa33c",
+        "verify_host_reason.py": "ffaebefcea495be69e2f78a69cdb1d5cf80cf87df90b42ecbb890b9f497bb7d5",
+        "verify_pi_coding.py": "fae619ae799de44c1f97fc2adb16eea1c9fa046adf7996daa7720a2026ccfbcc",
+        "verify_remote.py": "9f2aa1a8de6eedc4221d1addf4b294f0a3666f4d1fe4972f7a67b07a684bc5b5",
+        "verify_remote_config.py": "e6bad4550f80d528627dbac88fc42a6e46c6cb6bf9ceed42f5084c54207a6386",
+        "verify_remote_files.py": null,
+        "verify_remote_files_live.py": null,
+        "verify_ssh.py": "8065afcb1cf2c4353b5a1a475518d068069972aca9b01662bd1b206dd68ce85a"
+      },
+      "after": {
+        "config/index.json": "ee9396472eec78d6f3e8c0d2e1c8268c1269db63b816389ca389c21f2628c24f",
+        "evo_omp/integrations/codex.py": "1f8142ac0eb98ec6e89ea1cc5b18d69a9162bb90fa8370764dd0f983da87b6e9",
+        "evo_omp/integrations/coding.py": "2fd0a084f783e1f9390b24e2a523c862ab68dcf37bc86e4c1a58624f502a38db",
+        "evo_omp/integrations/host.py": "0e782ea9fb75b2bc09963702c3359a05083919ffd05b704013f6b51fbb74a950",
+        "evo_omp/integrations/remote.py": "7287aa86e13bf982b349a65668e368c17ea48f5350234ef42f3ba9c1db06b8c0",
+        "evo_omp/integrations/remote_files.py": "03eaab39070a85df30f0be31be8c58a747687b217afaf9f17b7118d8be43d5b9",
+        "evo_omp/integrations/ssh.py": "e53e36354e7704701b45ee49cda4aa593e3c8006801caf1f715a05723e959a53",
+        "evo_omp/remote_file_worker.py": "5ee97146373c2fc4722188b7264a21361a22e433d5f9f4e379472f6053796a4d",
+        "evo_omp/tool_output.py": "8a7f8a3dff80481463b0802014f82cd3410a716f201f63e8863f47387ad96f5b",
+        "evo_omp/tools.py": "3254d53cfa675e5f4c2a40583cf02a244d1924624fb298eae1363cbbe1c631e4",
+        "pi-tools.mjs": "cff22e85ac6815d667a1c6bc5816c9c34291b00eec87a82ebe0a092540fb9640",
+        "verify_host_reason.py": "43cddee7fa917267c4964b78d96bf2a74d04c0527cbf916f49a1e0f8aa0ccabf",
+        "verify_pi_coding.py": "acc6d51b9c4cd1db248a0d3806d6b4b424ebda153c5e04da327b5af28858ed51",
+        "verify_remote.py": "05a80e4888ea6772b6f1e10aad8e69cd4b21a9ca3d77484cb447b24994b75ecd",
+        "verify_remote_config.py": "9bf70b96711045ccaa333623875893291cd8e613d6c85cc3bf0eab9e5eaa89ad",
+        "verify_remote_files.py": "bc85cba7c1949c0e407404596e19235ca54cf8f8fe6803bf3c1d6c61f4c2a950",
+        "verify_remote_files_live.py": null,
+        "verify_ssh.py": "3d22dbb8ac58afea1513e5af5352c2ab8eea23ad2356f87472c66c8151dc3131"
+      },
+      "backup": "/opt/evo-omp/backups/instances-20261101-143153",
+      "context_messages_preserved": 88,
+      "active_context_exact": true,
+      "source_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "restored_transcript_sha256": "7427cab4758c63c3bf18afc61101491d32e934bd714453730c25e90fe7de74b1",
+      "discord_connected": true,
+      "startup_errors": false,
+      "recent_ready_log": true,
+      "pi_upstream_auth_and_broker_unchanged": true,
+      "unchanged_files_checked": 1287,
+      "model_restarted": false,
+      "config_before_sha256": "8045cbd92632817aefd581b2a710db5d278d00693c57896396a9d1200a1b7958",
+      "config_after_sha256": "642737eb009d8b3ba6a6bd1f1a1982c63b644234660d41c9de22ee9cdcf71ccb",
+      "credential_references_and_scopes_preserved": true,
+      "root_approval_functions_unchanged": true,
+      "codex_job_state_files_preserved": 0,
+      "instance_ids": [
+        "localhost",
+        "n100",
+        "oracle",
+        "desktop"
+      ],
+      "post_restart_errors": 0
+    },
+    "unit_tests": {
+      "run": 179,
+      "passed": 173,
+      "skipped": 6,
+      "failures": 0,
+      "errors": 0
+    },
+    "rdp_regressions": 21,
+    "actual_linux_bash": {
+      "localhost": true,
+      "n100": true,
+      "oracle": true
+    },
+    "post_deploy_pi_transports": {
+      "local_native_edit_read_and_one_shot": true,
+      "unknown_target_and_root_without_reason_rejected": true,
+      "n100": {
+        "read_write_edit_exec": true
+      },
+      "large_file_chunk_transport": 1200010,
+      "oracle": {
+        "read_write_edit_exec": true
+      },
+      "desktop": {
+        "read_write_edit_exec": true
+      },
+      "localhost": {
+        "read_write_edit_exec": true
+      },
+      "host_guard_preserved": true,
+      "passed": true
+    },
+    "removed_model_aliases": [
+      "host_command",
+      "shell_exec",
+      "remote_files"
+    ],
+    "duplicate_remote_editor_and_search_removed": true,
+    "private_config_contents_committed": false
   }
 }

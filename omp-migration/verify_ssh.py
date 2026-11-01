@@ -157,7 +157,7 @@ class SSHChecks(unittest.TestCase):
         self.assertNotIn('shell_exec', {d['name'] for d in registry.definitions(cron=True)})
         self.assertNotIn('remote_ssh', {d['name'] for d in registry.definitions()})
         self.assertNotIn('remote_ssh', {d['name'] for d in registry.definitions(cron=True)})
-        self.assertIn('shell_exec', TOOLS)
+        self.assertNotIn('shell_exec', TOOLS)
         self.assertNotIn('remote_ssh', registry.tools)
         with patch('evo_omp.integrations.codex.server_config', return_value=(None, {})), \
                 patch('evo_omp.integrations.rdp.configuration', return_value={'servers': {}}):
@@ -165,24 +165,16 @@ class SSHChecks(unittest.TestCase):
         self.assertEqual(item['id'], 'test')
         self.assertEqual(item['capabilities'], ['remote_ssh'])
 
-    def test_short_shell_call_selects_exact_instance_and_command(self):
-        with patch.object(ssh, 'remote_ssh', return_value='RESULT') as run:
-            self.assertEqual(ssh.shell_exec({'instance': 'test', 'cmd': 'sudo -n id -u'}), 'RESULT')
-            run.assert_called_once_with({'instance': 'test', 'command': 'sudo -n id -u'})
-
-    def test_short_root_call_uses_existing_approval_route(self):
-        with patch.object(ssh, 'remote_ssh', return_value='RESULT') as run:
-            self.assertEqual(ssh.shell_exec({'instance': 'test', 'cmd': 'id -u', 'root': True, 'timeout': 20}), 'RESULT')
-            run.assert_called_once_with({'instance': 'test', 'command': 'id -u', 'timeout': 20,
-                                        'run_as': 'root', 'reason': 'Requested root command on test'})
-
-    def test_short_shell_call_rejects_ambiguous_or_extra_routing(self):
-        with patch.object(ssh, 'remote_ssh') as run:
-            for args in ({'cmd': 'id'}, {'instance': 'test'}, {'instance': None, 'cmd': 'id'},
-                         {'instance': 'test', 'cmd': 'id', 'root': 1},
-                         {'instance': 'test', 'cmd': 'id', 'host': 'other'}):
-                with self.assertRaises(ValueError): ssh.shell_exec(args)
-            run.assert_not_called()
+    def test_normal_command_uses_bash_without_startup_files(self):
+        import shlex
+        def transport(entry, command):
+            argv = shlex.split(command)
+            self.assertEqual(argv[:4], ['/bin/bash', '--noprofile', '--norc', '-c'])
+            return argv, {'PATH': '/usr/bin:/bin'}
+        with patch.object(ssh, 'transport', transport):
+            result = json.loads(ssh.execute(self.entry, 'test', '[[ -n $BASH_VERSION ]] && printf BASH_OK', 5, self.turn))
+        self.assertEqual(result['output'], 'BASH_OK')
+        self.assertEqual(result['exit_code'], 0)
 
     def root_args(self):
         self.entry['sudo_password_file'] = str(self.password); self.save()

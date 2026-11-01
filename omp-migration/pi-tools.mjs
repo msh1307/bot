@@ -15,7 +15,7 @@ export function codingTools(hostCall) {
     const shell = local.name === 'bash';
     return { ...local,
       description: local.description + ' Omit instance for the local workspace; otherwise use an exact ID from remote_control list.'
-        + (shell ? ' Each call is independent. SSH/EVO use sh; Windows uses PowerShell. root=true requires reason and fresh Discord approval.' : ''),
+        + (shell ? ' Each call is independent. Linux uses Bash; Windows uses PowerShell. root=true requires reason and fresh Discord approval.' : ''),
       parameters: Type.Object({ ...local.parameters.properties,
         instance: Type.Optional(Type.String({ maxLength: 48 })),
         ...(shell ? { root: Type.Optional(Type.Boolean()),
@@ -24,7 +24,7 @@ export function codingTools(hostCall) {
       async execute(id, args, signal, onUpdate, ctx) {
         const { instance, root = false, reason, ...input } = args;
         if (instance === undefined) {
-          if (root || reason !== undefined) throw new Error('Use instance=evo-host for host/root execution.');
+          if (root || reason !== undefined) throw new Error('Use instance=localhost for host/root execution.');
           return local.execute(id, input, signal, onUpdate, ctx);
         }
         if (typeof instance !== 'string' || !/^[A-Za-z0-9_-]{1,48}$/.test(instance))

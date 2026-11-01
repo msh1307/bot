@@ -268,18 +268,3 @@ def host_command(args, **kwargs):
 
 def register(ctx):
     ctx.register_platform_handler('discord', discord_factory)
-    ctx.register_tool('host_command', 'evo_host', {
-        'name': 'host_command',
-        'description': 'Run one command on the EVO server itself. Use bash for workspace work. '
-                       'Omit reason for non-root; run_as=root needs a reason and fresh Discord Allow Once '
-                       '(use run_as, not sudo). Non-root protected files may be masked; check execution_context. '
-                       'Owner Discord only. Limit 120s/512MiB/no swap; no interactive input or surviving '
-                       'background jobs. Never print credentials.',
-        'parameters': {'type': 'object', 'properties': {
-            'command': {'type': 'string', 'maxLength': 1000},
-            'reason': {'type': 'string', 'maxLength': 160,
-                       'description': 'Omit for non-root. Required only for run_as=root.'},
-            'cwd': {'type': 'string', 'default': '/workspace'},
-            'run_as': {'type': 'string', 'enum': ['evo-hermes', 'root'], 'default': 'evo-hermes'},
-            'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 120, 'default': 60}},
-            'required': ['command']}}, host_command)

@@ -1,6 +1,5 @@
-"""OMP-style file operations over the existing private SSH transport."""
+"""Private Pi file transport and binary transfers over the existing SSH login."""
 import base64
-from collections import OrderedDict
 import json
 import os
 from pathlib import Path
@@ -16,40 +15,16 @@ from .. import remote_file_worker as worker
 from . import ssh
 
 WORKSPACE = Path('/var/lib/evo-hermes/workspace')
-OBSERVED = OrderedDict()
-LOCK = threading.Lock()
-ACTIONS = ('list', 'read', 'glob', 'grep', 'write', 'edit', 'upload', 'download')
-FIELDS = {
-    'list': {'offset', 'limit'}, 'read': {'start_line', 'limit'},
-    'glob': {'pattern', 'offset', 'limit'}, 'grep': {'pattern', 'glob', 'offset', 'limit'},
-    'write': {'content'}, 'edit': {'old_string', 'new_string'},
-    'upload': {'local_path'}, 'download': {'local_path'},
-}
-
-
 def validate(args):
-    if not isinstance(args, dict):
-        raise ValueError('Use instance, action and path')
-    action = args.get('action')
-    if action not in ACTIONS or set(args) - ({'instance', 'action', 'path'} | FIELDS[action]):
-        raise ValueError('Use an exact file action and its parameters')
+    if (not isinstance(args, dict) or args.get('action') not in ('upload', 'download')
+            or set(args) != {'instance', 'action', 'path', 'local_path'}):
+        raise ValueError('Use instance, upload/download, path and local_path')
     if ssh.instance_id(args) is None:
-        raise ValueError('Choose instance from remote_control list (ssh)')
-    if not isinstance(args.get('path'), str) or not 1 <= len(args['path']) <= 4096 or '\0' in args['path']:
-        raise ValueError('Use an absolute remote path or ~/...')
-    for key, default, low, high in [('offset', 0, 0, 1000000), ('start_line', 1, 1, 1000000),
-                                     ('limit', 100, 1, 200 if action == 'read' else 100)]:
-        value = args.get(key, default)
-        if type(value) is not int or not low <= value <= high:
-            raise ValueError(key + ' is outside its allowed range')
-    for key in FIELDS[action] & {'pattern', 'glob', 'content', 'old_string', 'new_string', 'local_path'}:
-        if key == 'glob' and key not in args:
-            continue
-        if not isinstance(args.get(key), str) or len(args[key]) > worker.MAX_TEXT or '\0' in args[key]:
-            raise ValueError('Missing or invalid ' + key)
-        if key not in ('content', 'new_string') and not args[key]:
-            raise ValueError(key + ' cannot be empty')
-    return action
+        raise ValueError('Choose instance from remote_control list')
+    for field in ('path', 'local_path'):
+        if not isinstance(args[field], str) or not 1 <= len(args[field]) <= 4096 or '\0' in args[field]:
+            raise ValueError('Invalid ' + field)
+    return args['action']
 
 
 def local_path(value):
@@ -110,7 +85,7 @@ def exchange(entry, req, turn):
             proc.wait(); sender.join(timeout=1)
 
 
-def remote_files(args):
+def transfer(args):
     turn = context.owner_message()
     if turn is None:
         raise PermissionError('Remote files require an owner Discord message')
@@ -120,9 +95,7 @@ def remote_files(args):
     if name not in servers:
         raise ValueError('Unknown SSH instance; use remote_control action=list')
     req = {k: v for k, v in args.items() if k not in ('instance', 'local_path')}
-    key = (turn.key, name, args['path'])
-    with LOCK:
-        req['_expected'] = OBSERVED.get(key)
+    req['_expected'] = None  # Uploads create a new destination; text edits belong to Pi.
     dest = None
     if action == 'upload':
         src = local_path(args['local_path'])
@@ -135,12 +108,7 @@ def remote_files(args):
     if turn.cancelled.is_set():
         raise InterruptedError('Remote file request interrupted before connection')
     result = exchange(servers[name], req, turn)
-    version = result.pop('_version', None)
-    if version is not None:
-        with LOCK:
-            OBSERVED[key] = version; OBSERVED.move_to_end(key)
-            while len(OBSERVED) > 256:
-                OBSERVED.popitem(last=False)
+    result.pop('_version', None)
     if action == 'download' and 'error' not in result:
         if turn.cancelled.is_set():
             raise InterruptedError('Download interrupted before saving')
@@ -168,9 +136,3 @@ def register(ctx):
             'path': {'type': 'string', 'maxLength': 4096},
             'local_path': {'type': 'string'},
             }, 'required': ['instance', 'action', 'path', 'local_path'], 'additionalProperties': False}}, transfer)
-
-
-def transfer(args):
-    if not isinstance(args, dict) or args.get('action') not in ('upload', 'download'):
-        raise ValueError('Use upload or download; text files use read/write/edit')
-    return remote_files(args)

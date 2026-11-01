@@ -135,9 +135,12 @@ def remote_ssh(args):
 def execute(entry, name, command, timeout, turn, sudo_password=None, sudo_nopasswd=False):
     secret = stored_password(entry['password_file']) if 'password_file' in entry else None
     root = sudo_password is not None or sudo_nopasswd
+    shell = '/bin/bash --noprofile --norc -c '
     if root:
         # -k requires fresh auth. Even NOPASSWD commands get EOF, never the password pipe.
-        command = 'sudo -k ' + ('-n' if sudo_nopasswd else '-S') + ' -p "" -- /bin/sh -c ' + shlex.quote('exec </dev/null\n' + command)
+        command = 'sudo -k ' + ('-n' if sudo_nopasswd else '-S') + ' -p "" -- ' + shell + shlex.quote('exec </dev/null\n' + command)
+    else:
+        command = shell + shlex.quote(command)
     argv, env = transport(entry, command)
     if turn.cancelled.is_set():
         raise InterruptedError('SSH interrupted before connection')
@@ -194,31 +197,3 @@ def execute(entry, name, command, timeout, turn, sudo_password=None, sudo_nopass
     if timed_out:
         result.update(timed_out=True, note='Connection closed; remote work may continue. Inspect before retrying.')
     return json.dumps(result, ensure_ascii=False)
-
-
-def shell_exec(args):
-    if (not isinstance(args, dict) or set(args) - {'instance', 'cmd', 'root', 'timeout'}
-            or instance_id(args) is None or 'cmd' not in args
-            or type(args.get('root', False)) is not bool):
-        raise ValueError('Use instance and cmd; optional root=true and timeout')
-    request = {'instance': args['instance'], 'command': args['cmd']}
-    if 'timeout' in args:
-        request['timeout'] = args['timeout']
-    if args.get('root'):
-        request.update(run_as='root', reason='Requested root command on ' + args['instance'])
-    return remote_ssh(request)
-
-
-def register(ctx):
-    ctx.register_tool('shell_exec', 'evo_ssh', {
-        'name': 'shell_exec',
-        'description': 'Run one command on a remote SSH server. Select instance from remote_control list (ssh). '
-            'Saved login is automatic; credentials stay private. root=true needs fresh Discord approval '
-            'and cmd <=1000 characters. Each call starts in home; use cd. No interactive input or replay '
-            'after timeout/interruption. Owner Discord only.',
-        'parameters': {'type': 'object', 'properties': {
-            'instance': {'type': 'string', 'maxLength': 48},
-            'cmd': {'type': 'string', 'maxLength': 16000},
-            'root': {'type': 'boolean', 'default': False},
-            'timeout': {'type': 'integer', 'minimum': 1, 'maximum': 300, 'default': 60}},
-            'required': ['instance', 'cmd'], 'additionalProperties': False}}, shell_exec)

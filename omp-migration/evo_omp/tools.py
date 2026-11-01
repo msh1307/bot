@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 from . import context
 from .screen_privacy import filter_result as filter_screen
-from .integrations import host, gmail, access, codex, browser, rdp, credential_input, ssh, remote, remote_files, coding
+from .integrations import host, gmail, access, codex, browser, rdp, credential_input, remote, remote_files, coding
 
 STATE = Path('/var/lib/evo-omp')
 TZ = ZoneInfo('Asia/Seoul')
@@ -85,7 +85,7 @@ async def share_screen(result, turn):
 class Registry:
     def __init__(self):
         self.tools, self.commands, self.factories = {}, {}, []
-        for module in (host, gmail, access, codex, browser, credential_input, ssh, remote, remote_files):
+        for module in (host, gmail, access, codex, browser, credential_input, remote, remote_files):
             module.register(self)
 
     def register_tool(self, name, toolset, definition, handler):
@@ -117,7 +117,7 @@ class Registry:
                  'evo_system_status', 'remote_control', 'schedule') if cron else self.tools
         return [dict(remote.definition(cron) if n == 'remote_control' else self.tools[n][0],
                      label=n, loadMode='essential' if n in DIRECT_TOOLS else 'discoverable')
-                for n in names if n in self.tools and n not in ('host_command', 'shell_exec', 'remote_files')]
+                for n in names if n in self.tools]
 
     async def close(self):
         await asyncio.to_thread(browser.close)

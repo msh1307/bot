@@ -134,7 +134,7 @@ class Bridge:
         if settings is None:
             server_id, servers = server_config()
             settings = servers[server_id]
-        self.settings, self.server_id = dict(settings), server_id or 'msh-desktop'
+        self.settings, self.server_id = dict(settings), server_id or 'desktop'
         if 'token_file' in settings:
             from .credential_input import private_text
             token = private_text(settings['token_file']).rstrip('\r\n')
@@ -1309,7 +1309,7 @@ def codex_task(args, **kwargs):
         turn.channel, check=check), LOOP)
     try:
         target_key = 'instance' if 'instance' in args else 'server'
-        return json.dumps({'success': True, target_key: getattr(bridge, 'server_id', 'msh-desktop'),
+        return json.dumps({'success': True, target_key: getattr(bridge, 'server_id', 'desktop'),
                            **future.result(timeout=75)}, ensure_ascii=False)
     except Exception as error:
         cancelled.set()

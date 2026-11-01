@@ -72,9 +72,9 @@ class Checks(unittest.TestCase):
         self.assertEqual(result['defaults'], {'ssh': 'linux', 'codex': 'pc', 'rdp': 'pc'})
         rows = {row['id']: row for row in result['instances']}
         self.assertEqual(rows['linux']['protocols'], ['ssh'])
-        self.assertEqual(rows['linux']['shell'], 'sh')
+        self.assertEqual(rows['linux']['shell'], 'bash')
         self.assertEqual(rows['pc']['shell'], 'powershell')
-        self.assertEqual(rows['evo-host']['protocols'], [])
+        self.assertEqual(rows['localhost']['protocols'], [])
         self.assertNotIn('password', json.dumps(result))
         self.assertEqual(rows['off']['disabled'], ['rdp'])
 
