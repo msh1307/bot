@@ -1,4 +1,4 @@
-"""Deploy the reviewed web module on EVO, preserving an idle OMP conversation in RAM.
+"""Deploy the reviewed web module on EVO, preserving an idle Pi conversation in RAM.
 
 Run as root with candidate path and expected current SHA256. Refuses active work.
 Does not touch model processes, credentials, sandbox settings or retired services.
@@ -15,8 +15,8 @@ import sys
 import time
 import urllib.request
 
-TARGET = Path('/var/lib/evo-hermes/hermes/plugins/evo-web/__init__.py')
-RUNTIME = Path('/run/evo-omp')
+TARGET = Path('/opt/evo-web-tools/evo-web.py')
+RUNTIME = Path('/run/evo-bot')
 
 
 def command(*argv):
@@ -30,9 +30,9 @@ def digest(path):
 def idle():
     status = json.loads((RUNTIME / 'status.json').read_text())
     if status.get('active') or status.get('queued') or status.get('pending_inputs'):
-        raise RuntimeError('OMP work is active or pending; defer deployment')
+        raise RuntimeError('Pi work is active or pending; defer deployment')
     if status.get('sessions') != 1:
-        raise RuntimeError('This handoff requires exactly one idle OMP session')
+        raise RuntimeError('This handoff requires exactly one idle Pi session')
     with urllib.request.urlopen('http://127.0.0.1:8080/evo/status', timeout=5) as r:
         state = json.load(r)
     if state.get('busy') or state.get('loading') or state.get('maintenance'):
@@ -53,12 +53,12 @@ def main():
     for line in transcript.read_text().splitlines():
         event = json.loads(line)
         if event.get('type') == 'model_change': model = event.get('model', '').removeprefix('evo/')
-    journal = command('journalctl', '-u', 'evo-omp', '-n', '300', '--no-pager', '-o', 'cat')
+    journal = command('journalctl', '-u', 'evo-bot', '-n', '300', '--no-pager', '-o', 'cat')
     restored = re.findall(r'maintenance_session_restored channel=(\d+) model=([^ ]+)', journal)
     if not restored or restored[-1][1] != model:
         raise RuntimeError('Cannot confirm channel/model recovery mapping')
     channel = restored[-1][0]
-    uid, gid = pwd.getpwnam('evo-hermes').pw_uid, pwd.getpwnam('evo-hermes').pw_gid
+    uid, gid = pwd.getpwnam('evo-bot').pw_uid, pwd.getpwnam('evo-bot').pw_gid
     backup = Path('/run') / ('evo-web-maintenance-' + str(time.time_ns()))
     backup.mkdir(mode=0o700)
     shutil.copytree(transcript.parent, backup / 'sessions')
@@ -66,7 +66,7 @@ def main():
     if digest(backup / 'sessions' / transcript.name) != before:
         raise RuntimeError('Session backup mismatch')
     shutil.copy2(TARGET, backup / 'web.py')
-    persistent_backup = Path('/opt/evo-omp/backups') / backup.name
+    persistent_backup = Path('/opt/evo-bot/backups') / backup.name
     persistent_backup.mkdir(mode=0o700)
     shutil.copy2(TARGET, persistent_backup / 'web.py')  # code only; no conversation on SSD
     idle()
@@ -74,7 +74,7 @@ def main():
     stopped = False
     installed = False
     try:
-        command('systemctl', 'stop', 'evo-omp')
+        command('systemctl', 'stop', 'evo-bot')
         stopped = True
         command('systemctl', 'stop', 'evo-web-tools')
         temporary = TARGET.with_name('__init__.py.new')
@@ -92,17 +92,17 @@ def main():
         for path in [RUNTIME, *RUNTIME.rglob('*')]:
             os.chown(path, uid, gid)
             path.chmod(0o700 if path.is_dir() else 0o600)
-        command('systemctl', 'start', 'evo-omp')
+        command('systemctl', 'start', 'evo-bot')
         stopped = False
         deadline = time.monotonic() + 60
         while manifest.exists() and time.monotonic() < deadline:
             time.sleep(1)
-        if manifest.exists(): raise RuntimeError('OMP recovery did not complete; RAM backup retained')
-        active = command('systemctl', 'is-active', 'evo-omp').strip()
+        if manifest.exists(): raise RuntimeError('Pi recovery did not complete; RAM backup retained')
+        active = command('systemctl', 'is-active', 'evo-bot').strip()
         copied = list(RUNTIME.glob('profiles/*/sessions/' + transcript.name))
         if active != 'active' or len(copied) != 1:
-            raise RuntimeError('Missing restored OMP session; RAM backup retained')
-        # OMP may append new configuration events; original history must be an exact prefix.
+            raise RuntimeError('Missing restored Pi session; RAM backup retained')
+        # Pi may append new configuration events; original history must be an exact prefix.
         if not copied[0].read_bytes().startswith((backup / 'sessions' / transcript.name).read_bytes()):
             raise RuntimeError('Restored history mismatch; RAM backup retained')
         result = {'deployed_sha256': digest(TARGET), 'previous_sha256': expected,
@@ -116,7 +116,7 @@ def main():
         if installed:
             shutil.copy2(backup / 'web.py', TARGET)
             command('systemctl', 'stop', 'evo-web-tools')
-        if stopped: command('systemctl', 'start', 'evo-omp')
+        if stopped: command('systemctl', 'start', 'evo-bot')
         print('Deployment incomplete. Private RAM recovery backup: ' + str(backup), file=sys.stderr)
         raise
 

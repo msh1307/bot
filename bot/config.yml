@@ -1,0 +1,43 @@
+retry:
+  enabled: true
+  maxRetries: 2
+  baseDelayMs: 1500
+  maxDelayMs: 10000
+  waitForUsageReset: false
+  modelFallback: false
+providers:
+  cacheWarming: "off"
+  fetch: native
+autoResume: false
+memory:
+  backend: "off"
+advisor:
+  enabled: false
+telemetry:
+  otlpExportEnabled: false
+tools:
+  xdev: true
+  xdevDocs: catalog
+  artifactSpillThreshold: 12
+  artifactHeadBytes: 1
+  artifactTailBytes: 1
+  artifactMaxBytes: 4
+edit:
+  modelVariants:
+    sc117-flash-next-iq3_xxs: replace
+    qwen3.8-27b-uncensored: replace
+compaction:
+  enabled: true
+  methodOrder: [shake, soft]
+  asyncEnabled: false
+  idleEnabled: false
+  thresholdTokens: 60000
+  reserveTokens: 28000
+  keepRecentTokens: 12000
+  handoffSaveToDisk: false
+bash:
+  autoBackground:
+    enabled: false
+eval:
+  autoBackground:
+    enabled: false

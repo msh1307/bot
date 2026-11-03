@@ -1,0 +1,40 @@
+[Unit]
+Description=Shared Web UI Python interpreter in bwrap
+After=local-fs.target
+
+[Service]
+Type=simple
+User=evo-bot
+Group=evo-bot
+WorkingDirectory=/opt/evo-bot
+ExecStart=/usr/bin/python3 -B -m evo_bot.web_python
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+RuntimeDirectory=evo-web-python
+RuntimeDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+TimeoutStopSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=false
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+CapabilityBoundingSet=
+InaccessiblePaths=-/run/evo-host -/run/evo-access -/etc/evo-bot
+ReadWritePaths=/var/lib/evo-bot/workspace /run/evo-web-python
+MemoryHigh=768M
+MemoryMax=1G
+MemorySwapMax=0
+CPUQuota=200%
+TasksMax=96
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

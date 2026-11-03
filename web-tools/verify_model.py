@@ -1,4 +1,4 @@
-"""Private OMP session using the real model and deployed web-tool path.
+"""Private Pi session using the real model and deployed web-tool path.
 
 No Discord messages, host actions, model/config changes or user-session reset.
 The input is a public documentation question, not an instruction hidden in tools.
@@ -11,10 +11,10 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, '/opt/evo-omp')
-from evo_omp import context
-from evo_omp.rpc import OmpSession
-from evo_omp.tools import Registry
+sys.path.insert(0, '/opt/evo-bot')
+from evo_bot import context
+from evo_bot.rpc import PiSession
+from evo_bot.tools import Registry
 
 
 async def main():
@@ -36,9 +36,9 @@ async def main():
         return result
     started = time.monotonic()
     result = {'calls': calls, 'discord_message_sent': False,
-              'path': 'OmpSession -> real Flash -> Registry -> router -> web worker'}
+              'path': 'PiSession -> real Flash -> Registry -> router -> web worker'}
     try:
-        session = OmpSession('search-budget-check', 'sc117-flash-next-iq3_xxs',
+        session = PiSession('search-budget-check', 'sc117-flash-next-iq3_xxs',
                              [registry.tools[n][0] for n in ('internet_search', 'web_read')], handler)
         await session.start()
         turn = context.Turn('990826359704154225')

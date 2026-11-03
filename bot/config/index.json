@@ -1,0 +1,22 @@
+{
+  "agent": {
+    "read": "/home/agent/.pi/agent/config.yml",
+    "host": "/opt/evo-bot/config.yml",
+    "note": "Pi retry and compaction settings."
+  },
+  "models": {
+    "read": "/home/agent/.pi/agent/models.yml",
+    "host": "/opt/evo-bot/models.yml"
+  },
+  "remotes": {
+    "list": "remote_control(action=\"list\")",
+    "host": "/etc/evo-bot/remote-control.json"
+  },
+  "server_deploy": {
+    "read": "/home/agent/deploy/codex-server/manifest.json",
+    "host": "/opt/evo-bot/deploy/codex-server",
+    "note": "Our Windows/Oracle support files only; reuse the installed Codex server and authentication."
+  },
+  "update": "Host configuration/code changes use bash with instance=localhost, root=true and a reason; each execution needs owner approval.",
+  "credentials": "Tools use private file references. Secret values are unnecessary for discovery; keep them outside the workspace."
+}

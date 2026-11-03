@@ -36,9 +36,9 @@ def validate(payload):
     if '```' in command or any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs')
                               and c not in '\n\t' for c in command):
         raise ValueError('Hidden/control characters and code fences are not allowed')
-    run_as = payload.get('run_as', 'evo-hermes')
+    run_as = payload.get('run_as', 'evo-bot')
     if run_as not in POLICY['users']:
-        raise ValueError('Only evo-hermes or explicitly approved root is available')
+        raise ValueError('Only evo-bot or explicitly approved root is available')
     reason = payload.get('reason', '')
     if not isinstance(reason, str) or len(reason.strip()) > 160:
         raise ValueError('Reason must be text, at most 160 characters')
@@ -284,7 +284,7 @@ class Handler(socketserver.StreamRequestHandler):
             result = dict(success=False, error=str(error)[:250])
         finally:
             CLIENT_SLOTS.release()
-        run_as = result.get('run_as', result.get('payload', {}).get('run_as', 'evo-hermes'))
+        run_as = result.get('run_as', result.get('payload', {}).get('run_as', 'evo-bot'))
         root = run_as == 'root'
         result['execution_context'] = {
             'host': 'EVO local host', 'hostname': socket.gethostname(),
@@ -319,7 +319,7 @@ class Server(socketserver.ThreadingUnixStreamServer):
 def main():
     global POLICY
     POLICY = json.loads(Path('/etc/evo-host/policy.json').read_text())
-    account = pwd.getpwnam('evo-hermes')
+    account = pwd.getpwnam('evo-bot')
     POLICY['caller_uid'] = account.pw_uid
     runtime = Path(POLICY['runtime'])
     runtime.mkdir(mode=0o750, exist_ok=True)

@@ -1,0 +1,27 @@
+{
+  "purpose": "Deploy our support code to an already installed Codex server. Do not reinstall Codex or replace authentication.",
+  "windows": {
+    "source": "windows/",
+    "files": ["server.js", "desktop-ipc.js", "snapshot-tail.js", "text-file.js", "Launcher.cs"],
+    "installed": "%USERPROFILE%/.config/evo-codex-server",
+    "apply": "powershell -NoProfile -File Update-DesktopBridge.ps1",
+    "settings": "%USERPROFILE%/.config/evo-codex-server/settings.json",
+    "service": "EVO-Codex-Server scheduled task",
+    "note": "Preserve settings, token, certificates and GUI ownership. Update only while bridge-owned jobs are idle."
+  },
+  "linux": {
+    "source": "linux/",
+    "files": ["codex-rpc.py", "apply.py"],
+    "apply": "python3 apply.py --target ~/bin/codex-rpc",
+    "check": "python3 apply.py --target ~/bin/codex-rpc --check",
+    "transport": "SSH runs codex-rpc @stdio; native daemon persists between connections.",
+    "native_binary": "~/.local/bin/codex-app-server",
+    "socket": "~/.codex/app-server/evo.sock",
+    "note": "Helper update does not restart the daemon, replay commands or modify existing Codex configuration/authentication."
+  },
+  "register": {
+    "config": "/etc/evo-bot/remote-control.json",
+    "discovery": "remote_control(action=list)",
+    "note": "Register host, protocol and private credential file references, then preserve the conversation when restarting evo-bot. Root changes still require owner approval."
+  }
+}

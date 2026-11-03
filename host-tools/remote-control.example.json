@@ -14,7 +14,7 @@
       "ssh": {
         "account": "linux-login",
         "port": 22,
-        "known_hosts": "/etc/evo-omp/ssh/known_hosts"
+        "known_hosts": "/etc/evo-bot/ssh/known_hosts"
       }
     },
     "cloud-server": {
@@ -22,7 +22,7 @@
       "ssh": {
         "account": "cloud-login",
         "port": 22,
-        "known_hosts": "/etc/evo-omp/ssh/cloud-server.known_hosts",
+        "known_hosts": "/etc/evo-bot/ssh/cloud-server.known_hosts",
         "sudo_nopasswd": true
       }
     },
@@ -32,12 +32,12 @@
         "account": "desktop-login",
         "port": 3389,
         "domain": ".",
-        "certificate_file": "/etc/evo-omp/certs/desktop-rdp.pem"
+        "certificate_file": "/etc/evo-bot/certs/desktop-rdp.pem"
       },
       "codex": {
         "port": 4500,
-        "token_file": "/etc/evo-omp/credentials/desktop-codex.token",
-        "ca": "/etc/evo-omp/certs/desktop-codex.pem",
+        "token_file": "/etc/evo-bot/credentials/desktop-codex.token",
+        "ca": "/etc/evo-bot/certs/desktop-codex.pem",
         "cwd": "C:\\Work"
       }
     }
@@ -46,18 +46,18 @@
     "linux-login": {
       "username": "operator",
       "ssh_instances": ["linux-server"],
-      "password_file": "/etc/evo-omp/ssh/linux-server.password",
-      "sudo_password_file": "/etc/evo-omp/ssh/linux-server.password"
+      "password_file": "/etc/evo-bot/ssh/linux-server.password",
+      "sudo_password_file": "/etc/evo-bot/ssh/linux-server.password"
     },
     "cloud-login": {
       "username": "opc",
       "ssh_instances": ["cloud-server"],
-      "identity_file": "/etc/evo-omp/ssh/cloud-server.key"
+      "identity_file": "/etc/evo-bot/ssh/cloud-server.key"
     },
     "desktop-login": {
       "username": "operator",
       "rdp_instances": ["windows-pc"],
-      "password_file": "/etc/evo-omp/credentials/desktop.password"
+      "password_file": "/etc/evo-bot/credentials/desktop.password"
     }
   }
 }

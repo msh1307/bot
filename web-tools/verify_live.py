@@ -1,4 +1,4 @@
-"""Exercise deployed WebUI HTTP and the OMP Registry without sending Discord messages."""
+"""Exercise deployed WebUI HTTP and the Pi Registry without sending Discord messages."""
 import asyncio
 import json
 from pathlib import Path
@@ -6,9 +6,9 @@ import sys
 import time
 import urllib.request
 
-sys.path.insert(0, '/opt/evo-omp')
-from evo_omp import context
-from evo_omp.tools import Registry, http_json
+sys.path.insert(0, '/opt/evo-bot')
+from evo_bot import context
+from evo_bot.tools import Registry, http_json
 
 
 def memory():
@@ -56,7 +56,7 @@ async def main():
     schema = registry.tools['web_read'][0]['parameters']['properties']
     assert schema['char_limit']['default'] == 2400 and 'version' in schema
     after = memory()
-    result = {'passed': True, 'path': 'OMP Registry -> router /tools -> web worker; WebUI /tools',
+    result = {'passed': True, 'path': 'Pi Registry -> router /tools -> web worker; WebUI /tools',
               'discord_message_sent': False, 'schema_loaded': True, 'calls': rows,
               'changed_version_rejected': True, 'webui_matches_omp': True,
               'before': before, 'after': after, 'swapout_delta_pages': after['pswpout'] - before['pswpout']}

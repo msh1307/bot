@@ -1,0 +1,101 @@
+{
+  "restart_utc": "2026-11-03T18:32:01.418249+00:00",
+  "service": "evo-bot",
+  "engine": "Pi 1.4.0",
+  "history_preserved": true,
+  "before_sha256": {
+    "evo_bot/context.py": "796960af9e742b4cb22df7bbd8fd48a5b15bf231470cea6f598ec4518fb05cf2",
+    "evo_bot/gateway.py": "46b7e01eac93255b6232375a8c3feae02e77dac52296efe6ac41a5312e8a2f16",
+    "evo_bot/tools.py": "171aeca50a2224097b98bcdd929017f4b9ff69bf762b0a20226c0375c1250a71",
+    "evo_bot/integrations/codex.py": "6415810e2f21e4c9b1b8fb9fa87e1dca53790496ddf8b58bbcdd1b372ebe5b60",
+    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+  },
+  "after_sha256": {
+    "evo_bot/context.py": "e17987d6d2957f779a9429f06517247db4116fc781982213114ee804928c0ccc",
+    "evo_bot/gateway.py": "1a780c6ea643cc27d1d41d8eb461198c150add9d4b6bc9deff9fe41bcb4ae2a2",
+    "evo_bot/tools.py": "caa54815f09feb3c26743bbf9be56600fe267e34b6e49d923fdbaba7c35ff362",
+    "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
+    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+  },
+  "loaded_runner_before_sha256": "e7dcd8391ac10b842ffc7282cf90f35b60c32c3b751a37dc75ad40a58944c8ac",
+  "tests": {
+    "regression_suites_passed": 18,
+    "regression_checks": 195,
+    "discord_to_pi": {
+      "passed": 12,
+      "failed": 0,
+      "checks": [
+        "original turn stays alive",
+        "addenda steer exactly once",
+        "acknowledgement without abort",
+        "ambiguous delivery never replays as new prompt",
+        "settling race queues next task without abort",
+        "next task runs once after settling",
+        "actual Pi has two steering inputs; turn not cancelled",
+        "actual next provider payload retains original and each addendum once",
+        "one continued turn, no replay: calls=2, output=['VERIFIED_CONTEXT']",
+        "actual session fully settles",
+        "/stop releases a session whose host call has not settled",
+        "stopped addendum never leaks into next task"
+      ],
+      "actual_pi_bwrap": true,
+      "evo_model_requests": 0,
+      "discord_posts": 0
+    },
+    "pi_rpc": {
+      "passed": 25,
+      "failed": 0,
+      "checks": [
+        "initial queue empty",
+        "Discord end-of-turn race returns not_running",
+        "idle guard never strands a queued input",
+        "main prompt accepted",
+        "steer accepted",
+        "follow-up accepted",
+        "both pending inputs reported",
+        "active state not falsely settled",
+        "concurrent second prompt rejected",
+        "one prompt completes after all continuations",
+        "exactly three model calls, no duplicate replay",
+        "steer precedes follow-up",
+        "follow-up runs after corrected answer",
+        "steering image forwarded",
+        "all owner inputs retained once",
+        "settled state accurate",
+        "single completion frame",
+        "idle queued input not hidden",
+        "explicit queue clearing",
+        "abort acknowledged",
+        "stop clears pending continuation",
+        "new owner task works after stop",
+        "cancelled input never enters next task",
+        "steer rejects invalid input",
+        "follow_up rejects invalid input"
+      ],
+      "runtime": "Pi 1.4.0",
+      "mode": "actual installed Pi and wrapper, local fake API",
+      "provider_requests": 5,
+      "evo_model_requests": 0,
+      "discord_posts": 0,
+      "runner_sha256": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+    },
+    "scheduled_windows_command": {
+      "passed": true,
+      "actual_scheduler_worker_registry_windows_bridge": true,
+      "exit_code": 0,
+      "stdout": "EVO_SCHEDULED_EXEC_OK",
+      "captured_discord_delivery": [
+        "SCHEDULED_BRIDGE_OK"
+      ],
+      "discord_posts": 0,
+      "shutdown_executed": false,
+      "model_inference": false
+    }
+  },
+  "limits": [
+    "Provider replies were scripted; model task comprehension is not established.",
+    "No real shutdown or Discord test message was sent.",
+    "Existing read-only checks remain read-only; new one-shot tasks default to task mode."
+  ],
+  "backup": "/opt/evo-retired/steer-tasks-20261103T183155Z"
+}
