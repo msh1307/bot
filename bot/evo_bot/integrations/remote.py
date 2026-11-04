@@ -32,8 +32,7 @@ GUIDES = {
         'projects': {'optional': {'cursor': 'returned next_cursor', 'limit': 'integer 1..12; default 12'}},
         'models': {},
         'daybreak': {'required': {'thread_id': 'chat ID from list'}, 'optional': {
-            'mode': 'on|off; default on. on switches this chat to the cyber-capable model; off only clears '
-                    'the flag and the chat keeps its model',
+            'mode': 'on|off; default on. on picks an offered cyber model if available; otherwise keeps the model. off keeps its model',
             'model': 'ID from models; applies to this chat only, omit to keep it (off) or auto-pick (on)'}},
         'approval': {'required': {'thread_id': 'chat ID from list'}, 'optional': {
             'policy': 'never|on-request|untrusted; omit keeps the current policy',
@@ -46,13 +45,17 @@ GUIDES = {
         'send': {'required': {'prompt': 'instruction string, 1..16000 chars'},
                  'optional': {'thread_id': 'chat ID from list; or use job_id from start',
                               'wake': 'boolean: callback to EVO; omit keeps setting; new tasks default true',
+                              'compact': 'boolean: callbacks compact first by default; false keeps continuous context',
                               'job_id': 'alternative to thread_id from start'}},
         'answer': {'required': {'thread_id': 'chat ID from list', 'request_id': 'pending request ID',
                                 'answers': 'object: question_id -> array of answer strings'}},
         'start': {'optional': {'prompt': 'instruction string', 'model': 'ID from models',
+                               'mode': 'on|off: initial Daybreak choice; omit inherits native default',
+                               'policy': 'never|on-request|untrusted; omit inherits native default',
+                               'sandbox': 'workspace-write|read-only|danger-full-access; omit inherits native default',
                                'cwd': 'absolute path for a new daemon chat', 'project': 'Windows ID/name from projects',
                                'ephemeral': 'boolean, new daemon chat only; default false',
-                               'wake': 'boolean; default true'},
+                               'wake': 'boolean; default true', 'compact': 'boolean; callback default true'},
                   'note': 'New chat. Windows shows an owner selection card; Linux starts in cwd.'},
         'file_list': {'required': {'path': 'absolute Windows path'}, 'optional': {
             'offset': 'integer; default 0, continue with returned next_offset', 'search': 'filename substring',
@@ -63,7 +66,11 @@ GUIDES = {
             'cwd': 'absolute Windows path', 'timeout_ms': 'integer 100..15000; default 10000'}},
         'notes': 'Select instance; uses its authenticated Codex connection. Windows-only projects/files/exec. '
                  'send steers/continues the SAME chat; status shows tail/questions. Page with returned cursors. '
-                 'New tasks wake EVO on completion/questions; wake=false disables. Execution approvals require owner. No replay on timeout. '
+                 'New tasks wake EVO on completion/questions; wake=false disables. send also accepts client commands: '
+                 '/goal [objective|show|clear|pause|resume], /compact, /model [ID], /daybreak on|off, /wake on|off, /status, /stop. '
+                 '/goal and /compact need a daemon-owned chat; GUI-owned chats must use the app for these commands. '
+                 '/goal is native state; clear/pause do not interrupt the current turn (/stop does). '
+                 '/wake controls callbacks without sending a prompt; off revokes queued events. Execution approvals require owner. No replay on timeout. '
                  'For a delayed check use schedule action=defer, after_seconds=1..600, prompt=task; not a Codex action. '
                  'daybreak/approval/settings affect this chat only; GUI chats stay with the app owner. Omitted settings are preserved.'}}
 

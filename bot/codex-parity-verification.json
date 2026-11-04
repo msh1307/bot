@@ -1,0 +1,168 @@
+{
+  "backup": "/opt/evo-retired/codex-parity-20261104T155628Z",
+  "before_sha256": {
+    "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+    "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+    "evo_bot/integrations/remote.py": "a76534b9cba31c6e7f7f75ffbca3c8076d27a4180df9c339c8530ed9230d3799",
+    "evo_bot/integrations/codex.py": "d9b0a6eb76b82d31864fd9b9ec5869c80423b748fad6abe45637d46e1b65ca9f"
+  },
+  "after_sha256": {
+    "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+    "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+    "evo_bot/integrations/remote.py": "0651d3d2e1a2d7165a2d1a121a3086e04c413682342cae584c02279714377032",
+    "evo_bot/integrations/codex.py": "b652f502c4577e287e2318d66c3d8b90a7471c0f4581990e6a7ccfb9d8d02386"
+  },
+  "tests": {
+    "passed": 149,
+    "failed": 0
+  },
+  "live": {
+    "desktop": {
+      "passed": true,
+      "first": "NATIVE-FIRST-OK",
+      "second": "NATIVE-SECOND-OK",
+      "daybreak_first": "DAYBREAK-FIRST-OK",
+      "daybreak_second": "DAYBREAK-SECOND-OK",
+      "goal_cleared": {
+        "goal": null,
+        "thread_id": "01a1a739-8027-7582-9bf4-dad9a00c915d"
+      },
+      "continued_settings": {
+        "model": "gpt-6-luna",
+        "daybreak_enabled": false,
+        "approval_policy": "never",
+        "sandbox": "dangerFullAccess"
+      },
+      "reconnected_settings": {
+        "model": "gpt-6-luna",
+        "daybreak_enabled": false,
+        "approval_policy": "never",
+        "sandbox": "dangerFullAccess"
+      },
+      "daybreak_reconnected": {
+        "model": "gpt-daybreak-blue-latest",
+        "daybreak_enabled": true,
+        "approval_policy": "never",
+        "sandbox": "dangerFullAccess"
+      }
+    },
+    "oracle": {
+      "passed": true,
+      "first": "NATIVE-FIRST-OK",
+      "second": "NATIVE-SECOND-OK",
+      "daybreak_first": "DAYBREAK-FIRST-OK",
+      "daybreak_second": "DAYBREAK-SECOND-OK",
+      "goal_cleared": {
+        "goal": null,
+        "thread_id": "01a1a739-fe8e-76e2-8ba2-58aba1036266"
+      },
+      "continued_settings": {
+        "model": "gpt-6-luna",
+        "daybreak_enabled": false,
+        "approval_policy": "never",
+        "sandbox": "workspaceWrite"
+      },
+      "reconnected_settings": {
+        "model": "gpt-6-luna",
+        "daybreak_enabled": false,
+        "approval_policy": "never",
+        "sandbox": "workspaceWrite"
+      },
+      "daybreak_reconnected": {
+        "model": "gpt-daybreak-blue-latest",
+        "daybreak_enabled": true,
+        "approval_policy": "never",
+        "sandbox": "workspaceWrite"
+      }
+    }
+  },
+  "history_sha256": "c665cae6435cb8670b2682e99daa68d53ce923138aadc0d300024580cb4ba158",
+  "history_bytes": 822203,
+  "restart_requested_utc": "2026-11-04T15:56:28.145440+00:00",
+  "remote_daemons_restarted": false,
+  "history_restored_prefix_sha256": "c665cae6435cb8670b2682e99daa68d53ce923138aadc0d300024580cb4ba158",
+  "status": {
+    "engine": "pi",
+    "version": "1.4.0",
+    "state": "connected",
+    "queued": 0,
+    "sessions": 1,
+    "pending_inputs": 0,
+    "active": false,
+    "rounds": 0,
+    "tools": 0,
+    "elapsed_seconds": 0,
+    "idle_seconds": 0,
+    "updated": 1793807793
+  },
+  "history_preserved": true,
+  "restart_completed_utc": "2026-11-04T15:56:33.234190+00:00",
+  "deployed_sha256": {
+    "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+    "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+    "evo_bot/integrations/remote.py": "0651d3d2e1a2d7165a2d1a121a3086e04c413682342cae584c02279714377032",
+    "evo_bot/integrations/codex.py": "b652f502c4577e287e2318d66c3d8b90a7471c0f4581990e6a7ccfb9d8d02386"
+  },
+  "service": "ActiveState=active\nActiveEnterTimestamp=Wed 2026-11-04 15:56:28 UTC\nMainPID=3065879",
+  "post_restart_smoke": {
+    "desktop": {
+      "cold_goal_loaded": true,
+      "goal_clear_readback": null,
+      "daybreak_offered": true,
+      "no_inference": true
+    },
+    "oracle": {
+      "cold_goal_loaded": true,
+      "goal_clear_readback": null,
+      "daybreak_offered": true,
+      "no_inference": true
+    }
+  },
+  "post_restart_journal_errors": [],
+  "discord_reconnected": true,
+  "initial_deployment": {
+    "backup": "/opt/evo-retired/codex-parity-20261104T154538Z",
+    "before_sha256": {
+      "evo_bot/gateway.py": "fe402dadd1332d1454652b1d0d502d333fbd82c2c9f748aec5d4facc07e265c8",
+      "evo_bot/tools.py": "0f447e2ef0bbe8451dcd482662460df595d913673ecf703ffd1191bac8cab3a6",
+      "evo_bot/integrations/remote.py": "b84b32fb2576e6c1879e656549e4f05583d549e3b3937570f313deb4208d6ae4",
+      "evo_bot/integrations/codex.py": "13cbfdd3fc6cf4e8a6378a501303b01bbec9b0ac20212c15010304c9d54b1461"
+    },
+    "after_sha256": {
+      "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+      "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+      "evo_bot/integrations/remote.py": "a76534b9cba31c6e7f7f75ffbca3c8076d27a4180df9c339c8530ed9230d3799",
+      "evo_bot/integrations/codex.py": "d9b0a6eb76b82d31864fd9b9ec5869c80423b748fad6abe45637d46e1b65ca9f"
+    },
+    "tests": {
+      "passed": 148,
+      "failed": 0
+    },
+    "restart_completed_utc": "2026-11-04T15:45:43.724576+00:00"
+  },
+  "live_roundtrip_evidence_sha256": {
+    "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+    "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+    "evo_bot/integrations/remote.py": "a76534b9cba31c6e7f7f75ffbca3c8076d27a4180df9c339c8530ed9230d3799",
+    "evo_bot/integrations/codex.py": "d9b0a6eb76b82d31864fd9b9ec5869c80423b748fad6abe45637d46e1b65ca9f"
+  },
+  "post_restart_smoke_sha256": {
+    "evo_bot/gateway.py": "736500d3941bc1cc9b5a986ebfc7e9c6f2effede2ef9a23f6393c9a3f06ce6af",
+    "evo_bot/tools.py": "4cd6ba45f6328a8d61a618aa2b96fff421c4376218210d5cfda56aaa87620108",
+    "evo_bot/integrations/remote.py": "0651d3d2e1a2d7165a2d1a121a3086e04c413682342cae584c02279714377032",
+    "evo_bot/integrations/codex.py": "b652f502c4577e287e2318d66c3d8b90a7471c0f4581990e6a7ccfb9d8d02386"
+  },
+  "limitations": [
+    "Native /goal and /compact are supported for daemon-owned Windows and Linux chats only. GUI-owned Windows chats are explicitly rejected before resume/mutation; the installed desktop follower IPC has no goal endpoint.",
+    "Omitting model preserves each native server default (Windows and Oracle defaults need not match). Daybreak requires an entitled model/account; live tests used gpt-daybreak-blue-latest.",
+    "The listed slash commands are an allowlist, not arbitrary Codex UI command passthrough. No desktop GUI-owned chat was mutated during this test."
+  ],
+  "unit_command": "python -m unittest verify_codex_parity verify_codex_settings verify_codex_wake verify_task_queue verify_schedule verify_remote verify_timing verify_steer_admission verify_codex_live_fixes verify_codex_existing verify_codex_questions verify_codex_cancellation verify_codex_shutdown",
+  "desktop_bridge_catalog_refresh": {
+    "scheduled_task": "EVO-Codex-Server",
+    "native_pid": 26992,
+    "restart_utc": "2026-11-04T15:39:41.597Z",
+    "desktop_app_restarted": false,
+    "daybreak_model_visible_after": true
+  }
+}

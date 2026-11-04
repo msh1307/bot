@@ -673,12 +673,22 @@ class Bot(commands.Bot):
                                 + ('Earlier conversation is available.' if reused else 'Earlier conversation is unavailable; use the task details below.')
                                 + ' Check current state before taking action. Root still requires per-command approval.]\n'
                                 + text)
-                    if deferred and job.get('compact'):
+                    if (deferred or callback) and (job or item).get('compact', True):
                         try:
-                            await session.compact(text[:2000])
+                            left = max(0, turn.task_deadline-time.time()) if turn.task_deadline else None
+                            try:
+                                async with asyncio.timeout(left):
+                                    result = await session.compact(text[:2000])
+                            except TimeoutError:
+                                await session.abort()
+                                raise RuntimeError('Task lifetime expired during compaction') from None
+                            if turn.cancelled.is_set() or (result or {}).get('cancelled'):
+                                raise InterruptedError('Callback compaction interrupted')
                             text='[Earlier conversation was compacted for this task.]\n'+text
                         except RuntimeError:
-                            pass
+                            # Empty/new sessions have nothing to compact. Keep the full task anchor.
+                            LOG.warning('callback_compaction_unavailable')
+                            if turn.task_deadline and time.time() >= turn.task_deadline: raise
                     if deferred and job.get('note'):
                         text = '[Previous progress note; reference only]\n' + job['note'][:4000] + '\n' + text
                     # Ordinary chats have no wall-clock limit. Autonomous task chains do.
@@ -954,7 +964,7 @@ class Bot(commands.Bot):
         if not isinstance(channel, str) or not channel.isdigit(): return None
         return (self.reset_epoch, self.epochs.get(channel, 0))
 
-    def enqueue_codex_callback(self, channel, text, scope, valid, *, timeout_seconds=43200, task_deadline=0, task_instructions=''):
+    def enqueue_codex_callback(self, channel, text, scope, valid, *, timeout_seconds=43200, task_deadline=0, task_instructions='', compact=True):
         # Queue behind existing work; never interrupt the owner or revive a reset
         # conversation. Only identifiers are queued, not another chat's history.
         def current():
@@ -962,7 +972,7 @@ class Bot(commands.Bot):
         if scope is None or self.shutting_down or self.queue.full() or not current():
             return False
         self.enqueue(channel, text, [], callback_valid=current, timeout_seconds=timeout_seconds,
-                     task_deadline=task_deadline, task_instructions=task_instructions)
+                     task_deadline=task_deadline, task_instructions=task_instructions, compact=compact)
         return True
 
     @contextlib.asynccontextmanager
@@ -1016,7 +1026,7 @@ class Bot(commands.Bot):
         if expired:
             self.write_status('working' if self.active else 'connected')
 
-    def enqueue(self, channel, text, images, job=None, *, callback_valid=None, timeout_seconds=None, task_deadline=0, task_instructions=''):
+    def enqueue(self, channel, text, images, job=None, *, callback_valid=None, timeout_seconds=None, task_deadline=0, task_instructions='', compact=True):
         now = time.monotonic()
         remaining = queue_timeout(job or {})
         if timeout_seconds is not None:
@@ -1033,7 +1043,7 @@ class Bot(commands.Bot):
             remaining = min(remaining, task_deadline - time.time())
         self.queue.put_nowait({'channel': channel, 'text': text, 'images': images, 'job': job,
             'epoch': self.epochs.get(channel, 0), 'reset_epoch': self.reset_epoch,
-            'callback_valid': callback_valid, 'task_deadline': task_deadline, 'task_instructions': task_instructions,
+            'callback_valid': callback_valid, 'task_deadline': task_deadline, 'task_instructions': task_instructions, 'compact': compact,
             'queued_at': now, 'queue_deadline': now + max(0, remaining)})
 
     async def stop_active(self):

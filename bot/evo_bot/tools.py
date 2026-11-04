@@ -310,9 +310,12 @@ def schedule(args):
             if job is None:
                 raise ValueError('Unknown schedule. Use list(query=...) then its ID or exact unique name.')
             changes = set(args) - {'action', 'id'}
-            if not changes or changes - {'name', 'prompt', 'at', 'cron', 'until', 'quiet', 'queue_timeout_seconds'}:
-                raise ValueError('Update accepts name, prompt, at or cron, until, quiet, queue_timeout_seconds')
+            if not changes or changes - {'name', 'prompt', 'at', 'cron', 'until', 'quiet', 'queue_timeout_seconds', 'compact'}:
+                raise ValueError('Update accepts name, prompt, at or cron, until, quiet, queue_timeout_seconds, compact')
             updated = dict(job)
+            if 'compact' in args:
+                if type(args['compact']) is not bool: raise ValueError('compact needs a boolean')
+                updated['compact'] = args['compact']
             if 'queue_timeout_seconds' in args:
                 updated['queue_timeout_seconds'] = queue_timeout(args)
             for key in ('name', 'prompt', 'quiet'):
@@ -450,7 +453,7 @@ def schedule(args):
         if action in ('defer', 'enqueue'):
             job['continuation'] = True
             job['model'] = t.model
-            if compact is not None: job['compact'] = compact
+            job['compact'] = True if compact is None else compact
         job['next_run_at'] = next_run(job).isoformat()
         if mode == 'task' or t.task_deadline:
             # A continuation inherits the original budget; rescheduling cannot renew it.
@@ -518,7 +521,7 @@ SCHEDULE_SCHEMA = {
         'name': {'type': 'string'}, 'prompt': {'type': 'string'},
         'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': ['string', 'null']},
         'mode': {'type': 'string', 'enum': ['task', 'check'], 'description': 'create only; task acts on owner instructions, check only observes. Defaults: at=task, cron=check.'},
-        'quiet': {'type': 'boolean'}, 'compact': {'type': 'boolean', 'description': 'defer/enqueue: omit keeps context; true compacts first for an unrelated topic'}, 'text': {'type': 'string', 'maxLength': 4000},
+        'quiet': {'type': 'boolean'}, 'compact': {'type': 'boolean', 'description': 'Task callbacks compact first by default; false continues without an extra compaction. update can change it.'}, 'text': {'type': 'string', 'maxLength': 4000},
         'queue_timeout_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 43200},
         'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 600}}, 'required': ['action']}}
 WAIT_SCHEMA = {

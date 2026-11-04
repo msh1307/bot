@@ -274,7 +274,8 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             yield
         channel=SimpleNamespace(typing=quiet)
         session=SimpleNamespace(model=self.turn.model, error=None, prompt=prompt,
-            close=AsyncMock(), reusable_after_error=AsyncMock(return_value=True))
+            compact=AsyncMock(return_value={}), close=AsyncMock(), reusable_after_error=AsyncMock(return_value=True))
+        self.worker_session=session
         self.bot.sessions['77']=session
         self.bot.get_channel=lambda ident:channel
         self.bot.session=AsyncMock(return_value=session)
@@ -308,7 +309,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
                 calls.append('active')
                 entered.set()
                 await release.wait()
-            elif text=='Codex callback':
+            elif text.endswith('Codex callback'):
                 calls.append('codex')
                 self.assertTrue(turn.deferred)
             elif text.endswith('Timer task'):
@@ -334,11 +335,26 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
                 release.set()
                 await asyncio.wait_for(self.bot.queue.join(),1)
                 self.assertEqual(calls,['active','codex','timer'])
+                self.assertEqual(self.worker_session.compact.await_count,2)
                 self.assertEqual(self.saved()[0]['last_status'],'ok')
                 self.assertEqual(self.bot.deliver.await_count,3)
             finally:
                 release.set()
                 worker.cancel(); await asyncio.gather(worker,return_exceptions=True)
+
+    async def test_callback_compact_false_keeps_continuous_context(self):
+        async def prompt(text,turn,images):
+            self.assertEqual(text,'continuous callback')
+            return 'done'
+        session=self.worker_environment(prompt)
+        with patch.object(gateway,'context_footer',AsyncMock(return_value='')):
+            worker=asyncio.create_task(self.bot.work_loop())
+            try:
+                self.bot.enqueue_codex_callback('77','continuous callback',self.bot.codex_callback_scope('77'),lambda:True,compact=False)
+                await asyncio.wait_for(self.bot.queue.join(),1)
+                session.compact.assert_not_awaited()
+            finally:
+                worker.cancel();await asyncio.gather(worker,return_exceptions=True)
 
 
 if __name__=='__main__': unittest.main(verbosity=2)

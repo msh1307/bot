@@ -35,6 +35,38 @@ SCHEDULED_ACTIONS = {'servers', 'status', 'read', 'send', 'answer', 'list', 'mod
 # Per-chat settings use native Codex RPCs; GUI chats stay with the existing GUI owner.
 DYNAMIC_SETTINGS_ACTIONS = {'daybreak', 'approval', 'settings'}
 
+
+def slash_request(args):
+    """Slash commands are client commands, never ordinary prompts sent to the model."""
+    if args.get('action') != 'send' or not isinstance(args.get('prompt'), str): return args
+    if not 1 <= len(args['prompt']) <= 16000: raise ValueError('Provide prompt (1–16000 characters)')
+    match = re.match(r'^/([a-z-]+)(?:\s+(.*))?$', args['prompt'].strip(), re.S)
+    if not match: return args
+    name, value = match[1], (match[2] or '').strip()
+    out = {k: v for k, v in args.items() if k != 'prompt'}
+    if name in ('status', 'stop', 'compact') and not value:
+        return dict(out, action='_' + name if name == 'compact' else name)
+    if name == 'model': return dict(out, action='_model' if value else 'settings', model=value)
+    if name == 'daybreak' and value in ('on', 'off'):
+        return dict(out, action='daybreak', mode=value)
+    if name == 'wake' and value in ('on', 'off'):
+        return dict(out, action='_watch', wake=value == 'on')
+    if name == 'goal':
+        if not value or value == 'show': return dict(out, action='_goal', operation='get')
+        if value == 'clear': return dict(out, action='_goal', operation='clear')
+        if value in ('pause', 'resume'):
+            return dict(out, action='_goal', operation='set', status='paused' if value == 'pause' else 'active')
+        return dict(out, action='_goal', operation='set', objective=value)
+    raise ValueError('Supported: /goal [objective|show|clear|pause|resume], /compact, /model [ID], /daybreak on|off, /wake on|off, /status, /stop. No prompt submitted.')
+
+
+def turn_input(tid, prompt, daybreak=None):
+    params = {'threadId': tid, 'input': [{'type': 'text', 'text': prompt}]}
+    # Persisted metadata is a client preference, not a turn's authorization/program.
+    if type(daybreak) is bool:
+        params['cyberAccessProgram'] = 'daybreakBlue' if daybreak else 'standard'
+    return params
+
 def check_request(check):
     if check is not None:
         check()
@@ -81,7 +113,8 @@ def owner_session():
 def snapshot(job):
     return {k: job.get(k) for k in ['job_id', 'thread_id', 'turn_id', 'state', 'phase',
                                    'model', 'cwd', 'channel', 'started_at', 'source',
-                                   'title', 'baseline_turn_id', 'send_mode', 'project_id', 'project_name', 'ephemeral']}
+                                   'title', 'baseline_turn_id', 'send_mode', 'project_id', 'project_name', 'ephemeral',
+                                   'daybreak_enabled']}
 
 
 def project_snapshot(project):
@@ -184,7 +217,7 @@ class Bridge:
         # Routing and the bounded owner task survive a maintenance handoff in /run (tmpfs).
         tmp = self.state_path.with_suffix('.tmp')
         tmp.write_text(json.dumps([dict(snapshot(j), **{k: j[k] for k in
-            ('_wake', '_revision', '_desktop_revision', '_callback_events', '_callback_deadlines', '_completion_delivery', '_task_deadline', '_task_prompt') if k in j})
+            ('_wake', '_compact', '_revision', '_desktop_revision', '_callback_events', '_callback_deadlines', '_completion_delivery', '_task_deadline', '_task_prompt') if k in j})
             for j in self.jobs.values()][-16:]))
         tmp.chmod(0o600)
         tmp.replace(self.state_path)
@@ -613,6 +646,8 @@ class Bridge:
                 return dict(snapshot(job), answer='')
             raise
         remote = read['thread']['status']['type']
+        job.update(model=read['thread'].get('model') or job.get('model'),
+                   daybreak_enabled=read['thread'].get('daybreakEnabled'))
         if remote == 'active':
             if job['state'] == 'connection_lost':
                 if not job.get('ephemeral'):
@@ -622,7 +657,7 @@ class Bridge:
             if job.get('ephemeral'):
                 # Native ephemeral threads expose metadata but reject historical
                 # turns APIs. Keep live notification state/results in this bridge.
-                if job['state'] in ACTIVE:
+                if job['state'] == 'connection_lost' or not job.get('turn_id'):
                     job.update(state='idle', phase='Temporary chat is idle; the previous result may be unavailable after reconnect')
                 self.save()
                 return dict(snapshot(job), remote_status=remote, answer=self.answer(job)[-12000:],
@@ -636,11 +671,14 @@ class Bridge:
                 turns = full['thread'].get('turns', [])[-1:]
             if turns:
                 turn = turns[0]
-                job['state'], job['turn_id'] = turn['status'], turn['id']
-                job['messages'] = {i['id']: dict(i, text=i.get('text', '')[-65536:])
-                                   for i in turn.get('items', []) if i.get('type') == 'agentMessage'}
-                job['phase'] = clean((turn.get('error') or {}).get('message', turn['status']))[:600]
-            else:
+                # History/metadata can lag turn/start. An old/empty page is not completion
+                # of the newly accepted turn (nor evidence that no turn was submitted).
+                if not (job['state'] in ACTIVE and job.get('turn_id') and turn['id'] != job['turn_id']):
+                    job['state'], job['turn_id'] = ('running' if turn['status'] == 'inProgress' else turn['status']), turn['id']
+                    job['messages'] = {i['id']: dict(i, text=i.get('text', '')[-65536:])
+                                       for i in turn.get('items', []) if i.get('type') == 'agentMessage'}
+                    job['phase'] = clean((turn.get('error') or {}).get('message', turn['status']))[:600]
+            elif not job.get('turn_id'):
                 job['state'], job['phase'] = 'idle', 'No turn started; use send to begin'
         self.save()
         return dict(snapshot(job), remote_status=remote, answer=self.answer(job)[-12000:],
@@ -677,7 +715,7 @@ class Bridge:
         accepted = adapter.enqueue_codex_callback(job['channel'], text, job.get('_callback_scope'),
             lambda: self.jobs.get(job['job_id']) is job and job.get('_revision') == revision and job.get('_wake'),
             timeout_seconds=max(.001, min(43200, left)), task_deadline=job['_task_deadline'],
-            task_instructions=job.get('_task_prompt', ''))
+            task_instructions=job.get('_task_prompt', ''), compact=job.get('_compact', True))
         if accepted:
             events.append(event)
             del events[:-32]
@@ -694,7 +732,9 @@ class Bridge:
         from .. import context
         wake = args.get('wake', job.get('_wake', True))
         if type(wake) is not bool: raise ValueError('wake must be true or false')
-        job.update(channel=channel, _wake=wake, _revision=secrets.token_hex(8))
+        compact = args.get('compact', job.get('_compact', True))
+        if type(compact) is not bool: raise ValueError('compact must be true or false')
+        job.update(channel=channel, _wake=wake, _compact=compact, _revision=secrets.token_hex(8))
         turn = context.owner_identity()
         job['_task_deadline'] = (turn.task_deadline if turn and turn.task_deadline else time.time() + 43200)
         if turn and turn.task_instructions:
@@ -812,6 +852,114 @@ class Bridge:
                     for call in params['calls']]
         return await asyncio.wait_for(self.rpc(method, params, check=check), timeout)
 
+    async def native_slash(self, args, check):
+        from .. import context
+        tid = args.get('thread_id') or self.jobs.get(args.get('job_id'), {}).get('thread_id')
+        if not isinstance(tid, str) or not tid: raise ValueError('Slash commands need thread_id from list')
+        self._thread(await self.rpc('thread/read', {'threadId': tid, 'includeTurns': False}, check=check), tid)
+        if not isinstance(self, AppServer) and not any(
+                j.get('thread_id') == tid and j.get('source') == 'app_server' for j in self.jobs.values()):
+            # The installed desktop has no goal follower endpoint. Never resume a
+            # second daemon copy of a GUI chat or send slash text as an ordinary prompt.
+            raise DesktopError('gui_command_unavailable',
+                '/goal and /compact currently require a daemon-owned chat; use them in the desktop app for GUI chats. No change submitted.')
+        # Goal/compact RPCs require a loaded thread; read alone only reads storage.
+        self._thread(await self.rpc('thread/resume', {'threadId': tid, 'excludeTurns': True}, check=check), tid)
+        if args['action'] == '_compact':
+            await self.rpc('thread/compact/start', {'threadId': tid}, check=check)
+            return {'thread_id': tid, 'requested': True, 'message': 'Native compaction requested; completion is asynchronous. No prompt submitted.'}
+        op = args['operation']
+        params = {'threadId': tid}
+        if op != 'get':
+            turn = context.owner_identity()
+            params['origin'] = 'automatic' if turn and (turn.deferred or turn.cron) else 'user'
+        if op == 'set':
+            for field in ('objective', 'status'):
+                if field in args: params[field] = args[field]
+        reply = await self.rpc('thread/goal/' + op, params, check=check)
+        if op != 'get':
+            reply = await self.rpc('thread/goal/get', {'threadId': tid}, check=check)
+            goal = reply.get('goal')
+            confirmed = goal is None if op == 'clear' else isinstance(goal, dict) and all(
+                goal.get(k) == v for k, v in params.items() if k in ('objective', 'status'))
+            if not confirmed:
+                raise DesktopError('unconfirmed_goal', 'Codex did not confirm the goal change; inspect /goal before retrying')
+        return dict(reply, thread_id=tid)
+
+    async def watch_chat(self, args, channel, check):
+        tid = args.get('thread_id') or self.jobs.get(args.get('job_id'), {}).get('thread_id')
+        if not isinstance(tid, str) or not tid: raise ValueError('/wake needs thread_id from list')
+        job = next((j for j in self.jobs.values() if j['thread_id'] == tid), None)
+        if job is None:
+            # Observe the real owner; never submit a prompt or resume a second GUI copy.
+            reply = None
+            if not isinstance(self, AppServer):
+                try: reply = await self.desktop({'action': 'status', 'thread_id': tid}, check=check)
+                except DesktopError as error:
+                    if error.code != 'no_gui_owner': raise
+            gui = reply is not None
+            if reply is None:
+                thread = self._thread(await self.rpc('thread/read', {'threadId': tid, 'includeTurns': False}, check=check), tid)
+                reply = {'model': thread.get('model'), 'cwd': thread.get('cwd')}
+            if len(self.jobs) >= 16: raise ValueError('All notification slots used; manage an existing job')
+            job = dict(job_id=secrets.token_hex(4), thread_id=tid, source='desktop' if gui else 'app_server',
+                       state='connection_lost', messages={}, model=reply.get('model'), cwd=reply.get('cwd'))
+            self.jobs[job['job_id']] = job
+        self.arm_callback(job, args, channel)
+        self.save()
+        if job['_wake']: self.monitor_desktop(job)
+        return dict(snapshot(job), wake=job['_wake'], compact=job['_compact'])
+
+    async def model_catalog(self, check=None):
+        rows, cursor = [], None
+        for _ in range(5):
+            params = {'limit': 100}
+            if cursor: params['cursor'] = cursor
+            page = await self.settings_rpc('model/list', params, 25, check)
+            rows.extend(page.get('data') or [])
+            cursor = page.get('nextCursor')
+            if not cursor: return rows
+        raise ValueError('Model catalog exceeds 500 entries')
+
+    async def start_native_thread(self, args, params, check=None):
+        """Both platforms validate and confirm settings before submitting any prompt."""
+        for key in ('wake', 'compact'):
+            if key in args and type(args[key]) is not bool: raise ValueError(key + ' must be true or false')
+        patch, flag = {}, None
+        if args.get('mode') is not None:
+            patch, flag = await self.settings_patch(dict(action='daybreak', mode=args['mode'],
+                                                         model=args.get('model')), check)
+        elif args.get('model'):
+            if args['model'] not in [m.get('id') for m in await self.model_catalog(check)]:
+                raise ValueError('Unknown model; use models')
+            patch['model'] = args['model']
+        if args.get('policy') is not None or args.get('sandbox') is not None:
+            extra, _ = await self.settings_patch(dict(action='approval', policy=args.get('policy'),
+                                                      sandbox=args.get('sandbox')), check)
+            patch.update(extra)
+        params = dict(params)
+        for key in ('model', 'approvalPolicy'):
+            if key in patch: params[key] = patch[key]
+        if 'sandboxPolicy' in patch:
+            params['sandbox'] = re.sub(r'([A-Z])', lambda m: '-' + m.group(1).lower(), patch['sandboxPolicy']['type'])
+        reply = await self.rpc('thread/start', params, check=check)
+        thread = self._thread(reply)
+        tid = thread['id']
+        if flag is not None and thread.get('daybreakEnabled') is not flag:
+            await self.rpc('thread/metadata/update', {'threadId': tid, 'daybreakEnabled': flag}, check=check)
+            thread = self._thread(await self.rpc('thread/read', {'threadId': tid, 'includeTurns': False}, check=check), tid)
+        actual = {'model': thread.get('model') or reply.get('model'),
+                  'approvalPolicy': reply.get('approvalPolicy'),
+                  'sandboxPolicy': reply.get('sandbox'), 'daybreakEnabled': thread.get('daybreakEnabled')}
+        missing = [key for key, value in patch.items() if key == 'sandboxPolicy'
+                   and (actual.get(key) or {}).get('type') != value['type']]
+        missing += [key for key, value in patch.items() if key != 'sandboxPolicy' and actual.get(key) != value]
+        if flag is not None and actual['daybreakEnabled'] is not flag: missing.append('daybreakEnabled')
+        if missing:
+            raise DesktopError('unconfirmed_settings', 'Codex did not confirm ' + '/'.join(missing)
+                               + f' for {tid}; no prompt submitted. Inspect settings before retrying')
+        return dict(reply, thread=thread, model=actual['model'])
+
     async def settings_patch(self, args, check):
         action = args['action']
         patch, flag = {}, None
@@ -824,21 +972,25 @@ class Bridge:
             want = str(args.get('model') or '').strip()
             ids = None
             if flag and not want:
-                offer = (await self.settings_rpc('model/list', {'limit': 100}, 25, check)).get('data') or []
+                offer = await self.model_catalog(check)
                 ids = [row.get('id') for row in offer]
                 pick = ([row.get('id') for row in offer
                          if (row.get('modelSpecialty') or '').lower() == 'cyber']
                         + [row.get('id') for row in offer if 'daybreak' in str(row.get('id') or '').lower()])
                 want = pick[0] if pick else str(self.settings.get('daybreak_model') or '')
-                if not want:
-                    raise ValueError('Codex offers no cyber-capable (daybreak) model for this '
-                                     'account/API key; pass model=… or use action=models')
+                # Newer daemons expose Daybreak as a turn program on ordinary models.
+                # If no separate cyber model is listed, retain the chat/default model.
             if want:
                 if ids is None:
-                    ids = [row.get('id') for row in (await self.settings_rpc('model/list', {'limit': 100}, 25, check)).get('data') or []]
+                    ids = [row.get('id') for row in await self.model_catalog(check)]
                 if want not in ids:
                     raise ValueError(f'Codex offers no model {want}; use action=models to list them')
                 patch['model'] = want
+        elif action == '_model':
+            want = args.get('model')
+            if want not in [row.get('id') for row in await self.model_catalog(check)]:
+                raise ValueError('Unknown model; use models')
+            patch['model'] = want
         elif action == 'approval':
             if args.get('policy') is None and args.get('sandbox') is None:
                 raise ValueError('approval needs policy, sandbox or both')
@@ -1125,13 +1277,13 @@ class Bridge:
         if not isinstance(prompt, str) or len(prompt) > 4000:
             raise ValueError('New-chat instructions must fit 4000 characters; send can add more later')
         projects = await self.project_catalog()
-        models, cursor = [], None
-        for _ in range(5):
-            result = await self.rpc('model/list', {'limit': 100, 'cursor': cursor})
-            models.extend(result.get('data', []))
-            cursor = result.get('nextCursor')
-            if not cursor: break
-        if cursor: raise ValueError('Model catalog exceeds 500 entries')
+        models = await self.model_catalog(check)
+        # Validate requested settings before posting a card; preserve them through the picker.
+        if args.get('mode') is not None:
+            preset, _ = await self.settings_patch(dict(args, action='daybreak'), check)
+            args = dict(args, **({'model': preset['model']} if 'model' in preset else {}))
+        if args.get('policy') is not None or args.get('sandbox') is not None:
+            await self.settings_patch(dict(args, action='approval'), check)
         selected = await self.select_project(args['project']) if args.get('project') else None
         model = args.get('model') or ''
         if model and not any(m['id'] == model for m in models):
@@ -1277,6 +1429,8 @@ class Bridge:
                     self.launching = True
                     launch_args = {'action': '_start', 'prompt': self.prompt, 'cwd': self.cwd}
                     if 'wake' in args: launch_args['wake'] = args['wake']
+                    for key in ('mode', 'policy', 'sandbox', 'compact'):
+                        if key in args: launch_args[key] = args[key]
                     if self.project: launch_args['project'] = self.project['project_id']
                     if self.model: launch_args['model'] = self.model
                     try:
@@ -1399,6 +1553,15 @@ class Bridge:
 
     async def action(self, args, channel_id, check=None, turn=None):
         check_request(check)
+        args = slash_request(args)
+        from .. import context
+        turn = turn or context.owner_identity()
+        if turn and turn.cron and args['action'] not in SCHEDULED_ACTIONS:
+            raise PermissionError('Read-only scheduled checks cannot change Codex settings/goals')
+        if args['action'] == '_watch':
+            async with self.action_lock: return await self.watch_chat(args, channel_id, check)
+        if args['action'] in ('_goal', '_compact'):
+            async with self.action_lock: return await self.native_slash(args, check)
         if args.get('action') == 'read':
             thread_id = args.get('thread_id')
             if not thread_id and args.get('job_id'):
@@ -1409,7 +1572,7 @@ class Bridge:
                 return await self.read_history(thread_id, args.get('cursor'), check=check)
             args = dict(args, action='status')
         action = args.get('action', 'status')
-        if action in DYNAMIC_SETTINGS_ACTIONS:
+        if action in DYNAMIC_SETTINGS_ACTIONS or action == '_model':
             async with self.action_lock:
                 return await self.chat_settings(args, check)
         if action == 'servers':
@@ -1504,23 +1667,22 @@ class Bridge:
                 params = {'cwd': cwd, 'ephemeral': project is None}
                 if project:
                     params.update(projectId=project['project_id'], runtimeWorkspaceRoots=project['roots'], ephemeral=False)
-                if args.get('model'): params['model'] = args['model']
-                response = await self.rpc('thread/start', params, check=check)
+                response = await self.start_native_thread(args, params, check)
                 if bool(response['thread'].get('ephemeral')) != (project is None):
                     raise ValueError('Codex did not confirm the selected persistence mode; no prompt was submitted')
                 if project and response['thread'].get('projectId') != project['project_id']:
                     raise ValueError('Codex did not confirm project membership; no prompt was submitted')
                 job = {'job_id': secrets.token_hex(4), 'thread_id': response['thread']['id'],
                     'turn_id': None, 'state': 'starting', 'phase': 'Starting turn',
-                    'model': response.get('model'), 'cwd': response.get('cwd', cwd),
+                    'model': response.get('model'), 'daybreak_enabled': response['thread'].get('daybreakEnabled'),
+                    'cwd': response.get('cwd', cwd),
                     'channel': channel_id, 'started_at': time.time(), 'messages': {}, 'source': 'app_server',
                     'project_id': response['thread'].get('projectId'), 'project_name': project['name'] if project else None,
                     'ephemeral': project is None}
                 self.jobs[job['job_id']] = job
                 self.arm_callback(job, args, channel_id)
                 try:
-                    started = await self.rpc('turn/start', {'threadId': job['thread_id'],
-                        'input': [{'type': 'text', 'text': prompt}]}, check=check)
+                    started = await self.rpc('turn/start', turn_input(job['thread_id'], prompt, job.get('daybreak_enabled')), check=check)
                     job['turn_id'] = started['turn']['id']
                     if job['state'] == 'starting': job['state'] = 'running'
                 except Exception:
@@ -1571,11 +1733,10 @@ class Bridge:
                     if any(j.get('source') != 'desktop' and j['state'] in ACTIVE for j in self.jobs.values()):
                         raise ValueError('Another Codex task is active')
                     if not job.get('ephemeral'):
-                        await self.rpc('thread/resume', {'threadId': job['thread_id']}, check=check)
+                        self._thread(await self.rpc('thread/resume', {'threadId': job['thread_id'], 'excludeTurns': True}, check=check), job['thread_id'])
                     check_request(check)
                     job.update(state='starting', phase='Starting turn', messages={}, channel=channel_id)
-                    response = await self.rpc('turn/start', {'threadId': job['thread_id'],
-                        'input': [{'type': 'text', 'text': prompt}]}, check=check)
+                    response = await self.rpc('turn/start', turn_input(job['thread_id'], prompt, job.get('daybreak_enabled')), check=check)
                     job['turn_id'] = response['turn']['id']
                     if job['state'] == 'starting': job['state'] = 'running'
                 self.save()
@@ -1671,12 +1832,8 @@ class AppServer(Bridge):
                 if type(args['ephemeral']) is not bool:
                     raise ValueError('ephemeral must be true or false')
                 params['ephemeral'] = args['ephemeral']
-            if args.get('model'):
-                offered = await self.rpc('model/list', {'limit': 100}, check=check)
-                if args['model'] not in [m['id'] for m in offered.get('data', [])]:
-                    raise ValueError('Unknown model; use models')
-                params['model'] = args['model']
-            thread = self._thread(await self.rpc('thread/start', params, check=check))
+            started = await self.start_native_thread(args, params, check)
+            thread = self._thread(started)
             tid = thread['id']
             if 'ephemeral' in args and thread.get('ephemeral') is not args['ephemeral']:
                 raise DesktopError('unconfirmed_persistence', 'Codex did not confirm persistence; no prompt submitted')
@@ -1690,7 +1847,8 @@ class AppServer(Bridge):
             self.jobs[job['job_id']] = job
         job.update(state='starting', phase='Submitting instruction', channel=channel,
                    started_at=time.time(), cwd=(thread.get('environments') or [{}])[0].get('cwd'),
-                   model=thread.get('model'), ephemeral=bool(thread.get('ephemeral')))
+                   model=thread.get('model'), daybreak_enabled=thread.get('daybreakEnabled'),
+                   ephemeral=bool(thread.get('ephemeral')))
         self.arm_callback(job, args, channel)
         if (thread.get('status') or {}).get('type') == 'active':
             page = await self.rpc('thread/turns/list', {'threadId': tid, 'limit': 1}, check=check)
@@ -1703,8 +1861,7 @@ class AppServer(Bridge):
                     'input': [{'type': 'text', 'text': prompt}]}, check=check)
             else:
                 job['messages'] = {}
-                reply = await self.rpc('turn/start', {'threadId': tid,
-                    'input': [{'type': 'text', 'text': prompt}]}, check=check)
+                reply = await self.rpc('turn/start', turn_input(tid, prompt, thread.get('daybreakEnabled')), check=check)
                 turn = reply.get('turn') or {}
                 if not turn.get('id'):
                     raise DesktopError('outcome_unknown', 'No turn ID confirmed; inspect status before retrying')
@@ -1778,9 +1935,16 @@ class AppServer(Bridge):
         if turn is None: turn = context.owner_identity()
         if turn is None or turn.cron and args['action'] not in SCHEDULED_ACTIONS:
             raise PermissionError('This Codex action needs an owner message')
+        args = slash_request(args)
+        if turn.cron and args['action'] not in SCHEDULED_ACTIONS:
+            raise PermissionError('Read-only scheduled checks cannot change Codex settings/goals')
+        if args['action'] == '_watch':
+            async with self.action_lock: return await self.watch_chat(args, channel, check)
+        if args['action'] in ('_goal', '_compact'):
+            async with self.action_lock: return await self.native_slash(args, check)
         if turn.cron and args['action'] == 'send' and not args.get('thread_id'):
             raise PermissionError('Scheduled send requires an existing thread_id')
-        if args['action'] in DYNAMIC_SETTINGS_ACTIONS:
+        if args['action'] in DYNAMIC_SETTINGS_ACTIONS or args['action'] == '_model':
             async with self.action_lock:
                 return await self.native_settings(args, check)
         if args['action'] in ('send', 'start', 'new', 'answer'):
