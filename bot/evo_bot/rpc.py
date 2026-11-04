@@ -326,6 +326,12 @@ class PiSession:
                     # a tool failure that encourages executing it a second time.
                     LOG.warning('tool_output_preview_failed tool=%s', event['toolName'])
                 await self.send({'type': 'host_tool_result', 'id': ident, 'result': result})
+                try:
+                    from .integrations import codex
+                    codex.confirm_read(event['toolName'], event.get('arguments', {}), result)
+                except Exception:
+                    # Losing an acknowledgement is safe: leave the item unread.
+                    LOG.warning('codex_recent_ack_failed')
         except asyncio.CancelledError:
             pass
         except Exception as e:

@@ -1,0 +1,89 @@
+{
+  "backup": "/opt/evo-retired/codex-recent-20261104T171159Z",
+  "before_sha256": {
+    "evo_bot/integrations/codex.py": "b652f502c4577e287e2318d66c3d8b90a7471c0f4581990e6a7ccfb9d8d02386",
+    "evo_bot/integrations/remote.py": "0651d3d2e1a2d7165a2d1a121a3086e04c413682342cae584c02279714377032",
+    "evo_bot/rpc.py": "f0087e1eb067341104ba052014ba75308b09d190b816784a0f01985e85fc86a6",
+    "evo_bot/integrations/codex_recent.py": null,
+    "verify_codex_recent.py": null,
+    "verify_codex_recent_live.py": null
+  },
+  "after_sha256": {
+    "evo_bot/integrations/codex.py": "ead21f8f4318883ae78488e69b894cf169cc0bf773b027a453562aae1da0cc44",
+    "evo_bot/integrations/remote.py": "fc882022434ebb417859bb27954d7ddb266994fc565f40aaa60a212ce9eee79c",
+    "evo_bot/rpc.py": "3a85d51a95e198452d5bd16745a4228a061a6a66f31ebb086233eb3e4cf2b059",
+    "evo_bot/integrations/codex_recent.py": "f349fbb0c816ffbc96f986bd04e18a2795432b25af8a925521666acabfb28ad7",
+    "verify_codex_recent.py": "870488bbbdcbf8c07e31e23380edec0460d1e41e382bcfac042867b7a7f34a19",
+    "verify_codex_recent_live.py": "122cf508d80ca714c1fc8d2b330213ef543385e94311b7082ad51691709d982e"
+  },
+  "tests": {
+    "passed": 164,
+    "failed": 0
+  },
+  "live": {
+    "instances": {
+      "desktop": {
+        "answer": "CODEX-RECENT-OK",
+        "recorded_by_live_completion_event": true,
+        "unread_before": 1,
+        "unread_after_list": 1,
+        "read_has_answer": true,
+        "unread_after_read": 0,
+        "survives_reopen_without_resurrection": true,
+        "passed": true
+      },
+      "oracle": {
+        "answer": "CODEX-RECENT-OK",
+        "recorded_by_live_completion_event": true,
+        "unread_before": 1,
+        "unread_after_list": 1,
+        "read_has_answer": true,
+        "unread_after_read": 0,
+        "survives_reopen_without_resurrection": true,
+        "passed": true
+      }
+    },
+    "discord_posts": 0,
+    "daemon_restarts": 0,
+    "passed": true
+  },
+  "history_sha256": "c665cae6435cb8670b2682e99daa68d53ce923138aadc0d300024580cb4ba158",
+  "history_bytes": 822203,
+  "restart_requested_utc": "2026-11-04T17:11:59.100483+00:00",
+  "daemon_restarts": 0,
+  "scope": "Codex unread inbox only; no task queue or model changes",
+  "history_restored_prefix_sha256": "c665cae6435cb8670b2682e99daa68d53ce923138aadc0d300024580cb4ba158",
+  "status": {
+    "engine": "pi",
+    "version": "1.4.0",
+    "state": "connected",
+    "queued": 0,
+    "sessions": 1,
+    "pending_inputs": 0,
+    "active": false,
+    "rounds": 0,
+    "tools": 0,
+    "elapsed_seconds": 0,
+    "idle_seconds": 0,
+    "updated": 1793812324
+  },
+  "history_preserved": true,
+  "restart_completed_utc": "2026-11-04T17:12:04.716315+00:00",
+  "deployed_sha256": {
+    "evo_bot/integrations/codex.py": "ead21f8f4318883ae78488e69b894cf169cc0bf773b027a453562aae1da0cc44",
+    "evo_bot/integrations/remote.py": "fc882022434ebb417859bb27954d7ddb266994fc565f40aaa60a212ce9eee79c",
+    "evo_bot/rpc.py": "3a85d51a95e198452d5bd16745a4228a061a6a66f31ebb086233eb3e4cf2b059",
+    "evo_bot/integrations/codex_recent.py": "f349fbb0c816ffbc96f986bd04e18a2795432b25af8a925521666acabfb28ad7",
+    "verify_codex_recent.py": "870488bbbdcbf8c07e31e23380edec0460d1e41e382bcfac042867b7a7f34a19",
+    "verify_codex_recent_live.py": "122cf508d80ca714c1fc8d2b330213ef543385e94311b7082ad51691709d982e"
+  },
+  "service": "ActiveState=active\nActiveEnterTimestamp=Wed 2026-11-04 17:11:59 UTC\nMainPID=3073819",
+  "inbox_mode": "0600",
+  "inbox_owner": "evo-bot",
+  "post_restart": {
+    "discord_connected": true,
+    "history_restore_logged": true,
+    "error_lines": 0,
+    "inbox_table_present": true
+  }
+}

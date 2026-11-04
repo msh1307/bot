@@ -27,6 +27,7 @@ GUIDES = {
                  'Screenshots are image input; no separate vision tool is needed. '
                  'credential uses private keyboard input + Allow Once; cannot verify focused site. No submit/retry. Idle close 15min.'},
     'codex': {
+        'recent': {'note': 'All unread reply/error/question previews. Optional instance; omit for all. list/recent keep unread; read/status remove only content actually returned.'},
         'list': {'optional': {'search': 'title substring', 'cursor': 'returned next_cursor',
                               'limit': 'integer 1..12; default 8'}},
         'projects': {'optional': {'cursor': 'returned next_cursor', 'limit': 'integer 1..12; default 12'}},
@@ -150,6 +151,10 @@ def remote_control(args):
     if protocol == 'rdp' and action not in RDP_ACTIONS \
             or protocol == 'codex' and action not in CODEX_ACTIONS:
         raise ValueError(f'Unsupported action; use remote_control action=help protocol={protocol}, then its exact action name')
+    if protocol == 'codex' and action == 'recent':
+        if params:
+            raise ValueError('recent takes no args; optional instance selects one server')
+        return codex.codex_task(dict(action='recent', **({'instance': ident} if ident else {})))
     available = catalog()
     ident = ident or available['defaults'].get(protocol)
     if not ident or not any(r['id'] == ident and protocol in r['protocols'] for r in available['instances']):
@@ -174,6 +179,7 @@ def remote_control(args):
 def definition(cron=False):
     return {'name': 'remote_control',
         'description': 'Control a configured remote instance. list returns IDs/defaults; help with protocol returns exact actions/args. '
+            'codex recent lists unread updates; read/status clears viewed content. '
             'Example: {"protocol":"codex","action":"send","args":{"thread_id":"ID","prompt":"Continue"}}. '
             + ('Scheduled: Codex inspection, continuation and file reads only; no start/stop/exec.' if cron else
                'Owner Discord only. Files/commands use read/write/edit/bash with instance. '

@@ -4,6 +4,7 @@ import base64
 import contextvars
 import io
 import json
+import logging
 import math
 import ntpath
 import re
@@ -11,6 +12,7 @@ import secrets
 import shlex
 import ssl
 import socket
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -21,16 +23,18 @@ from urllib.error import HTTPError
 from ..discord_text import messages as discord_messages
 from .instances import instance_id
 from . import remote_config
+from .codex_recent import Recent
 
 OWNER = '543004181842362379'
 CONFIG = remote_config.CONFIG
 STATE = Path('/run/evo-bot/codex-jobs.json')
 CLIENT = LOOP = BRIDGE = None
+RECENT = None
 SERVERS = {}
 ACTIVE = {'starting', 'running', 'waiting_for_approval', 'waiting_for_input', 'connection_lost'}
-PUBLIC_ACTIONS = ['servers', 'new', 'projects', 'start', 'status', 'read', 'send', 'answer', 'stop', 'list', 'models',
+PUBLIC_ACTIONS = ['servers', 'new', 'projects', 'start', 'status', 'read', 'recent', 'send', 'answer', 'stop', 'list', 'models',
                   'file_list', 'file_read', 'exec', 'daybreak', 'approval', 'settings']
-SCHEDULED_ACTIONS = {'servers', 'status', 'read', 'send', 'answer', 'list', 'models', 'projects',
+SCHEDULED_ACTIONS = {'servers', 'status', 'read', 'recent', 'send', 'answer', 'list', 'models', 'projects',
                      'file_list', 'file_read'}
 # Per-chat settings use native Codex RPCs; GUI chats stay with the existing GUI owner.
 DYNAMIC_SETTINGS_ACTIONS = {'daybreak', 'approval', 'settings'}
@@ -196,6 +200,7 @@ class Bridge:
             if token not in context.secret_values:
                 context.secret_values.append(token)
         self.adapter = None
+        self.recent = None
         self.state_path = STATE.with_name(f'codex-jobs-{self.server_id}.json')
         self.ws = self.reader = None
         self.initialized = False
@@ -436,6 +441,7 @@ class Bridge:
     async def notify_complete(self, job, notice=None):
         import discord
         notice = notice if notice is not None else dict(snapshot(job), answer=self.answer(job))
+        self.observe_recent(notice)
         turn_id = notice.get('turn_id')
         deliveries = job.setdefault('_completion_delivery', {})
         if not turn_id or turn_id in deliveries:
@@ -500,6 +506,7 @@ class Bridge:
         job['state'] = 'waiting_for_approval'
         job.setdefault('_requests', {})[str(msg['id'])] = {
             'id': msg['id'], 'method': method, 'params': params, 'ws': ws, 'lock': asyncio.Lock()}
+        self.observe_recent(dict(snapshot(job), pending_requests=self.pending_requests(job)))
         class Approval(discord.ui.View):
             def __init__(self):
                 super().__init__(timeout=300)
@@ -685,6 +692,7 @@ class Bridge:
                     pending_requests=self.pending_requests(job))
 
     def queue_callback(self, job, event):
+        self.observe_recent(dict(snapshot(job), answer=self.answer(job), pending_requests=self.pending_requests(job)))
         adapter = getattr(self, 'adapter', None)
         revision = job.get('_revision')
         if adapter is None or not revision or not job.get('_wake'):
@@ -743,6 +751,14 @@ class Bridge:
         job.pop('_retry_completion', None)
         adapter = getattr(self, 'adapter', None)
         job['_callback_scope'] = adapter.codex_callback_scope(channel) if adapter and wake else None
+
+    def observe_recent(self, result):
+        if getattr(self, 'recent', None) is not None:
+            try:
+                self.recent.observe(self.server_id, result)
+            except (OSError, sqlite3.Error):
+                # An inbox storage problem must not stop Codex execution/callbacks.
+                logging.getLogger(__name__).warning('codex_recent_storage_unavailable')
 
     def pending_requests(self, job):
         return [dict(request_id=r['id'], method=r['method'], **r['params'])
@@ -804,6 +820,7 @@ class Bridge:
                     await asyncio.sleep(20)
                     try:
                         reply = await self.status(job)
+                        self.observe_recent(reply)
                         failures = 0
                         job.pop('_connection_notified', None)
                     except Exception:
@@ -2074,9 +2091,14 @@ class AppServer(Bridge):
 
 
 def discord_factory(native, adapter):
-    global CLIENT, LOOP, BRIDGE
+    global CLIENT, LOOP, BRIDGE, RECENT
     CLIENT, LOOP = native, asyncio.get_running_loop()
     default, configured = server_config()
+    try:
+        RECENT = Recent('/var/lib/evo-bot/codex-recent.sqlite3')
+    except (OSError, sqlite3.Error):
+        RECENT = None
+        logging.getLogger(__name__).warning('codex_recent_storage_unavailable')
     SERVERS.clear()
     for ident, settings in configured.items():
         if settings.get('transport') == 'ssh':
@@ -2084,6 +2106,7 @@ def discord_factory(native, adapter):
         else:
             bridge = SERVERS[ident] = Bridge(settings, ident, ident == default)
         bridge.adapter = adapter
+        bridge.recent = RECENT
         if adapter is not None:
             asyncio.create_task(bridge.restore_watchers())
     BRIDGE = SERVERS.get(default)
@@ -2105,6 +2128,16 @@ def codex_task(args, **kwargs):
     if not ready or not SERVERS:
         return json.dumps({'success': False, 'error': 'Owner Discord and a Codex backend must be connected'})
     if turn is None or is_interrupted(): return json.dumps({'success': False, 'error': 'Turn interrupted'})
+    if args['action'] == 'recent':
+        try:
+            if set(args) - {'action', 'instance', 'server'}:
+                raise ValueError('recent takes only optional instance; read/status clears the returned content')
+            ident = instance_id(args)
+            if ident is not None: select_server(ident)
+            if RECENT is None: raise RuntimeError('Codex recent inbox is not ready')
+            return json.dumps(RECENT.pending(ident), ensure_ascii=False)
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
+            return json.dumps({'success': False, 'error': clean(error)[:350]}, ensure_ascii=False)
     try:
         bridge = select_server(instance_id(args))
     except ValueError as error:
@@ -2121,8 +2154,11 @@ def codex_task(args, **kwargs):
         turn.channel, check=check, turn=turn), LOOP)
     try:
         target_key = 'instance' if 'instance' in args else 'server'
+        result = future.result(timeout=75)
+        if slash_request(args)['action'] in ('status', 'read'):
+            bridge.observe_recent(result)
         return json.dumps({'success': True, target_key: getattr(bridge, 'server_id', 'desktop'),
-                           **future.result(timeout=75)}, ensure_ascii=False)
+                           **result}, ensure_ascii=False)
     except Exception as error:
         cancelled.set()
         future.cancel()
@@ -2130,6 +2166,26 @@ def codex_task(args, **kwargs):
         detail = str(error) or ('Codex request timed out; check status before retrying. No automatic resubmission.'
                                 if isinstance(error, TimeoutError) else type(error).__name__)
         return json.dumps({'success': False, 'error': clean(detail)[:350]}, ensure_ascii=False)
+
+
+def confirm_read(tool, args, result):
+    """Acknowledge after Pi receives the visible, possibly compacted tool result."""
+    if tool != 'remote_control' or args.get('protocol') != 'codex': return
+    request = dict(args.get('args') or {}, action=args.get('action'))
+    if slash_request(request)['action'] not in ('read', 'status'): return
+    for block in result.get('content') or []:
+        if block.get('type') != 'text': continue
+        try:
+            visible = json.loads(block['text'])
+        except (ValueError, KeyError):
+            continue  # A whole-result preview omitted structure; keep unread.
+        if isinstance(visible, dict) and visible.get('success') is True:
+            ident = instance_id(args)
+            returned = visible.get('instance') or visible.get('server')
+            if ident is not None and returned is not None and returned != ident: continue
+            bridge = select_server(returned or ident)
+            if getattr(bridge, 'recent', None) is not None:
+                bridge.recent.read(bridge.server_id, visible)
 
 
 def windows_files(args):
