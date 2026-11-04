@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from evo_bot import context, tool_output
 from evo_bot.integrations import codex, remote
@@ -131,6 +131,54 @@ class RecentTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(job['_wake'])
             self.assertEqual(job['_callback_events'], ['keep'])
             self.assertEqual(bridge.jobs['j'], job)
+
+    async def test_wake_off_attaches_observer_without_sending_any_prompt(self):
+        for bridge in self.bridges.values():
+            job = dict(job_id='j', thread_id='chat', state='running', messages={})
+            bridge.jobs['j'] = job
+            bridge.rpc = AsyncMock()
+            bridge.monitor_desktop = Mock()
+            result = await bridge.watch_chat({'thread_id': 'chat', 'wake': False}, '77', None)
+            self.assertFalse(result['wake'])
+            bridge.monitor_desktop.assert_called_once_with(job)
+            bridge.rpc.assert_not_awaited()
+
+    async def test_restart_restores_unread_observer_with_wake_off_and_no_callback_scope(self):
+        for name, bridge in self.bridges.items():
+            bridge.jobs['j'] = dict(job_id='j', thread_id='chat', state='running', _wake=False)
+            bridge.save()
+            restored = type(bridge)({'cwd': '/tmp'}, name)
+            restored.recent = self.store
+            restored.monitor_desktop = Mock()
+            with patch.object(codex, 'CLIENT', SimpleNamespace(wait_until_ready=AsyncMock())):
+                await restored.restore_watchers()
+            restored.monitor_desktop.assert_called_once_with(restored.jobs['j'])
+            self.assertFalse(restored.jobs['j']['_wake'])
+            self.assertIsNone(restored.jobs['j']['_callback_scope'])
+
+    async def test_polling_records_without_valid_wake_and_recovers_from_connection_error(self):
+        for name, bridge in self.bridges.items():
+            for wake in (False, True):
+                tid = f'{name}-{wake}'
+                job = dict(job_id='j', thread_id='chat', turn_id=tid, state='running',
+                           messages={}, _wake=wake, channel='77')
+                bridge.jobs['j'] = job
+                bridge.send.reset_mock()
+                calls = 0
+                async def status(current):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1: raise ConnectionError('temporary outage')
+                    current.update(state='completed', phase='completed', messages={'a': {'text': 'RESULT-' + tid}})
+                    return dict(codex.snapshot(current), answer='RESULT-' + tid)
+                bridge.status = status
+                with patch.object(codex.asyncio, 'sleep', new=AsyncMock()):
+                    codex.Bridge.monitor_desktop(bridge, job)
+                    await asyncio.wait_for(bridge.desktop_monitors['j'], 2)
+                self.assertEqual(calls, 2)
+                self.assertIn(tid, [r['turn_id'] for r in self.store.pending(name)['events']])
+                self.assertEqual(bridge.send.await_count, 0 if wake else 1)
+                self.assertNotIn('_callback_events', job)
 
     async def test_preview_omission_never_marks_hidden_turn_read(self):
         self.store.observe('desktop', self.reply('middle'))

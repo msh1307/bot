@@ -797,13 +797,15 @@ class Bridge:
         await CLIENT.wait_until_ready()
         migrated = False
         for job in list(self.jobs.values()):
-            if not job.get('_wake') or job.get('state') not in ACTIVE: continue
+            if job.get('state') not in ACTIVE: continue
+            if not job.get('_wake') and getattr(self, 'recent', None) is None: continue
             if '_task_deadline' not in job:
                 job['_task_deadline'] = time.time() + 43200
                 migrated = True
             scope = self.adapter.codex_callback_scope(job.get('channel')) if self.adapter else None
-            if scope is None or job.get('_task_deadline', 0) <= time.time(): continue
-            job['_callback_scope'] = scope
+            if (scope is None and getattr(self, 'recent', None) is None
+                    or job.get('_task_deadline', 0) <= time.time()): continue
+            job['_callback_scope'] = scope if job.get('_wake') else None
             self.monitor_desktop(job)
         if migrated: self.save()
 
@@ -816,7 +818,8 @@ class Bridge:
             failures = 0
             try:
                 while job['state'] in ACTIVE or job.get('_retry_completion'):
-                    if job.get('_wake') and not self.callback_current(job): return
+                    if (job.get('_wake') and not self.callback_current(job)
+                            and getattr(self, 'recent', None) is None): return
                     await asyncio.sleep(20)
                     try:
                         reply = await self.status(job)
@@ -828,12 +831,17 @@ class Bridge:
                         job['state'] = 'connection_lost'
                         job['phase'] = 'Use status to reconnect to this GUI thread; no automatic resubmission'
                         self.save()
-                        if not self.callback_current(job): return
+                        if not self.callback_current(job) and getattr(self, 'recent', None) is None: return
                         if failures >= 3:
-                            if not job.get('_connection_notified'):
+                            if self.callback_current(job) and not job.get('_connection_notified'):
                                 await self.send(job, f"Codex `{ident}` · 연결 재시도 중. 지시는 재전송하지 않았어.")
                                 job['_connection_notified'] = True
                             await asyncio.sleep(40)
+                        continue
+                    # Recording continues after a callback is revoked; it must not
+                    # reactivate old callbacks or their fallback notifications.
+                    if job.get('_wake') and not self.callback_current(job):
+                        if job['state'] not in ACTIVE: return
                         continue
                     if job['state'] in {'waiting_for_input', 'waiting_for_approval'}:
                         requests = reply.get('pending_requests') or []
@@ -924,7 +932,7 @@ class Bridge:
             self.jobs[job['job_id']] = job
         self.arm_callback(job, args, channel)
         self.save()
-        if job['_wake']: self.monitor_desktop(job)
+        if job['_wake'] or getattr(self, 'recent', None) is not None: self.monitor_desktop(job)
         return dict(snapshot(job), wake=job['_wake'], compact=job['_compact'])
 
     async def model_catalog(self, check=None):

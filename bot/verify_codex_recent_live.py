@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import tempfile
 import time
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -103,4 +104,50 @@ async def main():
     if not report['passed']: raise SystemExit(1)
 
 
-if __name__ == '__main__': asyncio.run(main())
+async def restore_probe():
+    """Read previously archived test chats; exercise real wake-off restoration without new model calls."""
+    previous = json.loads(Path('/tmp/evo-codex-parity-live.json').read_text())
+    assert previous['passed']
+    report = {'instances': {}, 'model_requests': 0, 'discord_posts': 0}
+    with tempfile.TemporaryDirectory(prefix='codex-recent-restore-') as tmp:
+        codex.STATE = Path(tmp) / 'jobs.json'
+        store = Recent(Path(tmp) / 'recent.sqlite3')
+        codex.CLIENT = SimpleNamespace(wait_until_ready=AsyncMock())
+        context.current.set(context.Turn('77'))
+        _, settings = codex.server_config()
+        for ident in ('desktop', 'oracle'):
+            s = settings[ident]
+            kind = codex.AppServer if s.get('transport') == 'ssh' else codex.Bridge
+            seed = kind(s, ident)
+            seed.jobs['restored'] = dict(job_id='restored', thread_id=previous['instances'][ident]['thread_id'],
+                state='running', source='app_server', channel='77', _wake=False, _task_deadline=time.time()+600)
+            seed.save()
+            b = kind(s, ident)
+            b.recent, b.send = store, AsyncMock()
+            row = report['instances'][ident] = {}
+            try:
+                job = b.jobs['restored']
+                # Only inspect archived, completed test chats; never resume owner work.
+                metadata = await b.rpc('thread/read', {'threadId': job['thread_id'], 'includeTurns': False})
+                assert metadata['thread']['status']['type'] != 'active'
+                await b.restore_watchers()
+                task = b.desktop_monitors.get('restored')
+                assert task is not None, 'wake=false restoration skipped observation'
+                await asyncio.wait_for(task, 75)
+                row.update(completed=job['state']=='completed', unread=len(store.pending(ident)['events']),
+                    wake=job['_wake'], callback_queued=bool(job.get('_callback_events')),
+                    original_direct_notice_preserved=b.send.await_count==1)
+                assert row['completed'] and row['unread']==1 and not row['wake'] and not row['callback_queued']
+                assert row['original_direct_notice_preserved']
+                row['passed'] = True
+            except Exception as error:
+                row['error'] = type(error).__name__ + ': ' + str(error)[:300]
+            finally:
+                await b.close()
+    report['passed'] = all(row.get('passed') for row in report['instances'].values())
+    Path('/tmp/evo-codex-recent-restore-live.json').write_text(json.dumps(report, indent=2))
+    print(json.dumps(report, indent=2), flush=True)
+    if not report['passed']: raise SystemExit(1)
+
+
+if __name__ == '__main__': asyncio.run(restore_probe() if '--restore' in sys.argv else main())

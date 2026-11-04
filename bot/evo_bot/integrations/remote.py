@@ -27,7 +27,7 @@ GUIDES = {
                  'Screenshots are image input; no separate vision tool is needed. '
                  'credential uses private keyboard input + Allow Once; cannot verify focused site. No submit/retry. Idle close 15min.'},
     'codex': {
-        'recent': {'note': 'All unread reply/error/question previews. Optional instance; omit for all. list/recent keep unread; read/status remove only content actually returned.'},
+        'recent': {'note': 'All unread reply/error/question previews, saved regardless of wake. Optional instance; omit for all. list/recent keep unread; read/status remove only content actually returned.'},
         'list': {'optional': {'search': 'title substring', 'cursor': 'returned next_cursor',
                               'limit': 'integer 1..12; default 8'}},
         'projects': {'optional': {'cursor': 'returned next_cursor', 'limit': 'integer 1..12; default 12'}},
