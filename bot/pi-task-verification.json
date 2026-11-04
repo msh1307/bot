@@ -1,28 +1,29 @@
 {
-  "restart_utc": "2026-11-03T18:32:01.418249+00:00",
+  "restart_utc": "2026-11-03T23:57:03.505692+00:00",
   "service": "evo-bot",
   "engine": "Pi 1.4.0",
   "history_preserved": true,
   "before_sha256": {
-    "evo_bot/context.py": "796960af9e742b4cb22df7bbd8fd48a5b15bf231470cea6f598ec4518fb05cf2",
-    "evo_bot/gateway.py": "46b7e01eac93255b6232375a8c3feae02e77dac52296efe6ac41a5312e8a2f16",
-    "evo_bot/tools.py": "171aeca50a2224097b98bcdd929017f4b9ff69bf762b0a20226c0375c1250a71",
-    "evo_bot/integrations/codex.py": "6415810e2f21e4c9b1b8fb9fa87e1dca53790496ddf8b58bbcdd1b372ebe5b60",
-    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
-  },
-  "after_sha256": {
-    "evo_bot/context.py": "e17987d6d2957f779a9429f06517247db4116fc781982213114ee804928c0ccc",
+    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88",
     "evo_bot/gateway.py": "1a780c6ea643cc27d1d41d8eb461198c150add9d4b6bc9deff9fe41bcb4ae2a2",
     "evo_bot/tools.py": "caa54815f09feb3c26743bbf9be56600fe267e34b6e49d923fdbaba7c35ff362",
+    "evo_bot/context.py": "e17987d6d2957f779a9429f06517247db4116fc781982213114ee804928c0ccc",
     "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
-    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+    "evo_bot/rpc.py": "4d9900de3f69f2e5cb8b4f4e82ac7104f3f0ba2a477cd09508850ea4d5c69060"
   },
-  "loaded_runner_before_sha256": "e7dcd8391ac10b842ffc7282cf90f35b60c32c3b751a37dc75ad40a58944c8ac",
+  "after_sha256": {
+    "pi-runner.mjs": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+    "evo_bot/gateway.py": "fe402dadd1332d1454652b1d0d502d333fbd82c2c9f748aec5d4facc07e265c8",
+    "evo_bot/tools.py": "0f447e2ef0bbe8451dcd482662460df595d913673ecf703ffd1191bac8cab3a6",
+    "evo_bot/context.py": "a4c4444170b1bb8a2a39e18dc036372f72eaacbd19c5cf1eeb73e085b80ae796",
+    "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
+    "evo_bot/rpc.py": "f0087e1eb067341104ba052014ba75308b09d190b816784a0f01985e85fc86a6"
+  },
   "tests": {
-    "regression_suites_passed": 18,
-    "regression_checks": 195,
+    "regression_suites_passed": 19,
+    "regression_checks": 209,
     "discord_to_pi": {
-      "passed": 12,
+      "passed": 14,
       "failed": 0,
       "checks": [
         "original turn stays alive",
@@ -33,6 +34,8 @@
         "next task runs once after settling",
         "actual Pi has two steering inputs; turn not cancelled",
         "actual next provider payload retains original and each addendum once",
+        "actual Discord image attachment passes validation and reaches steering payload",
+        "actual on_message to Pi path emits both owner_input_steered events",
         "one continued turn, no replay: calls=2, output=['VERIFIED_CONTEXT']",
         "actual session fully settles",
         "/stop releases a session whose host call has not settled",
@@ -40,7 +43,12 @@
       ],
       "actual_pi_bwrap": true,
       "evo_model_requests": 0,
-      "discord_posts": 0
+      "discord_posts": 0,
+      "captured_admission_events": [
+        "owner_input_steered channel=77 turn=a831b8bd3d70e21a19a3c30c message=1",
+        "owner_input_steered channel=77 turn=a831b8bd3d70e21a19a3c30c message=1",
+        "owner_input_steered channel=77 turn=5260989ab75c8ca667bd3e77 message=1"
+      ]
     },
     "pi_rpc": {
       "passed": 25,
@@ -77,7 +85,7 @@
       "provider_requests": 5,
       "evo_model_requests": 0,
       "discord_posts": 0,
-      "runner_sha256": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+      "runner_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e"
     },
     "scheduled_windows_command": {
       "passed": true,
@@ -89,13 +97,185 @@
       ],
       "discord_posts": 0,
       "shutdown_executed": false,
-      "model_inference": false
+      "model_inference": false,
+      "validated_utc": "2026-11-03T18:32:01.418249+00:00",
+      "rerun_during_steer_audit": false
+    },
+    "steer_races": {
+      "runtime": "actual installed Pi 1.4.0",
+      "runner_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+      "checks": [
+        {
+          "passed": true,
+          "check": "concurrent onlyIfActive admissions obey 16 limit",
+          "accepted": 16,
+          "queued": 16
+        },
+        {
+          "passed": true,
+          "check": "raw follow_up cannot bypass queue cap"
+        },
+        {
+          "passed": true,
+          "check": "abort/preflight is not reported settled",
+          "state": {
+            "isSettled": false,
+            "queuedMessageCount": 0,
+            "hasPendingAsyncWork": true
+          }
+        },
+        {
+          "passed": true,
+          "check": "in-flight preflight remains visible as pending work"
+        },
+        {
+          "passed": true,
+          "check": "no early settled event while input preflight is pending"
+        },
+        {
+          "passed": true,
+          "check": "concurrent abort keeps stopping gate closed"
+        },
+        {
+          "passed": true,
+          "check": "late steering cannot survive abort",
+          "disposition": null,
+          "queued": 0
+        },
+        {
+          "passed": true,
+          "check": "aborted preflight never leaks into next prompt"
+        },
+        {
+          "passed": true,
+          "check": "turn waits for already-admitted input preflight at settle boundary"
+        },
+        {
+          "passed": true,
+          "check": "end-of-turn preflight is consumed exactly once; no idle orphan",
+          "queued": 0
+        },
+        {
+          "passed": true,
+          "check": "idle guard returns not_running without queue mutation"
+        },
+        {
+          "passed": true,
+          "check": "provider is streaming before steering admission"
+        },
+        {
+          "passed": true,
+          "check": "mid-stream input waits; it does not restart or rewrite current provider request"
+        },
+        {
+          "passed": true,
+          "check": "stream-time correction enters exactly the next model call"
+        },
+        {
+          "passed": true,
+          "check": "native input interception returns handled"
+        },
+        {
+          "passed": true,
+          "check": "handled does not enter model queue"
+        },
+        {
+          "passed": true,
+          "check": "extension command error is explicit and does not enqueue"
+        },
+        {
+          "passed": true,
+          "check": "long valid UTF-8 message is accepted without truncation"
+        },
+        {
+          "passed": true,
+          "check": "clear_queue returns the entire long message intact"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: ''"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: '   '"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: None"
+        },
+        {
+          "passed": true,
+          "check": "malformed image metadata is rejected"
+        },
+        {
+          "passed": true,
+          "check": "UTF-8 payload beyond 1 MiB is rejected"
+        },
+        {
+          "passed": true,
+          "check": "rejected inputs leave queue unchanged"
+        },
+        {
+          "passed": true,
+          "check": "state includes both native queues"
+        },
+        {
+          "passed": true,
+          "check": "steering all precedes follow-ups"
+        },
+        {
+          "passed": true,
+          "check": "follow-ups drain one-at-a-time"
+        },
+        {
+          "passed": true,
+          "check": "steering image reaches next actual provider payload"
+        },
+        {
+          "passed": true,
+          "check": "queued messages appear once each"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /skill:not-installed args"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /not-installed-template args"
+        },
+        {
+          "passed": true,
+          "check": "no implicit skill or prompt-template expansion in production loader"
+        }
+      ],
+      "passed": 33,
+      "failed": 0,
+      "test_only_extension_hooks": true,
+      "scripted_provider": true,
+      "discord_posts": 0,
+      "evo_model_requests": 0
     }
   },
   "limits": [
-    "Provider replies were scripted; model task comprehension is not established.",
-    "No real shutdown or Discord test message was sent.",
-    "Existing read-only checks remain read-only; new one-shot tasks default to task mode."
+    "No genuine owner steering event was observed; tests exercise the real gateway/Pi path with synthetic Discord events and scripted provider responses. Model comprehension and real token-generation timing remain unverified.",
+    "A 10-second admission timeout is inherently ambiguous; it warns and does not auto-replay. Inspect state before resending.",
+    "The first restored runner/profile disappeared around 23:39 UTC without a corresponding reset/transport error log. The cause cannot be determined. A fresh real owner turn succeeded at 23:46 UTC; later restarts preserved that current transcript. Added reset logging/status refresh provides future attribution, not a retrospective diagnosis.",
+    "Existing already-armed Codex callback prompts are not silently rewritten; newly armed callbacks inherit the latest accepted corrections.",
+    "No actual shutdown, genuine Discord test post, model benchmark, permission/approval change or installed Pi source patch was performed."
   ],
-  "backup": "/opt/evo-retired/steer-tasks-20261103T183155Z"
+  "backup": "/opt/evo-retired/steer-audit-20261103T235657Z",
+  "loaded_runner_after_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+  "previous_task_validation": {
+    "restart_utc": "2026-11-03T18:32:01.418249+00:00",
+    "after_sha256": {
+      "evo_bot/context.py": "e17987d6d2957f779a9429f06517247db4116fc781982213114ee804928c0ccc",
+      "evo_bot/gateway.py": "1a780c6ea643cc27d1d41d8eb461198c150add9d4b6bc9deff9fe41bcb4ae2a2",
+      "evo_bot/tools.py": "caa54815f09feb3c26743bbf9be56600fe267e34b6e49d923fdbaba7c35ff362",
+      "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
+      "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88"
+    },
+    "backup": "/opt/evo-retired/steer-tasks-20261103T183155Z",
+    "loaded_runner_before_sha256": "e7dcd8391ac10b842ffc7282cf90f35b60c32c3b751a37dc75ad40a58944c8ac"
+  },
+  "audit_report": "steer-audit-verification.json"
 }

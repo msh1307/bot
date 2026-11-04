@@ -203,8 +203,9 @@ class PiSession:
         future = asyncio.get_running_loop().create_future()
         self.pending[ident] = future
         try:
-            await self.send(dict(args, type=kind, id=ident))
-            answer = await asyncio.wait_for(future, timeout)
+            async with asyncio.timeout(timeout):
+                await self.send(dict(args, type=kind, id=ident))
+                answer = await future
             if not answer.get('success'):
                 raise RuntimeError(context.redact_sensitive_text(answer.get('error', 'Pi command failed'))[:300])
             return answer.get('data', {})

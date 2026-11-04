@@ -525,7 +525,7 @@ WAIT_SCHEMA = {
     'description': 'Pause before checking an in-progress task again. No model requests while sleeping. '
                    'Prefer short polling for work expected within a minute; defer longer waits. '
                    'Maximum 300 seconds TOTAL per turn; use schedule action=defer for longer waits. '
-                   'New owner messages and /stop interrupt the wait. Check state with the relevant tool after waiting.',
+                   '/stop interrupts the wait; owner addenda apply after it ends. Check state with the relevant tool after waiting.',
     'parameters': {'type': 'object', 'properties': {
         'seconds': {'type': 'integer', 'minimum': 1, 'maximum': 300}}, 'required': ['seconds']}}
 USER_INPUT_SCHEMA = {

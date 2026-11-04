@@ -34,6 +34,13 @@ class Turn:
     def key(self):
         return self.platform + ':' + self.channel
 
+    def add_instruction(self, text):
+        combined = self.task_instructions + '\n[Owner addition/correction]\n' + text
+        if len(combined) > 8000:
+            marker = '\n[Earlier additions omitted]\n'
+            combined = combined[:4000] + marker + combined[-(4000 - len(marker)):]
+        self.task_instructions = combined
+
 
 def owner_identity():
     """Identity comes only from the Discord adapter, never environment strings."""

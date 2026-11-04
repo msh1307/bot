@@ -426,12 +426,15 @@ class Bot(commands.Bot):
         if not text and not message.attachments:
             return
         channel = str(message.channel.id)
+        admission = self.reset_epoch, self.epochs.get(channel, 0)
         question = self.questions.get(channel)
         if question and (not question['input'].accepting or question['turn'].cancelled.is_set()):
             question = None
         ticket = question['input'].begin_message() if question else None
         images = []
         try:
+            if len(message.attachments) > 2:
+                raise ValueError('첨부파일은 한 번에 2개까지 올려주세요.')
             for attachment in message.attachments[:2]:
                 if (attachment.content_type or '').startswith('image/'):
                     if attachment.size > 6 * 2**20:
@@ -454,14 +457,18 @@ class Bot(commands.Bot):
                     text += '\nAttached file: /workspace/downloads/' + p.name
             if images and sum(len(i['data']) for i in images) > 700_000:
                 raise ValueError('큰 이미지는 한 장씩 올려주세요.')
+            if admission != (self.reset_epoch, self.epochs.get(channel, 0)):
+                return  # /stop or reset also cancels input still being downloaded.
             if question:
                 if self.questions.get(channel) is question and not question['turn'].cancelled.is_set():
                     question['input'].finish_message(ticket, text, images)
                     ticket = None
                 return
             await self.interrupt_compaction(channel)
-            interrupted = steered = finishing = False
+            interrupted = accepted = finishing = False
             async with self.admission_lock:
+                if admission != (self.reset_epoch, self.epochs.get(channel, 0)):
+                    return
                 active = self.active
                 if (active and active['channel'] == channel
                         and not active['turn'].cron and not active['turn'].deferred
@@ -471,14 +478,29 @@ class Bot(commands.Bot):
                         reply = await active['session'].request('steer', timeout=10, onlyIfActive=True,
                             message=text or '첨부 이미지를 확인해줘.', images=images)
                     except asyncio.TimeoutError:
+                        LOG.warning('owner_input_unconfirmed channel=%s turn=%s message=%s class=TimeoutError',
+                                    channel, active['turn'].id, message.id)
                         raise RuntimeError('추가 지시의 전달 확인이 지연됐습니다. 중복 전송 전에 /status로 확인하세요.')
-                    steered = reply.get('disposition') == 'queued'
-                    finishing = reply.get('disposition') == 'not_running'
-                    if not steered and not finishing:
+                    except RuntimeError as error:
+                        LOG.warning('owner_input_rejected channel=%s turn=%s message=%s',
+                                    channel, active['turn'].id, message.id)
+                        if 'Additional input queue is full' in str(error):
+                            raise ValueError('추가 지시 대기열이 찼습니다(최대 16개). 처리 후 보내거나 /stop으로 취소하세요.') from None
+                        raise
+                    disposition = reply.get('disposition')
+                    accepted = disposition in ('queued', 'handled')
+                    finishing = disposition == 'not_running'
+                    if not accepted and not finishing:
+                        LOG.warning('owner_input_unconfirmed channel=%s turn=%s message=%s class=UnknownDisposition',
+                                    channel, active['turn'].id, message.id)
                         raise RuntimeError('추가 지시가 접수되지 않았습니다. /status로 확인하세요.')
-                    if steered:
-                        LOG.info('owner_input_steered channel=%s turn=%s', channel, active['turn'].id)
-                if not steered:
+                    if accepted:
+                        if disposition == 'queued':
+                            active['turn'].add_instruction(text or '첨부 이미지를 확인해줘.')
+                        LOG.info('%s channel=%s turn=%s message=%s',
+                                 'owner_input_steered' if disposition == 'queued' else 'owner_input_handled',
+                                 channel, active['turn'].id, message.id)
+                if not accepted:
                     if self.queue.full():
                         raise ValueError('요청 대기열이 찼습니다. 잠시 뒤 다시 보내주세요.')
                     if not finishing and self.active and (self.active['channel'] == channel
@@ -486,7 +508,7 @@ class Bot(commands.Bot):
                         await self.stop_active()
                         interrupted = True
                     self.enqueue(channel, text or '첨부 이미지를 확인해줘.', images)
-            if interrupted or steered:
+            if interrupted or accepted:
                 with contextlib.suppress(discord.HTTPException, asyncio.TimeoutError):
                     await asyncio.wait_for(message.add_reaction('↪️'), 3)
         except Exception as e:
@@ -1063,7 +1085,7 @@ class Bot(commands.Bot):
             if name in self.registry.commands:
                 return await self.registry.commands[name](args)
             if name == 'help':
-                return '/status [detail] · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access · /ignore\n새 메시지를 보내면 같은 채널의 진행 중 작업을 중단하고 이어서 처리합니다.'
+                return '/status [detail] · /temp · /model flash 또는 27b · /stop · /new · /reset · /compact · /memory · /alarms · /access · /ignore\n같은 채널의 추가 지시는 현재 응답·도구 처리가 끝난 뒤 다음 모델 요청에 반영합니다. 예약 작업·압축은 중단 후 처리하며, /stop은 작업과 대기 지시를 취소합니다.'
             if name == 'ignore':
                 mode = args.strip().lower()
                 if mode not in ('', 'on', 'off', 'status'):
@@ -1136,6 +1158,8 @@ class Bot(commands.Bot):
                         if name == 'reset' or k == key:
                             await s.close()
                             self.sessions.pop(k, None)
+                    self.write_status('working' if self.active else 'connected')
+                    LOG.info('owner_session_reset channel=%s command=%s', key, name)
                     if name == 'model':
                         self.models[key] = model
                         return '이 대화 모델: ' + model

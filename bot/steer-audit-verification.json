@@ -1,0 +1,744 @@
+{
+  "collected_utc": "2026-11-03T23:58:53.845806+00:00",
+  "service": "evo-bot",
+  "live_root": "/opt/evo-bot",
+  "engine": "Pi 1.4.0",
+  "scope": [
+    "pi-runner.mjs",
+    "evo_bot/gateway.py",
+    "evo_bot/tools.py",
+    "evo_bot/context.py",
+    "evo_bot/integrations/codex.py",
+    "evo_bot/rpc.py"
+  ],
+  "initial_live_repo_and_prior_report_match": true,
+  "before_sha256": {
+    "pi-runner.mjs": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88",
+    "evo_bot/gateway.py": "1a780c6ea643cc27d1d41d8eb461198c150add9d4b6bc9deff9fe41bcb4ae2a2",
+    "evo_bot/tools.py": "caa54815f09feb3c26743bbf9be56600fe267e34b6e49d923fdbaba7c35ff362",
+    "evo_bot/context.py": "e17987d6d2957f779a9429f06517247db4116fc781982213114ee804928c0ccc",
+    "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
+    "evo_bot/rpc.py": "4d9900de3f69f2e5cb8b4f4e82ac7104f3f0ba2a477cd09508850ea4d5c69060"
+  },
+  "after_sha256": {
+    "pi-runner.mjs": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+    "evo_bot/gateway.py": "fe402dadd1332d1454652b1d0d502d333fbd82c2c9f748aec5d4facc07e265c8",
+    "evo_bot/tools.py": "0f447e2ef0bbe8451dcd482662460df595d913673ecf703ffd1191bac8cab3a6",
+    "evo_bot/context.py": "a4c4444170b1bb8a2a39e18dc036372f72eaacbd19c5cf1eeb73e085b80ae796",
+    "evo_bot/integrations/codex.py": "e864856d9151f5964083d6e0febce6d68f361524c3ad6820b7f087ab3f8fa06a",
+    "evo_bot/rpc.py": "f0087e1eb067341104ba052014ba75308b09d190b816784a0f01985e85fc86a6"
+  },
+  "repo_matches_live": true,
+  "verification_scripts_sha256": {
+    "verify_steer_admission.py": "72093306d56ca06cd1258c5b25455234bcb7882d63b033feb1aa5550b0b45800",
+    "verify_pi_steer_audit.py": "a613c885b52419d49e8ad464235d39e667bee7fe7dfde920e60d901b671340fd",
+    "verify_discord_steering.py": "7ca0fa9eaab70e8132c82e336d5481db208afd0169d6a8a55e5eca27f4229fd3",
+    "verify_pi_steering.py": "fc733be1dfb8f15332b5e0f24c9e9c02c1eff4ac0ffa5e48dac515fa78aeaba6"
+  },
+  "loaded_runners": [
+    {
+      "pid": 2984293,
+      "runner": "/opt/evo-bot/pi-runner.mjs",
+      "loaded_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+      "service_cgroup": true
+    }
+  ],
+  "native_source_unchanged": true,
+  "native_source_sha256": {
+    "session": "436e8be3bbab2db475ce30bb5d0bb30f0046b19a3476f8cd57b8133e68891162",
+    "agent_loop": "22ee81f9977e211044c1ad41a763876c793ca7fc1c5b39b9fa7f76f3cb281129"
+  },
+  "restart_utc": "2026-11-03T23:57:03.505692+00:00",
+  "restart_kst": "2026-11-04T08:57:03.505692+09:00",
+  "backups": [
+    "/opt/evo-retired/steer-audit-20261103T233737Z",
+    "/opt/evo-retired/steer-audit-20261103T235055Z",
+    "/opt/evo-retired/steer-audit-20261103T235657Z"
+  ],
+  "maintenance_handoffs": [
+    {
+      "restart_utc": "2026-11-03T23:37:42.377697+00:00",
+      "history_preserved": true,
+      "prefix_sha256": "b6eea0e15d9fa7a2601f749568ae0948d26e32a7b41c151de0af224f5a0588fc",
+      "source_sha256": "b6eea0e15d9fa7a2601f749568ae0948d26e32a7b41c151de0af224f5a0588fc",
+      "interrupted_active_request": false
+    },
+    {
+      "restart_utc": "2026-11-03T23:51:02.055425+00:00",
+      "history_preserved": true,
+      "prefix_sha256": "bff83e752a56147ee6eb200831d1462c57ba670ff971c5c01bd6e7355230f0b8",
+      "source_sha256": "bff83e752a56147ee6eb200831d1462c57ba670ff971c5c01bd6e7355230f0b8",
+      "interrupted_active_request": false
+    },
+    {
+      "restart_utc": "2026-11-03T23:57:03.505692+00:00",
+      "history_preserved": true,
+      "prefix_sha256": "bff83e752a56147ee6eb200831d1462c57ba670ff971c5c01bd6e7355230f0b8",
+      "source_sha256": "bff83e752a56147ee6eb200831d1462c57ba670ff971c5c01bd6e7355230f0b8",
+      "interrupted_active_request": false
+    }
+  ],
+  "service_state": "ActiveState=active\nSubState=running\nMainPID=2984221\nNRestarts=0",
+  "journal": {
+    "since_utc": "2026-11-03T18:31:55Z",
+    "real_owner_input_steered_events": 0,
+    "steer_timeout_events": 0,
+    "post_restart_discord_connected": true,
+    "post_restart_history_restored": true,
+    "post_restart_tracebacks": 0,
+    "post_restart_error_entries": 0
+  },
+  "retired_path_exists": {
+    "/opt/evo-omp": false,
+    "/run/evo-omp": false,
+    "/etc/evo-omp": false,
+    "/var/lib/evo-omp": false
+  },
+  "retired_references_in_targets": {
+    "pi-runner.mjs": [],
+    "evo_bot/gateway.py": [],
+    "evo_bot/tools.py": [],
+    "evo_bot/context.py": [],
+    "evo_bot/integrations/codex.py": [],
+    "evo_bot/rpc.py": []
+  },
+  "findings": [
+    {
+      "id": "queue-cap",
+      "file": "pi-runner.mjs",
+      "before_line": 192,
+      "after_line": 39,
+      "cause": "Concurrent admissions checked the limit before awaiting native preflight; raw follow_up bypassed it.",
+      "fix": "Serialize admissions and reserve capacity before await; enforce a combined 16-input cap.",
+      "checks": [
+        "concurrent onlyIfActive admissions obey 16 limit",
+        "raw follow_up cannot bypass queue cap"
+      ]
+    },
+    {
+      "id": "settle-during-preflight",
+      "file": "pi-runner.mjs",
+      "before_line": 193,
+      "after_line": 154,
+      "cause": "A finishing agent could settle during awaited input preflight and leave an accepted input orphaned.",
+      "fix": "Use the public Pi before-settle hook to wait for accepted preflight; include in-flight work in state and emit actual settlement.",
+      "checks": [
+        "end-of-turn preflight is consumed exactly once; no idle orphan"
+      ]
+    },
+    {
+      "id": "abort-late-input",
+      "file": "pi-runner.mjs",
+      "before_line": 199,
+      "after_line": 237,
+      "cause": "Clearing once before abort allowed delayed preflight to repopulate the queue; concurrent aborts could reopen the stopping gate early.",
+      "fix": "Invalidate admissions by epoch, share one abort promise, drain preflight and clear again before reopening.",
+      "checks": [
+        "late steering cannot survive abort",
+        "concurrent abort keeps stopping gate closed"
+      ]
+    },
+    {
+      "id": "handled-disposition",
+      "file": "evo_bot/gateway.py",
+      "before_line": 475,
+      "after_line": 491,
+      "cause": "Native handled was treated as rejection despite a successful extension input handler.",
+      "fix": "Accept handled without enqueue/replay, log it separately; only not_running queues a new task.",
+      "checks": [
+        "test_handled_is_accepted_without_abort_or_replay"
+      ]
+    },
+    {
+      "id": "attachment-stop-race",
+      "file": "evo_bot/gateway.py",
+      "before_line": 433,
+      "after_line": 429,
+      "cause": "Input still downloading an attachment could be enqueued and executed after /stop.",
+      "fix": "Capture the channel/reset epoch before download and recheck before compaction interruption and under admission lock.",
+      "checks": [
+        "test_stop_invalidates_input_still_downloading_an_attachment"
+      ]
+    },
+    {
+      "id": "rpc-timeout-scope",
+      "file": "evo_bot/rpc.py",
+      "before_line": 206,
+      "after_line": 206,
+      "cause": "The 10-second steer timeout excluded a blocked send/write-lock/drain.",
+      "fix": "Apply the same timeout to both send and reply; keep ambiguous outcomes explicit and never auto-replay.",
+      "checks": [
+        "test_timeout_includes_blocked_send_and_cleans_pending"
+      ]
+    },
+    {
+      "id": "callback-handoff",
+      "file": "evo_bot/context.py",
+      "before_line": 34,
+      "after_line": 37,
+      "cause": "Subsequent callback handoff metadata contained only the initial task, omitting accepted owner corrections.",
+      "fix": "Append accepted corrections to the bounded per-turn handoff consumed by Codex arm_callback; preserve original head and latest tail.",
+      "checks": [
+        "test_queued_has_actual_admission_event",
+        "test_handoff_retains_original_and_latest_correction_within_budget"
+      ]
+    },
+    {
+      "id": "guidance-mismatch",
+      "file": "evo_bot/tools.py",
+      "before_line": 528,
+      "after_line": 528,
+      "cause": "Help described abort-on-message; wait description promised immediate interruption although ordinary corrections now steer.",
+      "fix": "Help and wait description now state boundary injection and distinguish explicit /stop.",
+      "checks": [
+        "test_help_describes_boundary_and_explicit_stop",
+        "test_wait_description_matches_non_interrupting_steering"
+      ]
+    },
+    {
+      "id": "excess-attachments",
+      "file": "evo_bot/gateway.py",
+      "before_line": 435,
+      "after_line": 436,
+      "cause": "Attachments after the first two were silently ignored.",
+      "fix": "Reject the whole request with an explicit two-attachment limit before downloading or steering.",
+      "checks": [
+        "test_excess_attachments_are_rejected_before_read"
+      ]
+    },
+    {
+      "id": "stale-reset-status",
+      "file": "evo_bot/gateway.py",
+      "before_line": 1135,
+      "after_line": 1162,
+      "cause": "Explicit new/model/reset removed sessions without updating the status snapshot or logging that reset.",
+      "fix": "Refresh the status after removing sessions and log only channel plus command.",
+      "checks": [
+        "test_explicit_new_updates_status_and_logs_reset"
+      ]
+    }
+  ],
+  "coverage": {
+    "1_admission": "Normal active same-channel owner input sends steer(timeout=10, onlyIfActive=true). queued/handled are native Pi dispositions; onlyIfActive/not_running are wrapper-level. not_running enqueues once without stopping a finishing turn; background/compacting work intentionally uses stop+enqueue. Ambiguous timeout never auto-replays.",
+    "2_injection_boundary": "Actual scripted streaming and tool fixtures verified the in-flight provider request stays unchanged; addenda enter the next model call exactly once. No token-level live steering is wired.",
+    "3_state": "queuedMessageCount equals native pendingMessageCount. isSettled additionally requires no pending input preflight, native queue, host jobs, compaction, active run or stop. Python wait_until_settled/reusable_after_error consume the same fields.",
+    "4_abort": "Epoch-invalidated pending ingress, serialized native queue edits, shared abort completion and post-preflight clear prevent late-input leakage. Discord /stop invalidates both enqueued fallback and still-downloading input.",
+    "5_modes_and_cap": "Explicit steeringMode=all combines corrections at one boundary; followUpMode=one-at-a-time preserves follow-up order. Combined steer/follow_up admission capacity=16, with explicit Korean queue-full guidance.",
+    "6_validation": "Actual gateway image validation/conversion reaches native provider image payload; >2 attachments rejected. Empty/non-string text, malformed image metadata and UTF-8 frames >1MiB rejected. 40k Hangul text retained intact. Production disables skill/template discovery and extension commands; public fixture input hooks test handled/errors without modifying installed Pi.",
+    "7_deployment": "Live sources equal repository bytes; all five prior pi-task after hashes matched the initial live baseline. Current runner executable bind-mount hash equals deployed hash and belongs to evo-bot cgroup. No audited /opt/evo-omp references or old deployment paths found. Each maintenance restart verified byte-identical transcript prefix recovery.",
+    "8_evidence": "No genuine owner_input_steered or 10s timeout events observed in the scanned service journal. Actual production Bot.on_message -> bwrap -> installed Pi path verified with captured Discord sends and a scripted local provider; its admission events are test events, not journal proof of genuine owner steering."
+  },
+  "tests": {
+    "regression_suites_passed": 19,
+    "regression_checks": 209,
+    "regression_results": [
+      {
+        "script": "verify_steer_admission.py",
+        "exit_code": 0,
+        "test_count": 14,
+        "seconds": 0.3
+      },
+      {
+        "script": "verify_gateway.py",
+        "exit_code": 0,
+        "test_count": 11,
+        "seconds": 0.45
+      },
+      {
+        "script": "verify_progress.py",
+        "exit_code": 0,
+        "test_count": 6,
+        "seconds": 0.54
+      },
+      {
+        "script": "verify_progress_detail.py",
+        "exit_code": 0,
+        "test_count": 18,
+        "seconds": 0.33
+      },
+      {
+        "script": "verify_task_queue.py",
+        "exit_code": 0,
+        "test_count": 23,
+        "seconds": 0.51
+      },
+      {
+        "script": "verify_schedule.py",
+        "exit_code": 0,
+        "test_count": 20,
+        "seconds": 0.24
+      },
+      {
+        "script": "verify_codex_wake.py",
+        "exit_code": 0,
+        "test_count": 21,
+        "seconds": 0.31
+      },
+      {
+        "script": "verify_codex_questions.py",
+        "exit_code": 0,
+        "test_count": 1,
+        "seconds": 0.22
+      },
+      {
+        "script": "verify_codex_cancellation.py",
+        "exit_code": 0,
+        "test_count": 8,
+        "seconds": 0.07
+      },
+      {
+        "script": "verify_codex_shutdown.py",
+        "exit_code": 0,
+        "test_count": 1,
+        "seconds": 0.11
+      },
+      {
+        "script": "verify_codex_live_fixes.py",
+        "exit_code": 0,
+        "test_count": 31,
+        "seconds": 0.51
+      },
+      {
+        "script": "verify_codex_existing.py",
+        "exit_code": 0,
+        "test_count": 2,
+        "seconds": 0.06
+      },
+      {
+        "script": "verify_codex_settings.py",
+        "exit_code": 0,
+        "test_count": 10,
+        "seconds": 0.08
+      },
+      {
+        "script": "verify_host_reason.py",
+        "exit_code": 0,
+        "test_count": 7,
+        "seconds": 0.06
+      },
+      {
+        "script": "verify_recovery.py",
+        "exit_code": 0,
+        "test_count": 1,
+        "seconds": 0.05
+      },
+      {
+        "script": "verify_remote.py",
+        "exit_code": 0,
+        "test_count": 12,
+        "seconds": 0.12
+      },
+      {
+        "script": "verify_remote_config.py",
+        "exit_code": 0,
+        "test_count": 8,
+        "seconds": 0.08
+      },
+      {
+        "script": "verify_pi_coding.py",
+        "exit_code": 0,
+        "test_count": 11,
+        "seconds": 0.11
+      },
+      {
+        "script": "verify_deployment.py",
+        "exit_code": 0,
+        "test_count": 4,
+        "seconds": 0.07
+      }
+    ],
+    "native_race_before": {
+      "runtime": "actual installed Pi 1.4.0",
+      "runner_sha256": "12729e0e8ed60c936f86a6195224539894dc06f6a7bbdf956a71d564030f1c88",
+      "checks": [
+        {
+          "passed": false,
+          "check": "concurrent onlyIfActive admissions obey 16 limit",
+          "accepted": 20,
+          "queued": 20
+        },
+        {
+          "passed": false,
+          "check": "raw follow_up cannot bypass queue cap"
+        },
+        {
+          "passed": false,
+          "check": "abort/preflight is not reported settled",
+          "state": {
+            "isSettled": true,
+            "queuedMessageCount": 0,
+            "hasPendingAsyncWork": false
+          }
+        },
+        {
+          "passed": false,
+          "check": "in-flight preflight remains visible as pending work"
+        },
+        {
+          "passed": false,
+          "check": "no early settled event while input preflight is pending"
+        },
+        {
+          "passed": false,
+          "check": "concurrent abort keeps stopping gate closed"
+        },
+        {
+          "passed": false,
+          "check": "late steering cannot survive abort",
+          "disposition": {
+            "disposition": "queued"
+          },
+          "queued": 1
+        },
+        {
+          "passed": false,
+          "check": "aborted preflight never leaks into next prompt"
+        },
+        {
+          "passed": false,
+          "check": "turn waits for already-admitted input preflight at settle boundary"
+        },
+        {
+          "passed": false,
+          "check": "end-of-turn preflight is consumed exactly once; no idle orphan",
+          "queued": 1
+        },
+        {
+          "passed": false,
+          "check": "idle guard returns not_running without queue mutation"
+        },
+        {
+          "passed": true,
+          "check": "provider is streaming before steering admission"
+        },
+        {
+          "passed": true,
+          "check": "mid-stream input waits; it does not restart or rewrite current provider request"
+        },
+        {
+          "passed": true,
+          "check": "stream-time correction enters exactly the next model call"
+        },
+        {
+          "passed": true,
+          "check": "native input interception returns handled"
+        },
+        {
+          "passed": true,
+          "check": "handled does not enter model queue"
+        },
+        {
+          "passed": true,
+          "check": "extension command error is explicit and does not enqueue"
+        },
+        {
+          "passed": true,
+          "check": "long valid UTF-8 message is accepted without truncation"
+        },
+        {
+          "passed": true,
+          "check": "clear_queue returns the entire long message intact"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: ''"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: '   '"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: None"
+        },
+        {
+          "passed": false,
+          "check": "malformed image metadata is rejected"
+        },
+        {
+          "passed": false,
+          "check": "UTF-8 payload beyond 1 MiB is rejected"
+        },
+        {
+          "passed": false,
+          "check": "rejected inputs leave queue unchanged"
+        },
+        {
+          "passed": true,
+          "check": "state includes both native queues"
+        },
+        {
+          "passed": true,
+          "check": "steering all precedes follow-ups"
+        },
+        {
+          "passed": true,
+          "check": "follow-ups drain one-at-a-time"
+        },
+        {
+          "passed": true,
+          "check": "steering image reaches next actual provider payload"
+        },
+        {
+          "passed": true,
+          "check": "queued messages appear once each"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /skill:not-installed args"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /not-installed-template args"
+        },
+        {
+          "passed": true,
+          "check": "no implicit skill or prompt-template expansion in production loader"
+        }
+      ],
+      "passed": 19,
+      "failed": 14,
+      "test_only_extension_hooks": true,
+      "scripted_provider": true,
+      "discord_posts": 0,
+      "evo_model_requests": 0
+    },
+    "native_race_after": {
+      "runtime": "actual installed Pi 1.4.0",
+      "runner_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e",
+      "checks": [
+        {
+          "passed": true,
+          "check": "concurrent onlyIfActive admissions obey 16 limit",
+          "accepted": 16,
+          "queued": 16
+        },
+        {
+          "passed": true,
+          "check": "raw follow_up cannot bypass queue cap"
+        },
+        {
+          "passed": true,
+          "check": "abort/preflight is not reported settled",
+          "state": {
+            "isSettled": false,
+            "queuedMessageCount": 0,
+            "hasPendingAsyncWork": true
+          }
+        },
+        {
+          "passed": true,
+          "check": "in-flight preflight remains visible as pending work"
+        },
+        {
+          "passed": true,
+          "check": "no early settled event while input preflight is pending"
+        },
+        {
+          "passed": true,
+          "check": "concurrent abort keeps stopping gate closed"
+        },
+        {
+          "passed": true,
+          "check": "late steering cannot survive abort",
+          "disposition": null,
+          "queued": 0
+        },
+        {
+          "passed": true,
+          "check": "aborted preflight never leaks into next prompt"
+        },
+        {
+          "passed": true,
+          "check": "turn waits for already-admitted input preflight at settle boundary"
+        },
+        {
+          "passed": true,
+          "check": "end-of-turn preflight is consumed exactly once; no idle orphan",
+          "queued": 0
+        },
+        {
+          "passed": true,
+          "check": "idle guard returns not_running without queue mutation"
+        },
+        {
+          "passed": true,
+          "check": "provider is streaming before steering admission"
+        },
+        {
+          "passed": true,
+          "check": "mid-stream input waits; it does not restart or rewrite current provider request"
+        },
+        {
+          "passed": true,
+          "check": "stream-time correction enters exactly the next model call"
+        },
+        {
+          "passed": true,
+          "check": "native input interception returns handled"
+        },
+        {
+          "passed": true,
+          "check": "handled does not enter model queue"
+        },
+        {
+          "passed": true,
+          "check": "extension command error is explicit and does not enqueue"
+        },
+        {
+          "passed": true,
+          "check": "long valid UTF-8 message is accepted without truncation"
+        },
+        {
+          "passed": true,
+          "check": "clear_queue returns the entire long message intact"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: ''"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: '   '"
+        },
+        {
+          "passed": true,
+          "check": "invalid text rejected: None"
+        },
+        {
+          "passed": true,
+          "check": "malformed image metadata is rejected"
+        },
+        {
+          "passed": true,
+          "check": "UTF-8 payload beyond 1 MiB is rejected"
+        },
+        {
+          "passed": true,
+          "check": "rejected inputs leave queue unchanged"
+        },
+        {
+          "passed": true,
+          "check": "state includes both native queues"
+        },
+        {
+          "passed": true,
+          "check": "steering all precedes follow-ups"
+        },
+        {
+          "passed": true,
+          "check": "follow-ups drain one-at-a-time"
+        },
+        {
+          "passed": true,
+          "check": "steering image reaches next actual provider payload"
+        },
+        {
+          "passed": true,
+          "check": "queued messages appear once each"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /skill:not-installed args"
+        },
+        {
+          "passed": true,
+          "check": "disabled template stays literal: /not-installed-template args"
+        },
+        {
+          "passed": true,
+          "check": "no implicit skill or prompt-template expansion in production loader"
+        }
+      ],
+      "passed": 33,
+      "failed": 0,
+      "test_only_extension_hooks": true,
+      "scripted_provider": true,
+      "discord_posts": 0,
+      "evo_model_requests": 0
+    },
+    "pi_rpc": {
+      "passed": 25,
+      "failed": 0,
+      "checks": [
+        "initial queue empty",
+        "Discord end-of-turn race returns not_running",
+        "idle guard never strands a queued input",
+        "main prompt accepted",
+        "steer accepted",
+        "follow-up accepted",
+        "both pending inputs reported",
+        "active state not falsely settled",
+        "concurrent second prompt rejected",
+        "one prompt completes after all continuations",
+        "exactly three model calls, no duplicate replay",
+        "steer precedes follow-up",
+        "follow-up runs after corrected answer",
+        "steering image forwarded",
+        "all owner inputs retained once",
+        "settled state accurate",
+        "single completion frame",
+        "idle queued input not hidden",
+        "explicit queue clearing",
+        "abort acknowledged",
+        "stop clears pending continuation",
+        "new owner task works after stop",
+        "cancelled input never enters next task",
+        "steer rejects invalid input",
+        "follow_up rejects invalid input"
+      ],
+      "runtime": "Pi 1.4.0",
+      "mode": "actual installed Pi and wrapper, local fake API",
+      "provider_requests": 5,
+      "evo_model_requests": 0,
+      "discord_posts": 0,
+      "runner_sha256": "de94d11e655e1ad05ec9e6bd2beec1b9f46632e1dfbbd99571b780304bcb450e"
+    },
+    "discord_to_pi": {
+      "passed": 14,
+      "failed": 0,
+      "checks": [
+        "original turn stays alive",
+        "addenda steer exactly once",
+        "acknowledgement without abort",
+        "ambiguous delivery never replays as new prompt",
+        "settling race queues next task without abort",
+        "next task runs once after settling",
+        "actual Pi has two steering inputs; turn not cancelled",
+        "actual next provider payload retains original and each addendum once",
+        "actual Discord image attachment passes validation and reaches steering payload",
+        "actual on_message to Pi path emits both owner_input_steered events",
+        "one continued turn, no replay: calls=2, output=['VERIFIED_CONTEXT']",
+        "actual session fully settles",
+        "/stop releases a session whose host call has not settled",
+        "stopped addendum never leaks into next task"
+      ],
+      "actual_pi_bwrap": true,
+      "evo_model_requests": 0,
+      "discord_posts": 0,
+      "captured_admission_events": [
+        "owner_input_steered channel=77 turn=a831b8bd3d70e21a19a3c30c message=1",
+        "owner_input_steered channel=77 turn=a831b8bd3d70e21a19a3c30c message=1",
+        "owner_input_steered channel=77 turn=5260989ab75c8ca667bd3e77 message=1"
+      ]
+    },
+    "attachment_stop_before": {
+      "tests": 12,
+      "failed": 1,
+      "evidence": "PRE-STOP-IMAGE unexpectedly found in ['long', 'PRE-STOP-IMAGE']"
+    }
+  },
+  "reproduce": [
+    "cd /opt/evo-bot; /opt/evo-bot/venv/bin/python verify_steer_admission.py",
+    "cd /opt/evo-bot; runuser -u evo-bot -- venv/bin/python verify_discord_steering.py /run/evo-bot/steer-audit-discord.json",
+    "cd /opt/evo-bot; venv/bin/python verify_pi_steering.py /opt/evo-bot/pi-runner.mjs /tmp/pi-rpc.json",
+    "cd /opt/evo-bot; venv/bin/python verify_pi_steer_audit.py /opt/evo-bot/pi-runner.mjs /tmp/pi-races.json"
+  ],
+  "unverified_or_risks": [
+    "No genuine owner steering event was observed; tests exercise the real gateway/Pi path with synthetic Discord events and scripted provider responses. Model comprehension and real token-generation timing remain unverified.",
+    "A 10-second admission timeout is inherently ambiguous; it warns and does not auto-replay. Inspect state before resending.",
+    "The first restored runner/profile disappeared around 23:39 UTC without a corresponding reset/transport error log. The cause cannot be determined. A fresh real owner turn succeeded at 23:46 UTC; later restarts preserved that current transcript. Added reset logging/status refresh provides future attribution, not a retrospective diagnosis.",
+    "Existing already-armed Codex callback prompts are not silently rewritten; newly armed callbacks inherit the latest accepted corrections.",
+    "No actual shutdown, genuine Discord test post, model benchmark, permission/approval change or installed Pi source patch was performed."
+  ]
+}

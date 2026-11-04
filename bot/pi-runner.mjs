@@ -17,6 +17,44 @@ const config = parse(readFileSync(`${home}/.pi/agent/config.yml`, 'utf8'));
 const provider = parse(readFileSync(`${home}/.pi/agent/models.yml`, 'utf8')).providers.evo;
 const pending = new Map();
 let session, manager, filter, busy = false, compacting = false, stopping = false;
+let inputTail = Promise.resolve(), inputCount = 0, inputEpoch = 0, aborting;
+
+function editInputs(action) {
+  const result = inputTail.then(action);
+  inputTail = result.catch(() => {});
+  return result;
+}
+
+function emitSettled() {
+  if (session && state().isSettled) emit({ type: 'session_settled' });
+}
+
+function queueInput(c) {
+  if (typeof c.message !== 'string' || !c.message.trim()) throw new Error('message must be a nonempty string');
+  if (Buffer.byteLength(JSON.stringify(c)) > 1024 * 1024) throw new Error('Additional input exceeds 1 MiB');
+  if (c.images !== undefined && (!Array.isArray(c.images) || c.images.some(image =>
+    image?.type !== 'image' || typeof image.data !== 'string' || typeof image.mimeType !== 'string')))
+    throw new Error('images must contain image blocks');
+  if (stopping || compacting) throw new Error('Session is stopping or compacting; retry after it settles');
+  if (session.pendingMessageCount + inputCount >= 16) throw new Error('Additional input queue is full (16)');
+  const epoch = inputEpoch;
+  inputCount++;
+  return editInputs(async () => {
+    try {
+      if (stopping || epoch !== inputEpoch) throw new Error('Additional input cancelled');
+      // Recheck inside the queue: preflight and a concurrent abort may have yielded.
+      if (c.onlyIfActive && (!busy || !session.isStreaming)) return { disposition: 'not_running' };
+      const disposition = c.type === 'steer'
+        ? await session.steer(c.message, c.images, { source: 'rpc' })
+        : await session.followUp(c.message, c.images, { source: 'rpc' });
+      if (epoch !== inputEpoch) throw new Error('Additional input cancelled');
+      return { disposition };
+    } finally {
+      inputCount--;
+      emitSettled();
+    }
+  });
+}
 
 function emit(frame) {
   const bytes = Buffer.from(JSON.stringify(frame));
@@ -111,7 +149,10 @@ async function initialize(definitions, transcript) {
     cwd: '/workspace', agentDir: `${home}/pi`, settingsManager: settings,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,
     noContextFiles: true, systemPrompt: readFileSync(`${home}/instructions.txt`, 'utf8'),
-    extensionFactories: [createToolSearchExtension()],
+    extensionFactories: [createToolSearchExtension(), pi => {
+      // Pi must not settle while an accepted input is still being expanded.
+      pi.on('agent_before_settle', async () => { while (inputCount) await inputTail; });
+    }],
   });
   await loader.reload();
   ({ session } = await createAgentSession({
@@ -129,15 +170,17 @@ async function initialize(definitions, transcript) {
   }));
   // Several Discord addenda at the same tool boundary belong to the same correction.
   session.setSteeringMode('all');
+  session.setFollowUpMode('one-at-a-time');
   session.subscribe(sessionEvent);
   await session.bindExtensions({});
 }
 
 function state() {
   const queuedMessageCount = session.pendingMessageCount;
-  return { model: session.model, isSettled: !busy && !compacting && !pending.size && !queuedMessageCount,
+  return { model: session.model, isSettled: !busy && !stopping && !inputCount && !compacting
+      && !session.isStreaming && !session.isCompacting && !pending.size && !queuedMessageCount,
     isStreaming: session.isStreaming, isCompacting: compacting || session.isCompacting,
-    hasPendingAsyncWork: pending.size > 0, queuedMessageCount,
+    hasPendingAsyncWork: pending.size > 0 || inputCount > 0 || stopping, queuedMessageCount,
     contextUsage: session.getContextUsage(), dumpTools: session.getAllTools(),
     sessionFile: manager.getSessionFile(), engine: 'pi', version: '1.4.0' };
 }
@@ -164,7 +207,7 @@ async function command(c) {
       return;
     }
     case 'prompt': {
-      if (busy || compacting || stopping) throw new Error('Session is busy');
+      if (busy || compacting || stopping || inputCount) throw new Error('Session is busy');
       busy = true;
       respond(c, { agentInvoked: true });
       let error;
@@ -177,40 +220,44 @@ async function command(c) {
       finally {
         busy = false;
         emit({ type: 'prompt_result', id: c.id, agentInvoked: true,
-          status: error ? 'error' : 'completed', error, sessionSettled: true });
-        emit({ type: 'session_settled' });
+          status: error ? 'error' : 'completed', error, sessionSettled: state().isSettled });
+        emitSettled();
       }
       return;
     }
     case 'steer':
-    case 'follow_up': {
-      // Discord additions must not become an idle queue entry after a turn ends.
-      if (c.onlyIfActive && (!busy || !session.isStreaming))
-        return respond(c, { disposition: 'not_running' });
-      if (stopping || compacting) throw new Error('Session is stopping or compacting; retry after it settles');
-      if (typeof c.message !== 'string' || !c.message.trim()) throw new Error('message must be a nonempty string');
-      if (c.onlyIfActive && session.pendingMessageCount >= 16) throw new Error('Additional input queue is full');
-      const disposition = c.type === 'steer'
-        ? await session.steer(c.message, c.images, { source: 'rpc' })
-        : await session.followUp(c.message, c.images, { source: 'rpc' });
-      return respond(c, { disposition });
+    case 'follow_up': return respond(c, await queueInput(c));
+    case 'clear_queue': {
+      if (stopping) throw new Error('Session is stopping');
+      inputEpoch++;
+      const cleared = await editInputs(() => session.clearQueue());
+      emitSettled();
+      return respond(c, cleared);
     }
-    case 'clear_queue': return respond(c, session.clearQueue());
-    case 'abort':
+    case 'abort': {
+      if (aborting) { await aborting; return respond(c); }
       stopping = true;
-      try {
-        // EVO /stop cancels queued inputs too; none may leak into the next owner task.
+      inputEpoch++;
+      aborting = (async () => {
+        // Clear again after in-flight preflight, so /stop cannot leave a late input.
         session.clearQueue();
-        await session.abort();
-        return respond(c);
-      } finally { stopping = false; }
+        try { await session.abort(); }
+        finally {
+          await inputTail;
+          session.clearQueue(); stopping = false; aborting = undefined; emitSettled();
+        }
+      })();
+      await aborting;
+      return respond(c);
+    }
     case 'compact':
-      if (busy || compacting) throw new Error('Session is busy');
+      if (busy || compacting || stopping || inputCount) throw new Error('Session is busy');
       compacting = true;
       try { return respond(c, await session.compact(c.customInstructions)); }
       finally { compacting = false; }
     case 'switch_session': {
-      if (busy || compacting || pending.size) throw new Error('Session is busy');
+      if (busy || compacting || stopping || inputCount || pending.size || session.pendingMessageCount)
+        throw new Error('Session is busy');
       await initialize(definitions, c.sessionPath);
       return respond(c, { cancelled: false });
     }

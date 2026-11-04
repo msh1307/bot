@@ -152,6 +152,7 @@ __pycache__/
 !/bot/pi-runtime.json
 !/bot/pi-migration-verification.json
 !/bot/pi-task-verification.json
+!/bot/steer-audit-verification.json
 /host-tools/review/
 *.tgz
 *.tar.gz
