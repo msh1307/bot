@@ -16,8 +16,9 @@ from discord.ext import commands
 from . import context
 from .discord_text import messages as discord_messages, units as discord_units
 from .rpc import PiSession, WORKSPACE, ENGINE, ENGINE_VERSION
-from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run, image_content, cancel_deferred, queue_timeout
+from .tools import Registry, STATE, TZ, JOB_LOCK, load_jobs, save_jobs, next_run, image_content, cancel_deferred, queue_timeout, wake_task
 from .user_input import PendingInput, QuestionView
+from .integrations import terminal
 
 LOG = logging.getLogger('evo-bot')
 DEFAULT_MODEL = 'sc117-flash-next-iq3_xxs'
@@ -30,6 +31,21 @@ IGNORE_PATH = STATE / 'ignored_channels.json'
 
 class QueueExpired(TimeoutError):
     """The task never acquired execution admission; it is safe to discard."""
+
+
+def task_prompt(job, reused=False):
+    check = job.get('mode', 'check') != 'task'
+    return ('[Current scheduled task; already running; reports are bound to this task automatically]\n'
+            + job['prompt'] + '\n[Progress checkpoint; reference only]\n' + job.get('note', '')[:4000]
+            + '\n[New event/input]\n' + job.get('wake_note', '')[-8000:]
+            + '\nComplete only this goal. Before ending, report once with schedule(action=note,text,state): '
+              'done=verified complete; blocked=cannot proceed; waiting=await input/event; continue=more work now. '
+              'For a timed recheck, add after_seconds=1..600 to waiting; the host saves progress and schedules it. '
+              'Omit id; no task lookup, separate defer or new schedule is needed. No reply is not permission. '
+            + ('Read-only check: observe only; report missing input as blocked. '
+               if check else 'Use user_input for missing input; ')
+            + 'Do not add duplicate keepalive schedules.\n'
+            + ('Earlier conversation is available.\n' if reused else ''))
 
 
 def load_ignored_channels():
@@ -357,6 +373,8 @@ class Bot(commands.Bot):
                     # Never replay a callback whose actions may already have run.
                     if job.get('continuation') or job.get('mode') == 'task':
                         job['enabled'] = False
+                        if 'task_state' in job:
+                            job['task_state'] = 'blocked'
                     elif job['schedule']['kind'] == 'at':
                         job['enabled'] = True
             if changed:
@@ -464,6 +482,15 @@ class Bot(commands.Bot):
                     question['input'].finish_message(ticket, text, images)
                     ticket = None
                 return
+            # Only a reply to this task's question/status resumes a waiting task.
+            reply_id = str(getattr(getattr(message, 'reference', None), 'message_id', '') or '')
+            if reply_id and not images:
+                with JOB_LOCK:
+                    waiting = next((j['id'] for j in load_jobs() if j['channel'] == channel
+                                    and j.get('task_state') == 'waiting'
+                                    and reply_id in j.get('reply_ids', [])), None)
+                if waiting and wake_task(waiting, channel, '[Owner reply]\n' + text):
+                    return
             await self.interrupt_compaction(channel)
             interrupted = accepted = finishing = False
             async with self.admission_lock:
@@ -536,11 +563,15 @@ class Bot(commands.Bot):
             preview = context.redact_sensitive_text(question.strip())
             message = await asyncio.wait_for(channel.send(preview, view=view,
                 allowed_mentions=discord.AllowedMentions.none()), 10)
+            if turn.task_run:
+                self.bind_task_reply(turn, message.id)
             reply = await item['input'].read()
             if turn.cancelled.is_set():
                 raise InterruptedError('Question cancelled')
+            if reply['status'] == 'answered':
+                turn.add_instruction(reply.get('answer') or '첨부 이미지를 확인해줘.')
             label = {'answered': '답변 전달됨', 'skipped': '건너뜀',
-                     'timeout': '무활동 5분 · 답변 없이 재개'}[reply['status']]
+                     'timeout': '응답 없음 · 해당 단계 중단'}[reply['status']]
             images = reply.pop('images', [])
             if images:
                 return {'content': [{'type': 'text', 'text': json.dumps(reply, ensure_ascii=False)}, *images]}
@@ -574,21 +605,27 @@ class Bot(commands.Bot):
                 await self.release_session(session)
                 raise
         session = self.sessions.get(key)
-        if session and (not session.transport_alive or session.model != model):
+        if session and (session.model != model or not session.parked and not session.transport_alive):
             await self.release_session(session)
             session = None
-        if session:
+        if session and not session.parked:
             self.sessions.move_to_end(key)
             return session
-        while len(self.sessions) >= 2:
-            _, old = self.sessions.popitem(last=False)
-            await self.release_session(old)
+        parked = session
+        # Bound live Pi processes, not conversations. Profiles remain on /run tmpfs.
+        while sum(not s.parked for s in self.sessions.values()) >= 2:
+            old = next(s for s in self.sessions.values() if not s.parked)
+            await old.close(preserve_history=True)
+            LOG.info('session_parked channel=%s', old.key)
         session = PiSession(key, model, self.registry.definitions(cron), self.registry.call)
         try:
-            await session.start()
+            await session.start(resume_dir=parked.profile / 'sessions' if parked else None)
         except Exception:
             await self.release_session(session)
             raise
+        if parked:
+            await self.release_session(parked)
+            LOG.info('session_resumed channel=%s', key)
         self.sessions[key] = session
         return session
 
@@ -624,10 +661,12 @@ class Bot(commands.Bot):
             job = item['job']
             deferred = bool(job and job.get('continuation'))
             task = bool(job and job.get('mode') == 'task')
-            isolated = bool(job and not deferred)
+            check = bool(job and not task)
+            isolated = bool(job and (check or not deferred and 'task_state' not in job))
             callback = item.get('callback_valid')
-            turn = context.Turn(item['channel'], cron=isolated and not task,
+            turn = context.Turn(item['channel'], cron=check,
                                 deferred=deferred or task or bool(callback), job_id=job['id'] if job else '',
+                                task_run=job['last_run_at'] if job and 'task_state' in job else '',
                                 task_deadline=(job or {}).get('task_deadline', item.get('task_deadline', 0)),
                                 task_instructions=(job or {}).get('prompt', item.get('task_instructions') or item['text'])[:8000])
             token = context.current.set(turn)
@@ -651,8 +690,10 @@ class Bot(commands.Bot):
                     previous = self.sessions.get(key)
                     if (deferred or task) and job.get('model') in MODELS.values():
                         self.models.setdefault(key, job['model'])
+                    restoring = (getattr(previous, 'parked', False)
+                                 and previous.model == self.models.get(key, DEFAULT_MODEL))
                     session = await self.session(key, turn.cron)
-                    reused = previous is session
+                    reused = previous is session or restoring
                     turn.model = session.model
                     self.active_done.clear()
                     self.active = {'channel': item['channel'], 'session': session, 'turn': turn, 'start': time.monotonic()}
@@ -668,12 +709,14 @@ class Bot(commands.Bot):
                                 + 'The note below is reference, not a new instruction.]\n'
                                 + ('[Previous note]\n' + job['note'][:4000] + '\n' if job.get('note') else '')
                                 + text)
-                    if deferred:
-                        text = ('[Scheduled continuation of the owner task; not a new owner message. '
-                                + ('Earlier conversation is available.' if reused else 'Earlier conversation is unavailable; use the task details below.')
+                    if deferred or callback:
+                        text = ('[Continuation of the owner task; not a new owner message. '
+                                + ('Earlier conversation is available.' if reused else
+                                   'Earlier conversation is unavailable. Report the event and ask for the task instructions before resuming work.')
                                 + ' Check current state before taking action. Root still requires per-command approval.]\n'
                                 + text)
-                    if (deferred or callback) and (job or item).get('compact', True):
+                    if ((deferred or callback or turn.task_run) and (job or item).get('compact', True)
+                            and not (check and not reused)):
                         try:
                             left = max(0, turn.task_deadline-time.time()) if turn.task_deadline else None
                             try:
@@ -691,6 +734,8 @@ class Bot(commands.Bot):
                             if turn.task_deadline and time.time() >= turn.task_deadline: raise
                     if deferred and job.get('note'):
                         text = '[Previous progress note; reference only]\n' + job['note'][:4000] + '\n' + text
+                    if turn.task_run:
+                        text = task_prompt(job, reused)
                     # Ordinary chats have no wall-clock limit. Autonomous task chains do.
                     if turn.task_deadline:
                         try:
@@ -740,7 +785,9 @@ class Bot(commands.Bot):
                 try:
                     if item['job']:
                         try:
-                            await asyncio.to_thread(self.finish_job, job, outcome)
+                            warning = await asyncio.to_thread(self.finish_job, job, outcome)
+                            if warning and channel:
+                                await self.deliver(channel, warning)
                         except Exception as e:
                             LOG.error('schedule_finalize_failed job=%s class=%s',
                                       item['job']['id'], type(e).__name__)
@@ -772,6 +819,25 @@ class Bot(commands.Bot):
                 if outcome == 'queue_full':
                     job['enabled'] = True
                     job['next_run_at'] = claim['due_at']
+                    if claim.get('wake_note'):
+                        job['wake_note'] = '\n'.join(p for p in (claim['wake_note'], job.get('wake_note')) if p)[-8000:]
+                elif 'task_state' in job:
+                    warning = None
+                    if outcome != 'ok' or not job.get('task_reported'):
+                        job['task_state'] = 'blocked'
+                        if outcome == 'ok':
+                            warning = '작업 상태 보고가 없어 자동 진행을 멈췄어. 완료로 처리하지 않았어.'
+                    if time.time() >= job['task_deadline']:
+                        job['task_state'] = 'blocked'
+                        job['last_status'] = 'task_expired'
+                    runnable = job['task_state'] == 'continue' or (job['task_state'] == 'waiting'
+                                and (job.get('resume_at') or job.get('wake_note')))
+                    job['enabled'] = bool(runnable)
+                    if runnable:
+                        job['next_run_at'] = (datetime.now(TZ).isoformat() if job.get('wake_note')
+                                              else job.get('resume_at', datetime.now(TZ).isoformat()))
+                    save_jobs(jobs)
+                    return warning
                 save_jobs(jobs)
 
     async def schedule_loop(self):
@@ -779,6 +845,7 @@ class Bot(commands.Bot):
         while not self.is_closed():
             try:
                 await self.expire_queued()
+                terminal.notify_due(self)
                 capacity = self.queue.maxsize - self.queue.qsize()
                 due = await asyncio.to_thread(self.claim_due, capacity)
                 for job in due:
@@ -799,6 +866,12 @@ class Bot(commands.Bot):
             jobs, due, changed = load_jobs(), [], False
             for job in jobs:
                 when = job.get('next_run_at')
+                if ('task_state' in job and job['task_state'] in ('continue', 'waiting')
+                        and not job.get('running') and now.timestamp() >= job['task_deadline']):
+                    job.update(enabled=False, task_state='blocked', last_status='task_expired')
+                    due.append(dict(job, expired_before_queue=True))
+                    changed = True
+                    continue
                 if not job.get('enabled') or not when or job.get('running'):
                     continue
                 if job.get('task_deadline') and now.timestamp() >= job['task_deadline']:
@@ -831,6 +904,15 @@ class Bot(commands.Bot):
                     job['running'] = True
                     job['last_run_at'] = now.isoformat()
                     job['due_at'] = when
+                    if job['schedule']['kind'] == 'at' and 'task_state' not in job:
+                        # Legacy pending one-shots get a lease too; mode still controls permissions.
+                        job.update(task_state='continue', compact=job.get('compact', True))
+                        job.setdefault('task_deadline', datetime.fromisoformat(when).timestamp() + 43200)
+                    wake_note = job.pop('wake_note', '')
+                    if 'task_state' in job:
+                        job.update(task_state='continue', task_reported=False)
+                        job.pop('resume_at', None)
+                        job.pop('reply_ids', None)
                     if job['schedule']['kind'] == 'at':
                         job['enabled'] = False
                     else:
@@ -840,7 +922,7 @@ class Bot(commands.Bot):
                         if (job.get('task_deadline') and datetime.fromisoformat(job['next_run_at']).timestamp()
                                 >= job['task_deadline']):
                             job['enabled'] = False
-                    due.append(dict(job, final_run=not job['enabled']))
+                    due.append(dict(job, final_run=not job['enabled'], wake_note=wake_note))
                     changed = True
             if changed:
                 save_jobs(jobs)
@@ -953,23 +1035,41 @@ class Bot(commands.Bot):
                 parts.append(footer)
         for part in parts:
             try:
-                await channel.send(part, allowed_mentions=discord.AllowedMentions.none())
+                message = await channel.send(part, allowed_mentions=discord.AllowedMentions.none())
+                turn = context.current.get()
+                if turn and turn.task_run and getattr(message, 'id', None):
+                    self.bind_task_reply(turn, message.id)
             except discord.HTTPException as e:
                 LOG.error('discord_delivery_failed class=%s status=%s', type(e).__name__, e.status)
                 return False
         return True
+
+    @staticmethod
+    def bind_task_reply(turn, message_id):
+        with JOB_LOCK:
+            jobs = load_jobs()
+            job = next((j for j in jobs if j['id'] == turn.job_id and j.get('running')
+                        and j.get('last_run_at') == turn.task_run), None)
+            if job:
+                job['reply_ids'] = (job.get('reply_ids', []) + [str(message_id)])[-4:]
+                save_jobs(jobs)
 
     def codex_callback_scope(self, channel):
         # Work belongs to the channel generation, not an evictable Pi process.
         if not isinstance(channel, str) or not channel.isdigit(): return None
         return (self.reset_epoch, self.epochs.get(channel, 0))
 
-    def enqueue_codex_callback(self, channel, text, scope, valid, *, timeout_seconds=43200, task_deadline=0, task_instructions='', compact=True):
+    def enqueue_codex_callback(self, channel, text, scope, valid, *, timeout_seconds=43200, task_deadline=0, task_instructions='', compact=True, owner_task_id=''):
         # Queue behind existing work; never interrupt the owner or revive a reset
         # conversation. Only identifiers are queued, not another chat's history.
         def current():
             return self.codex_callback_scope(channel) == scope and valid()
-        if scope is None or self.shutting_down or self.queue.full() or not current():
+        if scope is None or self.shutting_down or not current():
+            return False
+        if owner_task_id:
+            wake_task(owner_task_id, channel, text)
+            return True  # A deleted task is cancelled, not a callback retry target.
+        if self.queue.full():
             return False
         self.enqueue(channel, text, [], callback_valid=current, timeout_seconds=timeout_seconds,
                      task_deadline=task_deadline, task_instructions=task_instructions, compact=compact)
@@ -1254,7 +1354,7 @@ async def main():
     if not token:
         raise SystemExit('Discord token is not configured')
     context.secret_values.append(token)
-    p = Path('/etc/evo-bot/gmail.json')
+    p = Path('/var/lib/evo-bot/credentials/gmail.json')
     if p.exists():
         data = json.loads(p.read_text())
         context.secret_values += [v for v in data.values() if isinstance(v, str) and len(v) >= 8]

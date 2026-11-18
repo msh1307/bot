@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from evo_bot import context, tools
 from evo_bot.gateway import Bot
@@ -55,11 +56,10 @@ async def contracts():
         await asyncio.sleep(.05)
         check(not wait.done(), 'wait releases event loop while sleeping')
         result = await wait
-        check(time.monotonic()-started >= .95 and result['remaining_wait_seconds'] == 299,
-              'one-second wait completes and accounts for budget')
-        turn.waited_seconds = 299
-        rejects(tools.wait, {'seconds': 2})
-        turn.waited_seconds = 0
+        check(time.monotonic()-started >= .95 and result == {'waited_seconds':1},
+              'one-second wait completes with a compact result')
+        result = await asyncio.to_thread(tools.wait, {'seconds': 2})
+        check(result == {'waited_seconds':2}, 'next call waits its full requested duration')
         wait = asyncio.create_task(asyncio.to_thread(tools.wait, {'seconds': 300}))
         await asyncio.sleep(.05)
         started = time.monotonic()
@@ -69,7 +69,7 @@ async def contracts():
             raise AssertionError('Wait did not cancel')
         except InterruptedError:
             pass
-        check(time.monotonic()-started < 1, '300-second wait promptly cancels; cumulative limit enforced')
+        check(time.monotonic()-started < 1, '300-second wait promptly cancels')
     finally:
         context.current.reset(token)
 
@@ -131,6 +131,14 @@ async def contracts():
     tools.save_jobs([])
     bot = CaptureBot()
     bot.fake.compacting = False
+    bot.fake.compact = AsyncMock(return_value={})
+    original_prompt = bot.fake.prompt
+    async def prompt(text, turn, images=None):
+        answer = await original_prompt(text, turn, images)
+        if turn.task_run:
+            tools.schedule({'action':'note','state':'done','text':'Fixture callback verified'})
+        return answer
+    bot.fake.prompt = prompt
     bot.sessions['77'] = bot.fake
     worker = asyncio.create_task(bot.work_loop())
     try:

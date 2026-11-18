@@ -27,8 +27,7 @@ class Turn:
     model: str = ''
     id: str = field(default_factory=lambda: secrets.token_hex(12))
     cancelled: threading.Event = field(default_factory=threading.Event)
-    waited_seconds: int = 0
-    wait_lock: threading.Lock = field(default_factory=threading.Lock)
+    task_run: str = ''
 
     @property
     def key(self):

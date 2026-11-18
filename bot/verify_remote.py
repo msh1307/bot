@@ -44,8 +44,8 @@ class Checks(unittest.TestCase):
         self.assertFalse(RETIRED & registry.tools.keys())
         self.assertEqual(set(definitions['remote_control']['parameters']['properties']),
                          {'instance', 'protocol', 'action', 'args'})
-        self.assertEqual(definitions['remote_control']['parameters']['properties']['protocol']['enum'], ['codex', 'rdp'])
-        self.assertFalse({'instance', 'frame'} & definitions['credential_input']['parameters']['properties'].keys())
+        self.assertEqual(definitions['remote_control']['parameters']['properties']['protocol']['enum'], ['codex', 'rdp', 'terminal'])
+        self.assertFalse({'instance', 'frame'} & definitions['auth']['parameters']['properties'].keys())
         scheduled = {t['name']: t for t in registry.definitions(cron=True)}
         self.assertEqual(scheduled['remote_control']['parameters']['properties']['protocol']['enum'], ['codex'])
         self.assertFalse(any(name in json.dumps(definitions['remote_control']) for name in RETIRED))
@@ -71,10 +71,10 @@ class Checks(unittest.TestCase):
             shell.assert_not_called(); desktop.assert_not_called(); chat.assert_not_called()
         self.assertEqual(result['defaults'], {'ssh': 'linux', 'codex': 'pc', 'rdp': 'pc'})
         rows = {row['id']: row for row in result['instances']}
-        self.assertEqual(rows['linux']['protocols'], ['ssh'])
+        self.assertEqual(rows['linux']['protocols'], ['ssh', 'terminal'])
         self.assertEqual(rows['linux']['shell'], 'bash')
         self.assertEqual(rows['pc']['shell'], 'powershell')
-        self.assertEqual(rows['localhost']['protocols'], [])
+        self.assertEqual(rows['localhost']['protocols'], ['terminal'])
         self.assertNotIn('password', json.dumps(result))
         self.assertEqual(rows['off']['disabled'], ['rdp'])
 
@@ -92,7 +92,7 @@ class Checks(unittest.TestCase):
     def test_retired_ssh_route_redirects_without_dispatch(self):
         with patch.object(ssh, 'remote_ssh') as fn:
             for action in ('help', 'exec'):
-                with self.assertRaisesRegex(ValueError, 'bash'):
+                with self.assertRaisesRegex(ValueError, 'exec'):
                     self.call('ssh', action, command='id -u')
             fn.assert_not_called()
 
@@ -119,8 +119,32 @@ class Checks(unittest.TestCase):
             chat.assert_called_once_with({'instance': 'pc', 'action': 'send', 'thread_id': 'chat1', 'prompt': 'Continue', 'wake': False})
             self.assertEqual(self.call('codex', 'file_read', path='C:\\test.txt', start_line=81), 'FILES')
             files.assert_called_once_with({'instance': 'pc', 'action': 'read', 'path': 'C:\\test.txt', 'start_line': 81})
-            self.assertEqual(self.call('codex', 'exec', command=['whoami']), 'EXEC')
-            command.assert_called_once_with({'instance': 'pc', 'command': ['whoami']})
+            with self.assertRaisesRegex(ValueError, 'exec tool'):
+                self.call('codex', 'exec', command=['whoami'])
+            command.assert_not_called()
+
+    def test_codex_compact_option_reaches_existing_handler_unchanged(self):
+        with patch.object(codex, 'codex_task', return_value='CHAT') as chat:
+            for action in ('start', 'send'):
+                for compact in (False, True):
+                    with self.subTest(action=action, compact=compact):
+                        self.assertEqual(self.call('codex', action, prompt='Continue', compact=compact), 'CHAT')
+                        self.assertIs(chat.call_args.args[0]['compact'], compact)
+            self.call('codex', 'send', thread_id='chat1', prompt='Continue')
+            self.assertNotIn('compact', chat.call_args.args[0])
+            token = context.current.set(context.Turn('123', cron=True))
+            try:
+                self.call('codex', 'send', thread_id='chat1', prompt='Continue', compact=False)
+                self.assertIs(chat.call_args.args[0]['compact'], False)
+            finally:
+                context.current.reset(token)
+
+    def test_terminal_instance_description_matches_required_route(self):
+        description = remote.definition()['parameters']['properties']['instance']['description']
+        self.assertIn('Terminal: required except help', description)
+        with self.assertRaisesRegex(ValueError, 'require instance'):
+            remote.remote_control({'protocol': 'terminal', 'action': 'list'})
+        self.assertIn('create', remote.remote_control({'protocol': 'terminal', 'action': 'help'}))
 
     def test_rdp_frames_and_private_entry_use_existing_handlers(self):
         with patch.object(rdp, 'remote_desktop', return_value={'image': 'synthetic'}) as desktop, \

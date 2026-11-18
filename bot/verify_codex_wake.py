@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from evo_bot import context
+from evo_bot import context, tools
 from evo_bot.gateway import Bot
 from evo_bot.integrations import codex
 
@@ -46,6 +46,26 @@ class WakeTests(unittest.IsolatedAsyncioTestCase):
             data = json.loads(item['text'].splitlines()[1])
             self.assertEqual(data['instance'], 'oracle')
             self.assertEqual(data['thread_id'], 't')
+
+    async def test_managed_goal_wakes_same_task_without_parallel_fifo_item(self):
+        with patch.object(tools, 'STATE', Path(self.tmp.name)):
+            ident = tools.schedule({'action': 'enqueue', 'prompt': 'Wait for Codex then verify result'})['id']
+            claim = self.bot.claim_due()[0]
+            self.turn.job_id, self.turn.task_run = ident, claim['last_run_at']
+            self.turn.task_deadline = claim['task_deadline']
+            job = self.job()
+            self.assertEqual(job['_owner_task_id'], ident)
+            tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Await Codex turn completion'})
+            self.bot.finish_job(claim, 'ok')
+            self.assertTrue(self.b.queue_callback(job, 'complete:1'))
+            self.assertTrue(self.b.queue_callback(job, 'complete:1'))
+            self.assertEqual(self.bot.queue.qsize(), 0)
+            again = self.bot.claim_due()
+            self.assertEqual([j['id'] for j in again], [ident])
+            self.assertIn('complete:1', again[0]['wake_note'])
+            tools.schedule({'action': 'delete', 'id': ident})
+            self.assertTrue(self.b.queue_callback(job, 'late-after-delete'))
+            self.assertEqual(self.bot.queue.qsize(), 0)
 
     async def test_behind_owner_work_and_duplicate_event(self):
         self.bot.enqueue('77', 'owner task', [])
@@ -218,16 +238,19 @@ class WakeTests(unittest.IsolatedAsyncioTestCase):
             await b.restore_watchers()
         b.monitor_desktop.assert_called_once()
 
-    async def test_callback_carries_fixed_owner_task_budget_and_instructions(self):
+    async def test_callback_keeps_budget_without_replaying_owner_snapshot(self):
         self.turn.task_deadline=codex.time.time()+1800
         self.turn.task_instructions='Finish T, report, then shut down desktop'
         job=self.job()
+        job['_task_prompt']='Legacy shutdown instruction must not be replayed'
+        self.turn.add_instruction('Do not shut down. Only report the result.')
         self.assertEqual(job['_task_deadline'],self.turn.task_deadline)
         self.assertTrue(self.b.queue_callback(job,'completed:turn'))
         item=self.bot.queue.get_nowait()
         self.assertEqual(item['task_deadline'],self.turn.task_deadline)
-        self.assertIn('then shut down',item['text'])
-        self.assertEqual(item['task_instructions'],self.turn.task_instructions)
+        self.assertNotIn('then shut down',item['text'])
+        self.assertNotIn('Legacy shutdown',item['text'])
+        self.assertFalse(item['task_instructions'])
         self.assertTrue(1799 < item['queue_deadline']-codex.time.monotonic() <= 1800)
         self.bot.sessions.clear()
         self.assertTrue(item['callback_valid']())

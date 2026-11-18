@@ -11,7 +11,7 @@ import threading
 import time
 
 OWNER = '543004181842362379'
-CREDENTIAL = Path('/etc/evo-bot/gmail.json')
+CREDENTIAL = Path('/var/lib/evo-bot/credentials/gmail.json')
 LOCK = threading.Lock()
 MAX_BODY = 256 * 1024
 

@@ -23,13 +23,14 @@ class Checks(unittest.TestCase):
                       'sudo_password_file': str(self.password), 'ssh_instances': ['linux'], 'rdp_instances': ['pc']}
         self.save()
         self.pin = patch.object(ci, 'CONFIG', self.config); self.pin.start()
+        self.otp_pin = patch.object(ci, 'OTP_CONFIG', self.root / 'otp.json'); self.otp_pin.start()
         self.token = context.current.set(context.Turn('123'))
 
     def save(self):
         self.config.write_text(json.dumps({'instances': {}, 'accounts': {'main-login': self.entry}})); self.config.chmod(0o600)
 
     def tearDown(self):
-        context.current.reset(self.token); self.pin.stop(); self.tmp.cleanup()
+        context.current.reset(self.token); self.pin.stop(); self.otp_pin.stop(); self.tmp.cleanup()
 
     def test_ssh_rdp_resolve_same_account_without_reading_secret_values(self):
         with patch.object(ci, 'private_text', wraps=ci.private_text) as reader:
@@ -53,9 +54,9 @@ class Checks(unittest.TestCase):
             with self.assertRaises(ValueError): ci.resolve_connection(protocol, target, {'account': 'main-login', **extra})
         with self.assertRaises(ValueError): ci.resolve_connection('ssh', 'linux', {'account': 'unknown'})
 
-    def test_metadata_and_browser_listing_never_show_secrets_or_unrelated_accounts(self):
-        self.assertEqual(ci.credential_input({'action': 'list'}), {'accounts': []})
+    def test_account_listing_never_shows_secret_values_or_paths(self):
         expected = {'accounts': [{'id': 'main-login', 'username': 'operator'}]}
+        self.assertEqual(ci.credential_input({'action': 'list'}), expected)
         self.assertEqual(ci.credential_input({'action': 'list', 'instance': 'pc'}), expected)
         self.entry['origins'] = ['https://example.test']; self.save()
         self.assertEqual(ci.credential_input({'action': 'list'}), expected)

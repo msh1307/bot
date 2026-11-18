@@ -189,10 +189,19 @@ class Desktop:
             return self.screenshot()
         if action == 'screenshot':
             return self.screenshot()
+        if action == 'wait':
+            if self.conn is None or self.conn.disconnected_evt.is_set():
+                raise ConnectionError('RDP is disconnected; reconnect explicitly')
+            try:
+                await asyncio.wait_for(self.conn.disconnected_evt.wait(), args.get('seconds', 1))
+            except asyncio.TimeoutError:
+                return self.screenshot()
+            raise ConnectionError('RDP disconnected while waiting; no input was sent')
         if not self.frame or args.get('frame') != self.frame or time.monotonic() - self.observed_at > 120:
             raise DesktopError('Stale RDP frame; take a new screenshot before input')
         if action == 'type' and any(ord(c) > 0xffff or 0xd800 <= ord(c) <= 0xdfff for c in args['text']):
             raise DesktopError('This RDP client supports BMP text, including Korean; emoji input is not supported')
+        keys = chord(args['key']) if action == 'key' else None
         self.frame = None  # Inputs cannot be replayed against the same observation.
         if action in ('key', 'type'):
             # Every tool input is a complete press/release, never a held key.
@@ -208,7 +217,7 @@ class Desktop:
                 finally:
                     await checked(self.conn.send_mouse(button, x, y, False))
         elif action == 'key':
-            keys, held = chord(args['key']), []
+            held = []
             try:
                 for code, extended in keys:
                     held.append((code, extended))
@@ -252,8 +261,12 @@ async def main():
                 break
             req = json.loads(line)
             try:
-                value = await asyncio.wait_for(desktop.call(req['params']), 36)
+                params = req['params']
+                timeout = 36 + (params.get('seconds', 1) if params.get('action') == 'wait' else 0)
+                value = await asyncio.wait_for(desktop.call(params), timeout)
                 response = {'id': req['id'], 'result': value}
+            except DesktopError as error:
+                response = {'id': req['id'], 'error': str(error), 'recoverable': True}
             except Exception as error:
                 await desktop.close()
                 # Never return a library exception, URL, credential or typed text.

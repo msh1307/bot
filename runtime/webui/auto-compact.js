@@ -67,15 +67,22 @@ function fitted(body, messages, used, contextSize) {
   } : {}) };
 }
 
+function attachmentRoom(messages) {
+  return messages.reduce((n, m) => n + (Array.isArray(m.content) ?
+    m.content.filter(p => p.type !== 'text').length * 4096 : 0), 0);
+}
+
 function cutPoint(history, covered, tailBudget) {
   const pending = new Set();
-  let tail = history.reduce((n, m) => n + estimate([m]), 0);
+  // Use the same attachment allowance as count(); placeholders alone hide image-heavy tails.
+  const costs = history.map(m => estimate([m]) + attachmentRoom([m]));
+  let tail = costs.reduce((a, b) => a + b, 0);
   let fallback = 0;
   for (let i = 0; i < history.length - 1; i++) {
     const m = history[i];
     for (const call of m.tool_calls || []) pending.add(call.id);
     if (m.role === 'tool') pending.delete(m.tool_call_id);
-    tail -= estimate([m]);
+    tail -= costs[i];
     if (i + 1 <= covered || pending.size || history[i + 1].role === 'tool') continue;
     fallback = i + 1;
     if (tail <= tailBudget) return fallback;
@@ -111,8 +118,7 @@ function anthropicCountBody(body) {
 
 async function count(body, ctx) {
   cancelled(ctx.signal);
-  const attachmentRoom = body.messages.reduce((n, m) => n + (Array.isArray(m.content) ?
-    m.content.filter(p => p.type !== 'text').length * 4096 : 0), 0);
+  const attachments = attachmentRoom(body.messages);
   const kind = /flash-next/i.test(body.model || '') ? 'anthropic' : 'llama';
   const key = `${body.model}:${kind}`;
   try {
@@ -135,11 +141,11 @@ async function count(body, ctx) {
     if (typeof rendered.prompt !== 'string') throw new Error('invalid template');
     const data = await post('/tokenize', { model: body.model, content: rendered.prompt, add_special: false });
     if (!Array.isArray(data.tokens)) throw new Error('invalid count');
-    return data.tokens.length + 1024 + attachmentRoom;
+    return data.tokens.length + 1024 + attachments;
   } catch (error) {
     cancelled(ctx.signal);
     return Math.ceil(estimate(body.messages) * 1.25) +
-      estimate([{ role: 'system', content: JSON.stringify(body.tools || []) }]) + 2048 + attachmentRoom;
+      estimate([{ role: 'system', content: JSON.stringify(body.tools || []) }]) + 2048 + attachments;
   }
 }
 
@@ -242,7 +248,8 @@ export async function prepareWebContext(body, ctx, force = false) {
       fingerprint: fingerprint(systems, history.slice(0, cut)) };
     messages = withCheckpoint(systems, history, checkpoint);
     const after = await count({ ...body, messages }, ctx);
-    if (after >= threshold || after >= used) throw new Error('최근 입력이 너무 커서 압축 후에도 여유가 부족합니다. 기존 대화는 유지됩니다.');
+    // A forced retry follows a rejected prompt, so its earlier count may be too low.
+    if (after >= threshold) throw new Error('최근 입력이 너무 커서 압축 후에도 여유가 부족합니다. 기존 대화는 유지됩니다.');
     cancelled(ctx.signal);
     await ctx.save(checkpoint);
     cancelled(ctx.signal);

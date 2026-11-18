@@ -36,7 +36,7 @@ def catalog():
                                          'host': settings['host'], 'capabilities': []})
         item['capabilities'].append('remote_ssh')
         if settings.get('sudo_password_file') or settings.get('sudo_nopasswd'):
-            item['sudo'] = 'owner_approval_once'
+            item['sudo'] = settings.get('root_gate', 'notify_only')
     return {'default': default or desktop.get('default') or shell.get('default'),
             'defaults': {'codex': default, 'rdp': desktop.get('default'), 'ssh': shell.get('default')},
             'instances': list(entries.values())}

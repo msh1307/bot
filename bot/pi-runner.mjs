@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import { codingTools } from './pi-tools.mjs';
 
 const require = createRequire(`${process.env.EVO_PI_RUNTIME}/package.json`);
+const engineVersion = JSON.parse(readFileSync(`${process.env.EVO_PI_RUNTIME}/node_modules/@earendil-works/pi-coding-agent/package.json`, 'utf8')).version;
 const { parse } = require('yaml');
 const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager,
   SettingsManager, createToolSearchExtension } =
@@ -18,6 +19,18 @@ const provider = parse(readFileSync(`${home}/.pi/agent/models.yml`, 'utf8')).pro
 const pending = new Map();
 let session, manager, filter, busy = false, compacting = false, stopping = false;
 let inputTail = Promise.resolve(), inputCount = 0, inputEpoch = 0, aborting;
+let finalRecoveryUsed = false, finalRecoveryPending = false, answerOnlyRequest = false;
+let taskId = '', taskReported = false, taskRepair = false, taskRepairCalls = 0;
+const CHECKPOINT_POLICY = 'Checkpoint only the current unfinished task and explicitly reusable user preferences. '
+  + 'Completed, cancelled and superseded requests are historical facts, never standing authorization. '
+  + 'Revalidate previous-summary items against newer messages; omit obsolete operational steps. '
+  + 'Preserve the distinction between permission for one task and a durable rule. Do not invent future obligations.';
+
+function emptyFinal(message) {
+  return message?.role === 'assistant' && message.stopReason === 'stop'
+    && !message.content.some(b => b.type === 'toolCall' || b.type === 'tool_call'
+      || b.type === 'text' && b.text?.trim());
+}
 
 function editInputs(action) {
   const result = inputTail.then(action);
@@ -48,6 +61,9 @@ function queueInput(c) {
         ? await session.steer(c.message, c.images, { source: 'rpc' })
         : await session.followUp(c.message, c.images, { source: 'rpc' });
       if (epoch !== inputEpoch) throw new Error('Additional input cancelled');
+      if (disposition === 'queued') {
+        finalRecoveryPending = false;
+      }
       return { disposition };
     } finally {
       inputCount--;
@@ -84,24 +100,45 @@ function hostCall(definition, args, signal) {
       resolve: value => { signal?.removeEventListener('abort', cancel); resolve(value); },
       reject: error => { signal?.removeEventListener('abort', cancel); reject(error); },
     });
-    emit({ type: 'host_tool_call', id, toolName: definition.name, arguments: args });
+    emit({ type: 'host_tool_call', id, toolName: definition.name,
+      ...(definition.displayName ? { displayName: definition.displayName } : {}), arguments: args });
   });
 }
 
 // Preserve EVO's existing policy: discard reasoning only from completed earlier turns.
+// Completed turns also drop their screenshots: each screenshot costs a fixed 1,077 tokens
+// (measured) and is re-prefilled on every later request. Only the newest IMAGES_KEEP images
+// survive anywhere in the context; the live turn keeps everything it needs for clicks.
+const IMAGES_KEEP = 2;
 function completedTurnContext(context) {
+  const messages = context.messages;
   let start = -1;
-  const remove = new Set();
-  for (let end = 0; end < context.messages.length; end++) {
-    if (context.messages[end].role !== 'user') continue;
-    if (start >= 0 && context.messages.slice(start + 1, end)
+  const reasoning = new Set();
+  const completed = new Set();
+  for (let end = 0; end < messages.length; end++) {
+    if (messages[end].role !== 'user') continue;
+    if (start >= 0 && messages.slice(start + 1, end)
       .findLast(m => m.role === 'assistant')?.stopReason === 'stop') {
-      for (let i = start + 1; i < end; i++) if (context.messages[i].role === 'assistant') remove.add(i);
+      for (let i = start + 1; i < end; i++) {
+        completed.add(i);
+        if (messages[i].role === 'assistant') reasoning.add(i);
+      }
     }
     start = end;
   }
-  return { ...context, messages: context.messages.map((m, i) => remove.has(i)
-    ? { ...m, content: m.content.filter(b => b.type !== 'thinking') } : m) };
+  const images = [];
+  messages.forEach((m, i) => { if (Array.isArray(m.content)) m.content.forEach((b, j) => { if (b.type === 'image') images.push(`${i}:${j}`); }); });
+  const keep = new Set(images.slice(-IMAGES_KEEP));
+  return { ...context, messages: messages.map((m, i) => {
+    const dropReasoning = reasoning.has(i);
+    const content = Array.isArray(m.content) ? m.content : [];
+    const dropImages = completed.has(i) && content.some((b, j) => b.type === 'image' && !keep.has(`${i}:${j}`));
+    if (!dropReasoning && !dropImages) return m;
+    const left = content.filter((b, j) => (!dropReasoning || b.type !== 'thinking')
+      && (!dropImages || b.type !== 'image' || keep.has(`${i}:${j}`)));
+    if (left.length === 0 && dropImages) left.push({ type: 'text', text: '[older screenshot omitted]' });
+    return { ...m, content: left };
+  }) };
 }
 
 // Pi 1.4 renamed compaction events; preserve the host protocol and summary options.
@@ -120,7 +157,7 @@ async function initialize(definitions, transcript) {
     retry: config.retry, cacheWarming: 'off', defaultProjectTrust: 'never',
     compaction: { enabled: true, reserveTokens: config.compaction.reserveTokens,
       keepRecentTokens: config.compaction.keepRecentTokens },
-    defaultTools: ['read', 'bash', 'edit', 'write', 'tool_search',
+    defaultTools: ['read', 'exec', 'edit', 'write', 'tool_search',
       ...definitions.filter(d => d.loadMode === 'essential').map(d => d.name)],
   });
   const runtime = await ModelRuntime.create({ authPath: `${home}/pi-auth.json`,
@@ -128,20 +165,31 @@ async function initialize(definitions, transcript) {
   runtime.registerProvider('evo', {
     ...provider, api: 'evo-pi-completions',
     models: provider.models.map(m => ({ ...m, compat: { ...provider.compat, ...m.compat } })),
-    streamSimple: (model, context, options = {}) => streamSimple(
-      { ...model, api: 'openai-completions' }, compacting ? context : completedTurnContext(context), {
+    streamSimple: (model, context, options = {}) => {
+      const finalOnly = !compacting && finalRecoveryPending;
+      if (!compacting) {
+        answerOnlyRequest = finalOnly;
+        finalRecoveryPending = false;
+      }
+      return streamSimple(
+      { ...model, api: 'openai-completions' }, compacting ? {
+        ...context, systemPrompt: (context.systemPrompt ?? '') + '\n' + CHECKPOINT_POLICY,
+      } : completedTurnContext(context), {
         ...options, maxHttpAttempts: 1,
         onPayload: async (payload, ...args) => {
           const body = await options.onPayload?.(payload, ...args) ?? payload;
           return { ...body, cache_prompt: true,
+            ...(finalOnly ? { tools: [], tool_choice: 'none',
+              chat_template_kwargs: { ...body.chat_template_kwargs, enable_thinking: false } } : {}),
             ...(compacting && modelId === 'sc117-flash-next-iq3_xxs' ? {
               max_tokens: 0, final_output_max_tokens: 8192,
-              reasoning_budget_tokens: 0, reasoning_loop_recovery: 'stop',
+              reasoning_budget_tokens: 0, reasoning_loop_recovery: 'recover',
               chat_template_kwargs: { ...body.chat_template_kwargs, enable_thinking: true },
             } : {}),
           };
         },
-      }),
+      });
+    },
   });
   manager = transcript ? SessionManager.open(transcript, `${home}/sessions`, '/workspace')
     : SessionManager.create('/workspace', `${home}/sessions`);
@@ -151,7 +199,36 @@ async function initialize(definitions, transcript) {
     noContextFiles: true, systemPrompt: readFileSync(`${home}/instructions.txt`, 'utf8'),
     extensionFactories: [createToolSearchExtension(), pi => {
       // Pi must not settle while an accepted input is still being expanded.
-      pi.on('agent_before_settle', async () => { while (inputCount) await inputTail; });
+      pi.on('agent_before_settle', async event => {
+        while (inputCount) await inputTail;
+        if (event.outcome === 'completed' && !stopping && !session.pendingMessageCount
+            && taskId && !taskReported && !taskRepair) {
+          taskRepair = true;
+          return { continue: true, entries: [{ type: 'custom_message', customType: 'evo-task-state',
+            display: false, content: `Task ${taskId} has no progress state. Report existing results only: `
+              + 'discover schedule if needed, then schedule(action=note,text=brief checkpoint/evidence,'
+              + 'state=continue|waiting|done|blocked). No other work or tools in this bookkeeping step. '
+              + 'done requires verified completion; no reply grants no permission.' }] };
+        }
+        if (event.outcome !== 'completed' || stopping || session.pendingMessageCount
+            || finalRecoveryUsed || !emptyFinal(session.messages.at(-1))) return;
+        finalRecoveryUsed = finalRecoveryPending = true;
+        emit({ type: 'final_answer_recovery', attempt: 1 });
+        return { continue: true, entries: [{ type: 'custom_message', customType: 'evo-final-answer',
+          display: false, content: 'The last response ended without a user-facing answer. '
+            + 'Give the final answer from existing results, or state what remains unverified. '
+            + 'Do not repeat actions or call tools. A newer owner instruction takes precedence.' }] };
+      });
+      // Enforce the recovery restriction even if a provider ignores tool_choice=none.
+      pi.on('tool_call', event => {
+        if (taskId && !['schedule', 'tool_search'].includes(event.toolName)) taskReported = false;
+        if (taskRepair && (++taskRepairCalls > 3 || !(event.toolName === 'tool_search'
+            || event.toolName === 'schedule' && ['read', 'note'].includes(event.input?.action))))
+          return { block: true, terminate: true, reason: 'Task bookkeeping permits only schedule read/note (maximum 3 calls).' };
+        if (answerOnlyRequest)
+          return { block: true, terminate: true, reason: 'Final-answer recovery cannot execute tools.' };
+      });
+      pi.on('turn_end', () => { answerOnlyRequest = false; });
     }],
   });
   await loader.reload();
@@ -159,11 +236,38 @@ async function initialize(definitions, transcript) {
     cwd: '/workspace', agentDir: `${home}/pi`, modelRuntime: runtime,
     model: runtime.getModel('evo', modelId), thinkingLevel: 'high',
     settingsManager: settings, resourceLoader: loader, sessionManager: manager,
+    excludeTools: ['bash', 'powershell'],
     customTools: [...codingTools(hostCall), ...definitions.map(d => ({
       name: d.name, label: d.label ?? d.name, description: d.description,
       parameters: d.parameters, exposure: d.loadMode === 'essential' ? 'direct' : 'deferred',
       execute: async (_id, args, signal) => {
         const result = await hostCall(d, args, signal);
+        if (taskId && d.name === 'schedule') {
+          try {
+            const report = JSON.parse(result.content?.find(b => b.type === 'text')?.text ?? '{}');
+            if ((report.saved || report.success) && (report.job_id || report.id) === taskId
+                && ['continue', 'waiting', 'done', 'blocked'].includes(report.state)) taskReported = true;
+          } catch (_) { /* A malformed result cannot confirm task completion. */ }
+        }
+        if (d.name === 'user_input' && !signal?.aborted && !stopping) {
+          try {
+            const reply = JSON.parse(result.content?.find(b => b.type === 'text')?.text ?? '{}');
+            if (reply.status === 'answered' && reply.answered === true && typeof reply.answer === 'string') {
+              const images = result.content.filter(b => b.type === 'image');
+              const { disposition } = await queueInput({ type: 'steer', onlyIfActive: true,
+                message: reply.answer || '첨부 이미지를 확인해줘.', images });
+              if (disposition === 'queued' || disposition === 'handled') {
+                emit({ type: 'owner_reply_forwarded', disposition });
+                return { content: [{ type: 'text', text: JSON.stringify({ status: 'answered',
+                  answered: true, delivered_as: 'user_message' }) }] };
+              }
+              emit({ type: 'owner_reply_fallback' });
+            }
+          } catch (_) {
+            // Preserve the original answer if forwarding cannot be confirmed; never replay input.
+            emit({ type: 'owner_reply_fallback' });
+          }
+        }
         return { ...result, details: undefined };
       },
     }))],
@@ -182,7 +286,7 @@ function state() {
     isStreaming: session.isStreaming, isCompacting: compacting || session.isCompacting,
     hasPendingAsyncWork: pending.size > 0 || inputCount > 0 || stopping, queuedMessageCount,
     contextUsage: session.getContextUsage(), dumpTools: session.getAllTools(),
-    sessionFile: manager.getSessionFile(), engine: 'pi', version: '1.4.0' };
+    sessionFile: manager.getSessionFile(), engine: 'pi', version: engineVersion };
 }
 
 let definitions = [];
@@ -209,6 +313,9 @@ async function command(c) {
     case 'prompt': {
       if (busy || compacting || stopping || inputCount) throw new Error('Session is busy');
       busy = true;
+      finalRecoveryUsed = finalRecoveryPending = answerOnlyRequest = false;
+      taskId = typeof c.task_id === 'string' ? c.task_id : '';
+      taskReported = taskRepair = false; taskRepairCalls = 0;
       respond(c, { agentInvoked: true });
       let error;
       try {
@@ -216,11 +323,17 @@ async function command(c) {
         const last = [...session.messages].reverse().find(m => m.role === 'assistant');
         if (last?.stopReason === 'error') error = last.errorMessage ?? 'Provider failed';
         else if (last?.stopReason === 'aborted') error = 'Interrupted by user';
+        else if (finalRecoveryUsed && !last?.content.some(b => b.type === 'text' && b.text?.trim()))
+          error = '모델이 답변 복구 1회 후에도 최종 답변을 반환하지 않았습니다. 도구 작업은 재실행하지 않았습니다.';
       } catch (e) { error = e.message; }
       finally {
+        const taskReportConfirmed = !taskId || taskReported;
         busy = false;
+        taskId = ''; taskRepair = false;
+        finalRecoveryPending = answerOnlyRequest = false;
         emit({ type: 'prompt_result', id: c.id, agentInvoked: true,
-          status: error ? 'error' : 'completed', error, sessionSettled: state().isSettled });
+          status: error ? 'error' : 'completed', error, taskReported: taskReportConfirmed,
+          sessionSettled: state().isSettled });
         emitSettled();
       }
       return;
@@ -294,4 +407,4 @@ input.on('line', line => {
     success: false, error: error.message }));
 });
 input.on('close', () => { session?.dispose(); process.exit(0); });
-emit({ type: 'ready', engine: 'pi', version: '1.4.0' });
+emit({ type: 'ready', engine: 'pi', version: engineVersion });

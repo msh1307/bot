@@ -126,7 +126,7 @@ async def main():
             found = re.search(r'artifact://[^\s)\]`<>]+', body)
             assert found, body[-1200:]
             return ('read', {'path': found.group(0).rstrip('.,')+':1001-1005'})
-        tools, _ = await run([('bash', {'command': "python3 -c \"for i in range(2200): print(f'CAPTURE_{i:04d} ' + 'abcdefghij'*8)\""}), reopen])
+        tools, _ = await run([('exec', {'command': "python3 -c \"for i in range(2200): print(f'CAPTURE_{i:04d} ' + 'abcdefghij'*8)\""}), reopen])
         capture, recovered = map(text_of, tools)
         assert 'CAPTURE_1000' in recovered and 'CAPTURE_1004' in recovered, recovered
         artifacts = [p for p in session.profile.rglob('*') if p.is_file() and p.stat().st_size>100000]

@@ -11,8 +11,14 @@ PROFILE = ROOT/('web-profile' if '--web' in sys.argv else 'profile')
 
 def main():
     os.umask(0o077)
+    if not any(flag in sys.argv for flag in ('--direct', '--web', '--anonymous')):
+        from browser_broker import proxy
+        return proxy(reset='--reset' in sys.argv)
+    anonymous = '--anonymous' in sys.argv
+    if anonymous and '--reset' in sys.argv:
+        raise ValueError('Anonymous browsers have no saved profile to reset')
     if PROFILE.is_symlink(): raise ValueError('Unexpected profile symlink')
-    PROFILE.mkdir(mode=0o700, exist_ok=True)
+    if not anonymous: PROFILE.mkdir(mode=0o700, exist_ok=True)
     if '--reset' in sys.argv:
         with (PROFILE/'.lock').open('a') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -25,15 +31,16 @@ def main():
         path.mkdir(mode=0o700,exist_ok=True)
     fonts = ROOT/'cache/camoufox/fontconfig'
     fonts.mkdir(parents=True,exist_ok=True)
-    (PROFILE/'fontconfig').mkdir(mode=0o700,exist_ok=True)
+    if not anonymous: (PROFILE/'fontconfig').mkdir(mode=0o700,exist_ok=True)
     args = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-all', '--share-net',
         '--new-session', '--cap-drop', 'ALL', '--clearenv',
         '--ro-bind', '/usr', '/usr', '--symlink', 'usr/lib', '/lib',
         '--symlink', 'usr/lib64', '/lib64', '--symlink', 'usr/bin', '/bin',
         '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp', '--dir', '/run',
-        '--tmpfs', '/dev/shm', '--dir', '/etc', '--ro-bind', str(ROOT), str(ROOT),
-        '--bind', str(PROFILE), '/profile',
-        '--bind', str(PROFILE/'fontconfig'), str(fonts), '--tmpfs', str(ROOT/'profile'),
+        '--tmpfs', '/dev/shm', '--dir', '/etc', '--ro-bind', str(ROOT), str(ROOT)]
+    args += (['--tmpfs', '/profile', '--tmpfs', str(fonts)] if anonymous else
+             ['--bind', str(PROFILE), '/profile', '--bind', str(PROFILE/'fontconfig'), str(fonts)])
+    args += ['--tmpfs', str(ROOT/'profile'),
         '--tmpfs', str(ROOT/'web-profile'), '--chdir', '/tmp']
     for name in ('resolv.conf','hosts','nsswitch.conf','fonts','pki','ssl/certs','localtime'):
         path = Path('/etc')/name
@@ -43,7 +50,8 @@ def main():
         'EVO_BROWSER_ENGINE':'Camoufox', 'TMPDIR':'/tmp',
         'NODE_OPTIONS':'--max-old-space-size=128'}
     for key,value in env.items(): args += ['--setenv', key, value]
-    args += [str(ROOT/'venv/bin/python'), str(ROOT/('web_worker.py' if '--web' in sys.argv else 'browser_worker.py'))]
+    worker = 'public_browser_worker.py' if anonymous else 'web_worker.py' if '--web' in sys.argv else 'browser_worker.py'
+    args += [str(ROOT/'venv/bin/python'), str(ROOT/worker)]
     os.execv(args[0], args)
 
 

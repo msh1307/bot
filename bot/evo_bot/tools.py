@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from croniter import croniter
 from . import context
 from .screen_privacy import filter_result as filter_screen
-from .integrations import host, gmail, access, codex, browser, rdp, credential_input, remote, remote_files, coding, web_remote
+from .integrations import host, gmail, access, codex, browser, rdp, credential_input, remote, remote_files, coding, web_remote, terminal
 
 STATE = Path('/var/lib/evo-bot')
 TZ = ZoneInfo('Asia/Seoul')
@@ -125,6 +125,7 @@ class Registry:
         await asyncio.to_thread(browser.close)
         await asyncio.to_thread(web_remote.CLIENT.close)
         await asyncio.to_thread(rdp.close)
+        await asyncio.to_thread(terminal.close)
 
     async def call(self, name, args, turn):
         if turn.cancelled.is_set():
@@ -234,14 +235,9 @@ def wait(args):
     seconds = args.get('seconds')
     if type(seconds) is not int or not 1 <= seconds <= 300:
         raise ValueError('seconds must be an integer from 1 to 300')
-    with turn.wait_lock:
-        if turn.waited_seconds + seconds > 300:
-            raise ValueError('This turn has a 300-second total wait budget; use schedule action=defer instead')
-        turn.waited_seconds += seconds
-        remaining = 300 - turn.waited_seconds
     if turn.cancelled.wait(seconds):
         raise InterruptedError('Wait interrupted')
-    return {'waited_seconds': seconds, 'remaining_wait_seconds': remaining}
+    return {'waited_seconds': seconds}
 
 
 def cancel_deferred(channel=None):
@@ -249,12 +245,38 @@ def cancel_deferred(channel=None):
     with JOB_LOCK:
         jobs, changed = load_jobs(), False
         for job in jobs:
-            if ((job.get('continuation') or job.get('mode') == 'task') and (channel is None or job['channel'] == channel)
-                    and (job.get('enabled') or job.get('running'))):
+            if ((job.get('continuation') or job.get('mode') == 'task' or 'task_state' in job) and (channel is None or job['channel'] == channel)
+                    and (job.get('enabled') or job.get('running') or job.get('task_state') in ('continue', 'waiting'))):
                 job.update(enabled=False, running=False, last_status='cancelled')
+                if 'task_state' in job:
+                    job['task_state'] = 'blocked'
                 changed = True
         if changed:
             save_jobs(jobs)
+
+
+def running_task(jobs, turn):
+    job = next((j for j in jobs if j['id'] == turn.job_id and j['channel'] == turn.channel), None)
+    if not (turn.task_run and job and job.get('running') and job.get('last_run_at') == turn.task_run):
+        raise InterruptedError('Task was stopped or changed; this run can no longer update it')
+    return job
+
+
+def wake_task(ident, channel, text):
+    """Coalesce events into the existing task; never replay a terminal task."""
+    with JOB_LOCK:
+        jobs = load_jobs()
+        job = next((j for j in jobs if j['id'] == ident and j['channel'] == channel), None)
+        if not job or 'task_state' not in job:
+            return False
+        if (job['task_state'] in ('done', 'blocked') or job.get('last_status') == 'paused'
+                or time.time() >= job['task_deadline']):
+            return True
+        job['wake_note'] = (job.get('wake_note', '') + '\n' + text)[-8000:]
+        if not job.get('running'):
+            job.update(enabled=True, next_run_at=datetime.now(TZ).isoformat())
+        save_jobs(jobs)
+        return True
 
 
 def schedule(args):
@@ -262,8 +284,10 @@ def schedule(args):
     if t is None:
         raise PermissionError('Schedules require an owner Discord message')
     action = args.get('action', 'list')
-    if t.cron and action not in ('read', 'note'):
-        raise PermissionError('A scheduled run can only read its own task or update its progress note')
+    if 'state' in args and action != 'note':
+        raise ValueError('state is only for note on the current task')
+    if t.cron and action not in ('read', 'note') and not (action == 'defer' and t.task_run):
+        raise PermissionError('A read-only check may read/note its own job; a one-shot check may defer itself')
     with JOB_LOCK:
         jobs = load_jobs()
         if action == 'note':
@@ -275,9 +299,29 @@ def schedule(args):
             own = next((j for j in jobs if j['id'] == t.job_id and j['channel'] == t.channel), None)
             if own is None:
                 raise ValueError('Scheduled job is no longer available')
+            if 'state' in args or 'after_seconds' in args:
+                if t.cron and 'task_state' not in own:
+                    raise ValueError('Recurring checks use note(text); their next run is already scheduled')
+                own = running_task(jobs, t)
+                state = args.get('state')
+                if state not in ('continue', 'waiting', 'done', 'blocked') or not note.strip():
+                    raise ValueError('state needs continue|waiting|done|blocked and a nonempty progress/evidence note')
+                when = None
+                if 'after_seconds' in args:
+                    seconds = args['after_seconds']
+                    if state != 'waiting' or type(seconds) is not int or not 1 <= seconds <= 600:
+                        raise ValueError('A timed recheck needs note(state=waiting, text=next check, after_seconds=1..600)')
+                    when = (datetime.now(TZ) + timedelta(seconds=seconds)).isoformat()
+                    if datetime.fromisoformat(when).timestamp() >= own['task_deadline']:
+                        raise ValueError('Task lifetime ends before this recheck')
+                own.update(task_state=state, task_reported=True)
+                own.pop('resume_at', None)
+                if when:
+                    own['resume_at'] = when
             own['note'] = note
             save_jobs(jobs)
-            return {'saved': True, 'job_id': t.job_id}
+            return dict(saved=True, job_id=t.job_id, **({'state': own['task_state']} if 'state' in args else {}),
+                        **({'next_run_at': own['resume_at']} if own.get('resume_at') else {}))
         if action == 'list':
             query = args.get('query', '')
             if not isinstance(query, str) or len(query) > 200:
@@ -287,7 +331,7 @@ def schedule(args):
                                              for term in terms)]
             matches.sort(key=lambda j: (not j.get('running', False), not j.get('enabled', False)))
             return {'jobs': [dict({k: j[k] for k in ('id', 'name', 'enabled', 'running', 'continuation',
-                                    'schedule', 'mode', 'task_deadline', 'until', 'quiet', 'next_run_at', 'last_status', 'queue_timeout_seconds') if k in j},
+                                    'schedule', 'mode', 'task_state', 'task_deadline', 'until', 'quiet', 'next_run_at', 'last_status', 'queue_timeout_seconds') if k in j},
                                  summary=' '.join(j['prompt'].split())[:140]) for j in matches]}
         ident = args.get('id', t.job_id or None)
         job = next((j for j in jobs if j['id'] == ident), None)
@@ -387,8 +431,11 @@ def schedule(args):
             else:
                 job['enabled'] = action == 'resume'
                 if job['enabled']:
-                    job['next_run_at'] = next_run(job).isoformat()
-                    if datetime.fromisoformat(job['next_run_at']) <= datetime.now(TZ):
+                    if 'task_state' in job:
+                        job.update(task_state='continue')
+                    job['next_run_at'] = (datetime.now(TZ).isoformat() if 'task_state' in job
+                                          else next_run(job).isoformat())
+                    if 'task_state' not in job and datetime.fromisoformat(job['next_run_at']) <= datetime.now(TZ):
                         raise ValueError('Expired one-shot tasks need a new future time')
                     if job.get('until') and datetime.fromisoformat(job['next_run_at']) > datetime.fromisoformat(job['until']):
                         raise ValueError('This recurring task has passed its end time')
@@ -403,10 +450,13 @@ def schedule(args):
             raise ValueError('Use list, read, update, create, defer, enqueue, pause, resume or delete')
         # Completed callbacks are not permanent reminders and must not fill the job limit.
         terminal = {'ok', 'error', 'interrupted', 'delivery_failed', 'cancelled', 'interrupted_by_restart', 'queue_expired'}
-        jobs = [j for j in jobs if not (j.get('continuation') and not j.get('enabled')
+        jobs = [j for j in jobs if not (j.get('continuation') and j.get('task_state') not in ('waiting', 'blocked') and not j.get('enabled')
                                       and not j.get('running') and j.get('last_status') in terminal)]
-        if len(jobs) >= 64:
-            raise ValueError('Schedule limit reached')
+        if sum(j.get('last_status') != 'paused'
+               and (not j.get('task_deadline') or time.time() < j['task_deadline'])
+               and bool(j.get('enabled') or j.get('running') or j.get('task_state') in ('continue','waiting'))
+               for j in jobs) >= 64 and not (t.task_run and action in ('defer', 'enqueue')):
+            raise ValueError('64 active schedules; pause or finish one before adding another')
         prompt, name = args.get('prompt', ''), args.get('name', 'Follow-up' if action in ('defer', 'enqueue') else '')
         if (not isinstance(prompt, str) or not isinstance(name, str)
                 or not 1 <= len(prompt) <= 8000 or not 1 <= len(name) <= 100):
@@ -420,8 +470,6 @@ def schedule(args):
             if (type(seconds) is not int or action == 'defer' and not 1 <= seconds <= 600
                     or args.get('at') or args.get('cron') or action == 'enqueue' and 'after_seconds' in args):
                 raise ValueError('defer needs after_seconds (1..600); enqueue is immediate; neither takes at/cron')
-            if sum(bool(j.get('continuation')) for j in jobs) >= 8:
-                raise ValueError('At most 8 pending task callbacks; list or cancel existing ones')
             spec = {'kind': 'at', 'at': (datetime.now(TZ) + timedelta(seconds=seconds)).isoformat()}
         else:
             if bool(args.get('at')) == bool(args.get('cron')) or 'after_seconds' in args:
@@ -441,6 +489,20 @@ def schedule(args):
         compact = args.get('compact')
         if compact is not None and not isinstance(compact, bool):
             raise ValueError('compact needs a boolean')
+        if t.task_run and action in ('defer', 'enqueue'):
+            own = running_task(jobs, t)
+            if t.cron and (action != 'defer' or own.get('mode', 'check') != 'check'
+                           or own['schedule']['kind'] != 'at'):
+                raise PermissionError('A read-only check may only defer its own one-shot run')
+            if len(prompt) > 4000:
+                raise ValueError('Task continuation checkpoint must be at most 4000 characters')
+            when = spec['at']
+            if datetime.fromisoformat(when).timestamp() >= own['task_deadline']:
+                raise ValueError('Task lifetime ends before this callback')
+            own.update(task_state='waiting', task_reported=True, resume_at=when,
+                       note=prompt, compact=True if compact is None else compact)
+            save_jobs(jobs)
+            return {'success': True, 'id': own['id'], 'state': 'waiting', 'next_run_at': when}
         job = {'id': secrets.token_hex(6), 'name': name, 'prompt': prompt,
                'schedule': spec, 'enabled': True, 'channel': t.channel,
                'last_status': None, 'last_run_at': None, 'queue_timeout_seconds': timeout}
@@ -454,8 +516,11 @@ def schedule(args):
             job['continuation'] = True
             job['model'] = t.model
             job['compact'] = True if compact is None else compact
+        if spec['kind'] == 'at':
+            job['task_state'] = 'continue'
+            job['compact'] = True if compact is None else compact
         job['next_run_at'] = next_run(job).isoformat()
-        if mode == 'task' or t.task_deadline:
+        if mode == 'task' or spec['kind'] == 'at' or t.task_deadline:
             # A continuation inherits the original budget; rescheduling cannot renew it.
             base = (max(time.time(), datetime.fromisoformat(job['next_run_at']).timestamp())
                     if action == 'create' else time.time())
@@ -502,47 +567,44 @@ MEMORY_SCHEMA = {
         'name': {'type': 'string', 'maxLength': 80, 'description': '.md filename from list; required for read/write/delete.'},
         'text': {'type': 'string', 'maxLength': 16000}}, 'required': ['action'], 'additionalProperties': False}}
 SCHEDULE_SCHEMA = {
-    'description': 'Owner schedules, Asia/Seoul. list(query) searches names/instructions; active jobs first, short summaries. '
-                   'read(id) shows the full task/note. id also accepts an exact unique name; ambiguous names need an ID. '
-                   'Edit existing jobs with update, not create: only supplied fields change. '
-                   'Paused jobs stay paused until resume. cron repeats; at runs once. quiet+until sends only the final summary; '
-                   'until=null removes the end. Verify the returned schedule/changed fields. '
-                   'enqueue(prompt) adds a task after current work; defer(after_seconds=1..600,prompt) resumes once later. '
-                   'create at defaults to mode=task (ordinary tools, root approval unchanged); cron defaults to mode=check (read-only). '
-                   'Tasks/callbacks share a fixed 12-hour lifetime; defer does not extend it. Save progress with note(text); inherited by the next callback. '
-                   'Use Codex wake=true for completion/questions, defer for polling. Both queue behind current work. '
-                   'queue_timeout_seconds=1..43200 (default 43200) bounds waiting. '
-                   'Expired tasks do not run. pause/delete manage jobs; /stop stops current work. '
-                   'Read-only checks: own read/note only. Report results before a requested shutdown; verify completion first.',
+    'description': 'Tasks/reminders, Asia/Seoul. create(name,prompt,at OR cron); at defaults to task, cron to read-only check. '
+                   'list(query) finds jobs; read(id) shows instructions/progress. id accepts an ID or exact unique name. '
+                   'update changes supplied fields only; pause/resume/delete manage existing jobs. '
+                   'During a scheduled run: ONE note(text,state) reports the result and next step; omit id. '
+                   'done=verified complete; blocked=cannot proceed; waiting=await input/event; continue=more work now. '
+                   'For a timed recheck, use note(text=next check,state=waiting,after_seconds=1..600); this also saves progress and schedules it. '
+                   'Codex wake=true handles completion events. In ordinary chat, defer(after_seconds,prompt) schedules a callback; enqueue(prompt) queues immediate work. '
+                   'Callbacks reuse the current task and its fixed 12-hour deadline. Check mode stays read-only; recurring checks only note(text). '
+                   'compact defaults true. quiet+until reports only the final recurring check; until=null removes the end. '
+                   'Queue wait defaults to 12 hours. Paused/expired jobs do not run; /stop cancels current work.',
     'parameters': {'type': 'object', 'properties': {
         'action': {'type': 'string', 'enum': ['list', 'read', 'update', 'create', 'defer', 'enqueue', 'pause', 'resume', 'delete', 'note']},
-        'id': {'type': 'string', 'description': 'ID or exact unique name from list; omit for a scheduled run reading itself.'},
+        'id': {'type': 'string', 'description': 'Other job ID or exact name; omit for the current task.'},
         'query': {'type': 'string', 'maxLength': 200, 'description': 'list only: words matched in the name or instructions.'},
+        'state': {'type': 'string', 'enum': ['continue', 'waiting', 'done', 'blocked'], 'description': 'Scheduled-run note only: continue now, wait for input/event, verified done, or blocked. Add after_seconds to waiting for a timed recheck.'},
         'name': {'type': 'string'}, 'prompt': {'type': 'string'},
         'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': ['string', 'null']},
         'mode': {'type': 'string', 'enum': ['task', 'check'], 'description': 'create only; task acts on owner instructions, check only observes. Defaults: at=task, cron=check.'},
         'quiet': {'type': 'boolean'}, 'compact': {'type': 'boolean', 'description': 'Task callbacks compact first by default; false continues without an extra compaction. update can change it.'}, 'text': {'type': 'string', 'maxLength': 4000},
         'queue_timeout_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 43200},
-        'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 600}}, 'required': ['action']}}
+        'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 600, 'description': 'Delay for note(state=waiting), or defer outside the current task.'}}, 'required': ['action']}}
 WAIT_SCHEMA = {
-    'description': 'Pause before checking an in-progress task again. No model requests while sleeping. '
-                   'Prefer short polling for work expected within a minute; defer longer waits. '
-                   'Maximum 300 seconds TOTAL per turn; use schedule action=defer for longer waits. '
+    'description': 'Wait 1..300 seconds per call without model requests. Calls have independent limits. '
                    '/stop interrupts the wait; owner addenda apply after it ends. Check state with the relevant tool after waiting.',
     'parameters': {'type': 'object', 'properties': {
         'seconds': {'type': 'integer', 'minimum': 1, 'maximum': 300}}, 'required': ['seconds']}}
 USER_INPUT_SCHEMA = {
-    'description': 'Ask the owner one concise clarification or choice and collect their replies in this channel. '
-                   'Do not repeat the question in separate text. No model requests while waiting. '
-                   'Returns answered with the reply, or skipped/timeout with permission_granted=false. '
-                   'Skip or timeout does NOT approve the proposed action: do not execute it or an equivalent workaround. '
-                   'If intent or required information is still unclear, stop the affected task and state the blocker. '
-                   'Do not guess or repeat the same approval request. '
-                   'Timeout after 5 minutes without owner activity; messages and typing extend the wait. '
-                   'After replies, resume once typing has expired and the channel has been quiet for 15 seconds. '
-                   'Multiple messages become one answer. This human-input wait is separate from the polling budget. '
-                   'The owner can Flush collected replies immediately or Skip without an answer. '
-                   'This is not root approval; root commands still need their dedicated approval.',
+    'description': 'Get missing owner input: clarification, confirmation or a checkpoint. '
+                   'Do not re-confirm already-authorized work. '
+                   'Required owner confirmation must be explicit; no reply means stop that step. '
+                   'On confirmation, resume the pending step and verify the result. '
+                   'Send the prompt here once; do not repeat it in chat or use polling/sleep to wait for the owner. '
+                   'Waits without model calls. Multiple messages/images become one reply; typing extends the wait. '
+                   'Timeout: 5 minutes idle. After replies: 15 seconds quiet, or immediate Flush. Skip ends the wait. '
+                   'Answers enter the conversation as owner messages. Skip/timeout returns permission_granted=false. '
+                   'Skip/timeout grants no permission: stop that action and continue independent authorized work; do not guess, retry approval or work around it. '
+                   'Separate from root approval cards.',
     'parameters': {'type': 'object', 'properties': {
-        'question': {'type': 'string', 'minLength': 1, 'maxLength': 1000}},
+        'question': {'type': 'string', 'minLength': 1, 'maxLength': 1000,
+                     'description': 'Brief question, confirmation request or checkpoint shown to the owner.'}},
         'required': ['question']}}

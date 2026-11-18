@@ -1,0 +1,11 @@
+--- a/evo-router.py
++++ b/evo-router.py
+@@ -368,7 +368,7 @@
+             if path=='/evo/tools/cleanup':
+                 if not self.allowed_control():return self.error(403,'Use same-origin JSON requests')
+                 if body.get('operation')!='turn':return self.error(400,'Use /reset in Discord to clear the workspace')
+-                return self.reply(200,web_tools.cleanup())
++                return self.reply(200,web_tools.cleanup(session=body.get("session")))
+             if path=='/tools':
+                 if maintenance_status():return self.tool_reply(body,{'error':'Server maintenance in progress. Retry shortly.'})
+                 if not self.allowed_control():return self.error(403,'Use same-origin JSON requests')

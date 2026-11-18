@@ -22,7 +22,7 @@ LOCK = threading.Lock()
 EXEC_LOCK = threading.Lock()
 AUDIT = collections.deque(maxlen=128)
 CLIENT_SLOTS = threading.BoundedSemaphore(8)
-MAX_REQUEST = 16384
+MAX_REQUEST = 65536
 MAX_OUTPUT = 32768
 
 
@@ -30,13 +30,14 @@ def validate(payload):
     if not isinstance(payload, dict):
         raise ValueError('Expected a request object')
     command = payload.get('command')
+    run_as = payload.get('run_as', 'evo-bot')
+    command_limit = 1000 if run_as == 'root' else 16000
     if (not isinstance(command, str) or not command.strip()
-            or len(command.encode('utf-16-le')) // 2 > 1000):
-        raise ValueError('Command must contain 1 to 1000 characters')
+            or len(command.encode('utf-16-le')) // 2 > command_limit):
+        raise ValueError(f'Command must contain 1 to {command_limit} characters')
     if '```' in command or any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs')
                               and c not in '\n\t' for c in command):
         raise ValueError('Hidden/control characters and code fences are not allowed')
-    run_as = payload.get('run_as', 'evo-bot')
     if run_as not in POLICY['users']:
         raise ValueError('Only evo-bot or explicitly approved root is available')
     reason = payload.get('reason', '')
@@ -46,9 +47,9 @@ def validate(payload):
         raise ValueError('Root commands require a reason (1 to 160 characters)')
     if any(unicodedata.category(c) in ('Cc', 'Cf', 'Cs') for c in reason):
         raise ValueError('Reason must be plain text')
-    timeout = payload.get('timeout', 60)
-    if type(timeout) is not int or not 1 <= timeout <= POLICY['max_timeout']:
-        raise ValueError('Timeout must be an integer from 1 to 120 seconds')
+    timeout = payload.get('timeout', POLICY['max_timeout'])
+    if type(timeout) not in (int, float) or not .1 <= timeout <= POLICY['max_timeout']:
+        raise ValueError(f'Command timeout must be 0.1..{POLICY["max_timeout"]} seconds; default {POLICY["max_timeout"]}')
     cwd = payload.get('cwd', '/workspace')
     if not isinstance(cwd, str) or not cwd.startswith('/') or len(cwd) > 240:
         raise ValueError('Provide an absolute EVO directory')

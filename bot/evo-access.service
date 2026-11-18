@@ -1,0 +1,33 @@
+[Unit]
+Description=EVO temporary external web/API access on demand
+After=network-online.target evo-router.service
+Wants=evo-router.service
+
+[Service]
+Type=simple
+User=evo-access
+Group=evo-access-admin
+ExecStart=/usr/bin/python3 /usr/local/lib/evo-access.py
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=evo-access
+RuntimeDirectoryMode=0750
+StateDirectory=evo-access
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/evo-bot/workspace/uploads
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryHigh=96M
+MemoryMax=192M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=64
+TimeoutStopSec=5
+
+[Install]
+WantedBy=multi-user.target

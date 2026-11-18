@@ -78,7 +78,7 @@ class Checks(unittest.TestCase):
     def test_root_card_and_execution_key_preserved(self):
         turn = context.Turn('77')
         calls = []
-        def rpc(request, *args):
+        def rpc(request, *args, **kwargs):
             calls.append(request['action'])
             if request['action'] == 'stage':
                 return dict(success=True, request_id='fixture', token='fixture', digest='fixture',
@@ -88,6 +88,7 @@ class Checks(unittest.TestCase):
         try:
             with patch.object(context, 'client', SimpleNamespace(is_ready=lambda: True)), \
                     patch.object(host, 'discord_connected', return_value=True), \
+                    patch.object(host, 'root_gate_policy', return_value='approval_card'), \
                     patch.object(host, 'rpc', side_effect=rpc), \
                     patch.object(host, 'approve_root_once', return_value=None) as approval, \
                     patch.object(host, 'remember_root_execution'):
@@ -96,7 +97,7 @@ class Checks(unittest.TestCase):
                 args = approval.call_args.args
                 self.assertIs(args[0], turn)
                 self.assertIn('# EVO root; cwd=', args[1])
-                self.assertEqual(args[2], 'Root access: purpose (this command only)')
+                self.assertEqual(args[2], 'Reason: purpose')
                 payload = broker.validate({'command': 'true', 'run_as': 'root', 'reason': 'purpose'})
                 self.assertEqual(args[3], host.root_command_key(turn.key, turn.id, payload))
                 self.assertEqual(calls, ['stage', 'execute'])

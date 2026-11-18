@@ -1,0 +1,38 @@
+--- a/tools/ui/src/lib/services/tools.service.ts
++++ b/tools/ui/src/lib/services/tools.service.ts
+@@ -50,6 +50,10 @@
+ 			return { content: String(result[ToolResponseField.PLAIN_TEXT]), isError: false };
+ 		}
+ 
++		if (typeof result.plain_text === 'string') {
++			return { content: result.plain_text, isError: false };
++		}
++
+ 		return { content: JSON.stringify(result), isError: false };
+ 	}
+ 
+--- a/tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessageActions/ChatMessageActionCard/ChatMessageActionCardContinueRequest.svelte
++++ b/tools/ui/src/lib/components/app/chat/ChatMessages/ChatMessageActions/ChatMessageActionCard/ChatMessageActionCardContinueRequest.svelte
+@@ -12,11 +12,11 @@
+ 
+ <ChatMessageActionCard icon={RotateCw}>
+ 	{#snippet message()}
+-		Agentic turn limit reached. Continue?
++		도구 작업이 설정한 횟수에 도달했습니다. 계속할까요?
+ 	{/snippet}
+ 
+ 	{#snippet actions()}
+-		<Button onclick={() => onDecision(true)} size="sm">Continue</Button>
++		<Button onclick={() => onDecision(true)} size="sm">계속</Button>
+ 
+ 		<Button
+ 			class="text-destructive hover:text-destructive"
+@@ -25,7 +25,7 @@
+ 			size="sm"
+ 			variant="destructive"
+ 		>
+-			Stop
++			중단
+ 		</Button>
+ 	{/snippet}
+ </ChatMessageActionCard>

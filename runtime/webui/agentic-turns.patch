@@ -1,0 +1,32 @@
+--- a/tools/ui/src/lib/constants/settings.constants.ts
++++ b/tools/ui/src/lib/constants/settings.constants.ts
+@@ -1,4 +1,5 @@
+ import { CLI_FLAGS } from './cli-flags.constants';
++import { DEFAULT_AGENTIC_CONFIG } from './agentic.constants';
+ import { DEFAULT_MCP_CONFIG } from './mcp.constants';
+ import { SETTINGS_KEYS } from './settings-keys.constants';
+ import { TITLE_GENERATION } from './title-generation.constants';
+@@ -328,7 +329,7 @@
+ 		icon: ListRestart,
+ 		settings: [
+ 			{
+-				defaultValue: 10,
++				defaultValue: DEFAULT_AGENTIC_CONFIG.maxTurns,
+ 				help: 'Maximum number of tool execution cycles before stopping (prevents infinite loops).',
+ 				isPositiveInteger: true,
+ 				key: SETTINGS_KEYS.AGENTIC_MAX_TURNS,
+--- a/tools/ui/src/lib/stores/settings/index.svelte.ts
++++ b/tools/ui/src/lib/stores/settings/index.svelte.ts
+@@ -455,6 +455,12 @@
+ 
+ 		// Load user overrides
+ 		this.userOverrides = new Set(savedOverrides);
++		// Upgrade the old factory limit while preserving explicit user preferences.
++		if (Number(savedVal[SETTINGS_KEYS.AGENTIC_MAX_TURNS]) === 10 &&
++			!this.userOverrides.has(SETTINGS_KEYS.AGENTIC_MAX_TURNS)) {
++			this.config[SETTINGS_KEYS.AGENTIC_MAX_TURNS] = SETTING_CONFIG_DEFAULT[SETTINGS_KEYS.AGENTIC_MAX_TURNS];
++			this.saveConfig();
++		}
+ 	}
+ 
+ 	/**

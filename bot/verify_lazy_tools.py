@@ -63,7 +63,7 @@ async def main():
                 assert answer == 'VERIFIED_CONTEXT'
                 captures[variant] = list(REQUESTS)
                 names = {t['function']['name'] for t in REQUESTS[0]['tools']}
-                native = {'read','grep','glob','edit','write','bash'}
+                native = {'read','grep','glob','edit','write','exec'}
                 expected = {d['name'] for d in definitions if d['loadMode'] == 'essential'}
                 assert names == native | expected, (variant, names, expected)
                 checks[variant+'_direct_tools'] = len(names)

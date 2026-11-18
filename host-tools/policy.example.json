@@ -5,9 +5,10 @@
     "evo-bot",
     "root"
   ],
-  "max_timeout": 120,
+  "max_timeout": 600,
   "approval_ttl": 330,
   "private_paths": [
+    "/var/lib/evo-bot/credentials",
     "/etc/evo-bot",
     "/run/evo-bot",
     "/var/lib/evo-bot/memory",

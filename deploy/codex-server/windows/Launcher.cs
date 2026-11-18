@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Collections.Generic;
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Web.Script.Serialization;
 
 internal static class EvoCodexServerLauncher
@@ -49,6 +50,25 @@ internal static class EvoCodexServerLauncher
             using(var response=(HttpWebResponse)request.GetResponse()) return response.StatusCode==HttpStatusCode.OK;
         } catch { return false; }
     }
+    static bool BridgeReady(string root, int port) {
+        try {
+            ServicePointManager.SecurityProtocol=SecurityProtocolType.Tls12;
+            using(var expected=new X509Certificate2(Path.Combine(root,"server.pfx"),
+                File.ReadAllText(Path.Combine(root,"pfx-password")).Trim())) {
+                var request=(HttpWebRequest)WebRequest.Create("https://127.0.0.1:"+port+"/health");
+                request.Proxy=null; request.Timeout=5000; request.ReadWriteTimeout=5000; request.KeepAlive=false;
+                request.Headers["Authorization"]="Bearer "+File.ReadAllText(Path.Combine(root,"token")).Trim();
+                request.ServerCertificateValidationCallback=(sender,cert,chain,errors)=>cert!=null
+                    && cert.GetCertHashString()==expected.Thumbprint;
+                using(var response=(HttpWebResponse)request.GetResponse())
+                using(var reader=new StreamReader(response.GetResponseStream())) {
+                    var health=new JavaScriptSerializer().Deserialize<Dictionary<string,object>>(reader.ReadToEnd());
+                    return response.StatusCode==HttpStatusCode.OK && health.ContainsKey("ready")
+                        && Object.Equals(health["ready"],true);
+                }
+            }
+        } catch { return false; }
+    }
     static int Main() {
         string root=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),@".config\evo-codex-server");
         string sid=System.Security.Principal.WindowsIdentity.GetCurrent().User.Value;
@@ -89,7 +109,14 @@ internal static class EvoCodexServerLauncher
                     process.BeginOutputReadLine(); process.BeginErrorReadLine();
                     if(!AssignProcessToJobObject(job,process.Handle)) { process.Kill(); Log(root,"job-assign-failed"); return 1; }
                     process.StandardInput.WriteLine("start"); process.StandardInput.Flush();
-                    process.WaitForExit(); Log(root,"node-exit="+process.ExitCode); return process.ExitCode;
+                    int failures=0;
+                    while(!process.WaitForExit(30000)) {
+                        if(BridgeReady(root,Convert.ToInt32(config["port"]))) { failures=0; continue; }
+                        if(++failures<3) continue;
+                        Log(root,"health-failed consecutive=3; restart bridge only");
+                        process.Kill(); process.WaitForExit(5000); return 1;
+                    }
+                    Log(root,"node-exit="+process.ExitCode); return process.ExitCode;
                 }
             } catch(Exception e) { Log(root,"error="+e.GetType().Name); return 1; }
             finally { if(job!=IntPtr.Zero) CloseHandle(job); mutex.ReleaseMutex(); }

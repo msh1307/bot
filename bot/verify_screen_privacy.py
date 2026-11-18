@@ -51,6 +51,7 @@ class FilterChecks(unittest.TestCase):
         secrets = {'/private/shared': 'SSH_RDP_PASSWORD\n', '/private/browser': 'BROWSER_PASSWORD\n',
                    '/private/otp': 'JBSWY3DPEHPK3PXP', '/private/token': 'CODEX_PRIVATE_TOKEN\n'}
         with patch.object(ci, 'account_document', return_value=data), \
+                patch.object(ci, 'otp_profiles', return_value={}), \
                 patch.object(ci, 'private_text', side_effect=secrets.__getitem__) as read, \
                 patch.object(ci, 'totp', side_effect=['123456', '234567', '345678']), \
                 patch.object(context, 'secret_values', ['BOT_PRIVATE_TOKEN']):

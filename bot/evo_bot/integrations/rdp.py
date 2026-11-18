@@ -17,8 +17,12 @@ from . import remote_config
 CONFIG = remote_config.CONFIG
 PYTHON = Path('/opt/evo-bot/rdp-runtime/bin/python')
 PACKAGE = Path(__file__).resolve().parents[2]
-ACTIONS = ['servers', 'connect', 'status', 'screenshot', 'click', 'type', 'key',
+ACTIONS = ['servers', 'connect', 'status', 'screenshot', 'wait', 'click', 'type', 'key',
            'scroll', 'disconnect']
+
+
+class RequestError(ValueError):
+    """A worker rejection that leaves the existing connection usable."""
 
 
 def configuration(path=None):
@@ -44,6 +48,7 @@ def validate(args):
     allowed = {'action', 'server'} | {
         'click': {'x', 'y', 'frame', 'button'}, 'type': {'text', 'frame'},
         'key': {'key', 'frame'}, 'scroll': {'direction', 'steps', 'frame'},
+        'wait': {'seconds'},
     }.get(action, set())
     if set(args) - allowed:
         raise ValueError('Unexpected RDP argument')
@@ -69,24 +74,24 @@ def validate(args):
                               type(args.get('steps', 3)) is not int or
                               not 1 <= args.get('steps', 3) <= 10):
         raise ValueError('Scroll requires up/down and 1..10 steps')
+    if action == 'wait' and (type(args.get('seconds', 1)) not in (int, float)
+                             or not 0 <= args.get('seconds', 1) <= 600):
+        raise ValueError('Wait requires seconds in 0..600; default 1')
 
 
 class RemoteDesktop:
     def __init__(self):
         self.lock = threading.RLock()
-        self.process = self.selector = self.timer = None
+        self.process = self.selector = None
         self.buffer = bytearray()
         self.server = None
-        self.last_used = self.serial = 0
+        self.serial = 0
 
     def running(self):
         return self.process is not None and self.process.poll() is None
 
     def close(self):
         with self.lock:
-            if self.timer:
-                self.timer.cancel()
-                self.timer = None
             process, self.process = self.process, None
             try:
                 if process is not None:
@@ -111,17 +116,12 @@ class RemoteDesktop:
                 self.buffer.clear()
                 self.server = None
 
-    def reap(self):
-        with self.lock:
-            if time.monotonic() - self.last_used >= 900:
-                self.close()
-
     def request(self, args, turn):
         self.serial += 1
         raw = json.dumps({'id': self.serial, 'params': args}).encode() + b'\n'
         self.process.stdin.write(raw)
         self.process.stdin.flush()
-        deadline = time.monotonic() + 40
+        deadline = time.monotonic() + 40 + (args.get('seconds', 1) if args['action'] == 'wait' else 0)
         while time.monotonic() < deadline:
             if turn.cancelled.is_set():
                 raise InterruptedError('RDP operation interrupted; no retry')
@@ -132,6 +132,8 @@ class RemoteDesktop:
                 if response.get('id') != self.serial:
                     raise ConnectionError('Unexpected RDP response')
                 if 'error' in response:
+                    if response.get('recoverable') is True:
+                        raise RequestError(response['error'])
                     raise ValueError(response['error'])
                 return response['result']
             if not self.selector.select(.1):
@@ -195,15 +197,11 @@ class RemoteDesktop:
                 self.selector.register(self.process.stdout, selectors.EVENT_READ)
             try:
                 value = self.request(dict(args, server=server), turn)
+            except RequestError:
+                raise
             except BaseException:
                 self.close()
                 raise
-            self.last_used = time.monotonic()
-            if self.timer:
-                self.timer.cancel()
-            self.timer = threading.Timer(900, self.reap)
-            self.timer.daemon = True
-            self.timer.start()
             return value
 
 

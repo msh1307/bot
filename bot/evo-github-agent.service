@@ -1,0 +1,27 @@
+[Unit]
+Description=EVO GitHub SSH signing agent
+After=local-fs.target
+
+[Service]
+Type=forking
+User=evo-bot
+Group=evo-bot
+Environment=SSH_AUTH_SOCK=/run/evo-github-agent/agent.sock
+RuntimeDirectory=evo-github-agent
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/ssh-agent -a /run/evo-github-agent/agent.sock
+ExecStartPost=/usr/bin/ssh-add /var/lib/evo-bot/credentials/github.key
+Restart=on-failure
+RestartSec=3
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+LimitCORE=0
+MemoryMax=32M
+MemorySwapMax=0
+TasksMax=16
+StandardOutput=null
+StandardError=journal

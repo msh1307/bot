@@ -11,6 +11,7 @@ import threading
 import time
 
 import verify_pi_steering as fixture
+from evo_bot import rpc
 
 MODEL = fixture.MODEL
 checks, payloads = [], []
@@ -60,8 +61,7 @@ def main():
     runner, output = map(Path, sys.argv[1:3])
     server = ThreadingHTTPServer(('127.0.0.1', 0), Provider)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    native = runner.parent / 'bin/pi-1.4.0'
-    if not native.exists(): native = Path('/opt/evo-bot/bin/pi-1.4.0')
+    native = Path(os.environ.get('EVO_PI_RUNTIME') or str(rpc.PI_RUNTIME))
     processes = []
     try:
         with tempfile.TemporaryDirectory(prefix='evo-steer-audit-') as tmp:
@@ -251,7 +251,8 @@ let definitions = [];""")
             if process.poll() is None:
                 process.kill(); process.wait()
         server.shutdown(); server.server_close()
-        report = {'runtime': 'actual installed Pi 1.4.0', 'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
+        report = {'runtime': json.loads((native/'node_modules/@earendil-works/pi-coding-agent/package.json').read_text())['version'],
+                  'runner_sha256': hashlib.sha256(runner.read_bytes()).hexdigest(),
             'checks': checks, 'passed': sum(c['passed'] for c in checks), 'failed': sum(not c['passed'] for c in checks),
             'test_only_extension_hooks': True, 'scripted_provider': True, 'discord_posts': 0, 'evo_model_requests': 0}
         output.write_text(json.dumps(report, indent=2))

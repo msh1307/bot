@@ -13,7 +13,7 @@ const started = performance.now();
 
 // Exact frame size from the failed Discord send, without real conversation data.
 const frameBytes = 152592455;
-const start = Buffer.from('{"type":"broadcast","method":"thread-stream-state-changed","version":11,'
+const start = Buffer.from('{"type":"broadcast","method":"thread-stream-state-changed","version":13,'
   + '"params":{"hostId":"local","conversationId":"verification","change":{"type":"snapshot",'
   + '"conversationState":{"id":"verification","turns":[{"turnId":"turn-1","status":"inProgress",'
   + '"items":[{"type":"commandExecution","output":"');
@@ -49,6 +49,15 @@ assert.equal(received[1].type, 'following');
 assert.equal(ipc.frame, null); // No retained raw snapshot buffer.
 received.length = 0;
 
+// An app update must report incompatibility immediately, not silently time out.
+const versioned = new DesktopIPC();
+let versionError = null;
+versioned.snapshots.set('verification', {owner:'gui', resolve() {assert.fail('Wrong version accepted');},
+  reject(error) {versionError = error;}});
+versioned.receive({type:'broadcast', method:'thread-stream-state-changed', version:14, sourceClientId:'gui',
+  params:{hostId:'local',conversationId:'verification',change:{type:'snapshot',conversationState:{}}}});
+assert.equal(versionError?.code, 'protocol_mismatch');
+
 // Lifting the inbound limit must not lift the outbound command limit.
 assert.throws(() => ipc.write({text:'x'.repeat(1024 * 1024)}), {code:'request_too_large'});
 // Reject an oversized header before allocating its body.
@@ -60,5 +69,5 @@ assert.equal(ipc.frame, null);
 console.log(JSON.stringify({passed:true,frame_bytes:frameBytes,
   decoded_bytes:decodedBytes, heap_growth_bytes:heapGrowth,
   checks:['original_failure_size','tool_output_discarded','bounded_heap','fragmented_header','fragmented_body','coalesced_frames',
-    'utf8','raw_buffer_released','outbound_limit','oversized_header_rejected'],
+    'utf8','raw_buffer_released','outbound_limit','oversized_header_rejected','unknown_version_reported'],
   elapsed_ms:Math.round(performance.now()-started), real_gui_mutations:false}));

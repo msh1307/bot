@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from evo_bot import rpc
 
 MODEL = 'sc117-flash-next-iq3_xxs'
 runner, output = map(Path, sys.argv[1:3])
@@ -109,7 +110,7 @@ def main():
             patched = home / 'runner.mjs'; patched.write_text(code)
             process = subprocess.Popen(['node', str(patched), MODEL], stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                env=dict(os.environ, EVO_PI_RUNTIME=str(runner.parent / 'bin/pi-1.4.0')))
+                env=dict(os.environ, EVO_PI_RUNTIME=os.environ.get('EVO_PI_RUNTIME') or str(rpc.PI_RUNTIME)))
             client = Client(process)
             client.wait(lambda f: f.get('type') == 'ready')
             tool = {'name': 'fixture_hold', 'description': 'Pause the local fixture.', 'loadMode': 'essential',
@@ -173,7 +174,9 @@ def main():
                 for kind in ('steer', 'follow_up'):
                     invalid = client.reply(client.send(kind, message=''))
                     check(not invalid['success'] and 'nonempty string' in invalid['error'], kind + ' rejects invalid input')
-                report = {'passed': len(checks), 'failed': 0, 'checks': checks, 'runtime': 'Pi 1.4.0',
+                native = Path(os.environ.get('EVO_PI_RUNTIME') or str(rpc.PI_RUNTIME))
+                report = {'passed': len(checks), 'failed': 0, 'checks': checks,
+                    'runtime': json.loads((native/'node_modules/@earendil-works/pi-coding-agent/package.json').read_text())['version'],
                           'mode': 'actual installed Pi and wrapper, local fake API',
                           'provider_requests': len(payloads), 'evo_model_requests': 0, 'discord_posts': 0}
             report['runner_sha256'] = hashlib.sha256(runner.read_bytes()).hexdigest()

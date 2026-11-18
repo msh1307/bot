@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import signal
@@ -21,10 +22,40 @@ WORKSPACE = Path('/var/lib/evo-bot/workspace')
 RUNTIME = Path('/run/evo-bot')
 LOG = logging.getLogger('evo-bot.rpc')
 ENGINE = 'pi'
-ENGINE_VERSION = '1.4.0'
+ENGINE_VERSION = '1.5.2'
+PI_RUNTIME = ROOT / f'bin/pi-{ENGINE_VERSION}'
 
 
-def sandbox_argv(profile, model):
+def tool_failure_notice(event, error):
+    """Only fixed labels enter Discord/journal; raw arguments/errors stay in the tool result."""
+    name = event['toolName']
+    public = event.get('displayName')
+    if name in ('_pi_exec', '_pi_io'):
+        allowed = ('exec',) if name == '_pi_exec' else ('read', 'write', 'edit')
+        name = public if public in allowed else ('exec' if name == '_pi_exec'
+                                                else event.get('arguments', {}).get('action', 'file'))
+        if name not in (*allowed, 'file'): name = 'file'
+    message = str(error).casefold()
+    if isinstance(error, TimeoutError): return name, 'timeout', '응답 시간 초과 · 실행 상태 확인'
+    if isinstance(error, ConnectionError): return name, 'connection', '연결 실패'
+    if isinstance(error, PermissionError): return name, 'permission', '승인·권한 확인 필요'
+    if 'frame' in message and any(word in message for word in ('changed', 'detached', 'unknown')):
+        return name, 'frame', '프레임 변경됨 · 현재 프레임 목록 확인'
+    if 'path' in message and ('absolute' in message or 'windows paths require' in message):
+        return name, 'path', '서버·절대경로 확인 필요'
+    if 'instance' in message and any(word in message for word in ('unknown', 'choose', 'configured')):
+        return name, 'instance', '서버 ID 확인 · remote_control list'
+    if 'timeout' in message and ('must' in message or 'seconds' in message):
+        bound = re.search(r'0\.1\.\.(\d{1,6}) seconds', message)
+        return name, 'limit', ('실행 시간은 0.1~' + bound[1] + '초' if bound else '실행 시간 범위 확인 필요')
+    if any(word in message for word in ('routing fields', 'args', 'terminal action', 'one-shot commands')):
+        return name, 'arguments', '호출 형식 확인 · 해당 도구 help 참고'
+    if isinstance(error, ValueError):
+        return name, 'input', '페이지·선택자 확인 필요' if name == 'browser' else '입력값 확인 필요'
+    return name, 'failure', '호출 실패'
+
+
+def sandbox_argv(profile, model, command=None):
     args = ['/usr/bin/bwrap', '--die-with-parent', '--unshare-all', '--share-net',
             '--new-session', '--cap-drop', 'ALL', '--clearenv',
             '--ro-bind', '/usr', '/usr', '--ro-bind', '/lib', '/lib',
@@ -55,8 +86,8 @@ def sandbox_argv(profile, model):
         args += ['--setenv', key, val]
     args += ['--ro-bind', str(ROOT / 'pi-runner.mjs'), str(ROOT / 'pi-runner.mjs'),
              '--ro-bind', str(ROOT / 'pi-tools.mjs'), str(ROOT / 'pi-tools.mjs'),
-             '--setenv', 'EVO_PI_RUNTIME', str(ROOT / 'bin/pi-1.4.0')]
-    return args + ['/usr/bin/node', str(ROOT / 'pi-runner.mjs'), model]
+             '--setenv', 'EVO_PI_RUNTIME', str(PI_RUNTIME)]
+    return args + (command if command is not None else ['/usr/bin/node', str(ROOT / 'pi-runner.mjs'), model])
 
 
 class PiSession:
@@ -76,9 +107,11 @@ class PiSession:
         self.reasoning_tail, self.live_text = '', ''
         self.reasoning_chars = 0
         self.on_progress = None
+        self.reported_tool_errors = set()
         self.transport_error = ''
         self.stderr_tail = ''
         self.closing = False
+        self.parked = False
         self.abort_reason = ''
         self.rounds, self.tools = 0, 0
         self.last_event = 'idle'
@@ -246,6 +279,7 @@ class PiSession:
 
     async def prompt(self, text, turn, images=None):
         self.turn = turn
+        self.reported_tool_errors.clear()
         self.last_text, self.error = '', ''
         self.last_progress = ''
         self.pending_text = ''
@@ -263,7 +297,9 @@ class PiSession:
         self.prompts[ident], self.pending[ident] = done, ack
         phase = '작업 접수'
         try:
-            await self.send(dict(type='prompt', id=ident, message=text, **({'images': images} if images else {})))
+            await self.send(dict(type='prompt', id=ident, message=text,
+                                 **({'task_id': turn.job_id} if turn.task_run else {}),
+                                 **({'images': images} if images else {})))
             accepted = await asyncio.wait_for(ack, 45)
             if not accepted.get('success'):
                 raise RuntimeError(str(accepted.get('error', 'Prompt rejected'))[:300])
@@ -276,6 +312,8 @@ class PiSession:
             await self.wait_until_settled()
             if result.get('status') in ('error', 'failed'):
                 raise RuntimeError(context.redact_sensitive_text(result.get('error') or self.error or 'Pi turn failed')[:350])
+            if turn.task_run and result.get('taskReported') is not True:
+                raise RuntimeError('마지막 작업 이후 task 상태 보고가 없어 자동 진행을 멈췄어. 완료로 처리하지 않았어.')
             if self.error and not self.last_text:
                 raise RuntimeError(self.error)
             return self.last_text
@@ -319,7 +357,7 @@ class PiSession:
                                       else json.dumps(value, ensure_ascii=False)}]}
             if not turn.cancelled.is_set():
                 try:
-                    if event['toolName'] not in ('_pi_io', '_pi_exec'):
+                    if event['toolName'] not in ('_pi_io', '_pi_exec', 'user_input'):
                         result = compact_result(event['toolName'], result, self.profile)
                 except (OSError, ValueError, RecursionError):
                     # A storage failure must not turn a completed host action into
@@ -335,6 +373,19 @@ class PiSession:
         except asyncio.CancelledError:
             pass
         except Exception as e:
+            name = event['toolName']
+            public_name, cause, symptom = tool_failure_notice(event, e)
+            if not isinstance(e, InterruptedError):
+                action = event.get('arguments',{}).get('action','-')
+                action = action if isinstance(action,str) and re.fullmatch(r'[A-Za-z_]{1,32}',action) else '-'
+                LOG.warning('tool_failed tool=%s action=%s error_type=%s public_tool=%s cause=%s',
+                            name,action,type(e).__name__,public_name,cause)
+            if (self.on_progress is not None and not turn.cancelled.is_set()
+                    and not isinstance(e, InterruptedError) and (public_name, cause) not in self.reported_tool_errors):
+                self.reported_tool_errors.add((public_name, cause))
+                with contextlib.suppress(Exception):
+                    self.flush_progress()
+                    self.on_progress(f'⚠️ {public_name} · {symptom}')
             with contextlib.suppress(Exception):
                 await self.send({'type': 'host_tool_result', 'id': ident, 'isError': True,
                     'result': {'content': [{'type': 'text', 'text': context.redact_sensitive_text(str(e))[:400]}]}})
@@ -367,6 +418,12 @@ class PiSession:
         elif kind == 'session_settled':
             self.last_event = 'idle'
             self.settled.set()
+        elif kind == 'final_answer_recovery':
+            self.last_event = 'recovering final answer'
+            LOG.warning('empty_final_recovery attempt=%s', event.get('attempt'))
+        elif kind in ('owner_reply_forwarded', 'owner_reply_fallback'):
+            LOG.log(logging.INFO if kind == 'owner_reply_forwarded' else logging.WARNING,
+                    '%s disposition=%s', kind, event.get('disposition', 'tool_result'))
         elif kind == 'message_end':
             msg = event.get('message', {})
             if msg.get('role') == 'assistant':
@@ -509,7 +566,9 @@ class PiSession:
             self.stderr_tail = (self.stderr_tail + decoder.decode(raw))[-8192:]
         self.stderr_tail = (self.stderr_tail + decoder.decode(b'', final=True))[-8192:]
 
-    async def close(self):
+    async def close(self, preserve_history=False):
+        if preserve_history and not await self.reusable_after_error():
+            raise RuntimeError('Cannot park a session with unfinished work')
         self.closing = True
         self.reasoning_tail, self.live_text = '', ''
         self.reasoning_chars = 0
@@ -529,7 +588,7 @@ class PiSession:
         if jobs:
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(asyncio.gather(*jobs, return_exceptions=True), 20)
-        if self.profile.is_relative_to(RUNTIME / 'profiles'):
+        if not preserve_history and self.profile.is_relative_to(RUNTIME / 'profiles'):
             shutil.rmtree(self.profile, ignore_errors=True)
         readers = []
         for task in (getattr(self, 'reader', None), getattr(self, 'stderr_reader', None)):
@@ -544,3 +603,4 @@ class PiSession:
         self.prompts.clear()
         self.host_jobs.clear()
         self.chunks = None
+        self.parked = preserve_history

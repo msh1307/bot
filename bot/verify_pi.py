@@ -85,7 +85,7 @@ async def main():
             finally:
                 await s.close(); s = None
         checks['payloads'] = captures
-        checks['pi_native_tools'] = {'read','bash','edit','write','tool_search'} <= set(captures['pi']['tools'])
+        checks['pi_native_tools'] = {'read','exec','edit','write','tool_search'} <= set(captures['pi']['tools'])
         checks['deferred_not_in_initial_payload'] = 'gmail' not in captures['pi']['tools']
         assert checks['pi_native_tools'] and checks['deferred_not_in_initial_payload']
 
@@ -96,10 +96,10 @@ async def main():
         STEPS.extend([('write', {'path': fixture, 'content': 'value = 41\n'}),
                       ('read', {'path': fixture}),
                       ('edit', {'path': fixture, 'oldText': '41', 'newText': '42'}),
-                      ('bash', {'command': 'cat '+fixture}),
+                      ('exec', {'command': 'cat '+fixture}),
                       ('read', {'path': '/home/agent/config/index.json'}),
                       ('read', {'path': '/home/agent/deploy/codex-server/manifest.json'}),
-                      ('bash', {'command': 'if touch /home/agent/config/.write-probe 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READ_ONLY; fi'}),
+                      ('exec', {'command': 'if touch /home/agent/config/.write-probe 2>/dev/null; then echo CONFIG_WRITABLE; else echo CONFIG_READ_ONLY; fi'}),
                       ('tool_search', {'query': 'gmail', 'limit': 1}),
                       ('gmail', {'action': 'status'})])
         assert await asyncio.wait_for(s.prompt('Synthetic tools check.', context.Turn('77')), 60) == 'VERIFIED_CONTEXT'
@@ -144,7 +144,7 @@ async def main():
         assert await s.reusable_after_error()
         checks['retry_bound_and_failed_turn_reuse']=len(REQUESTS)-count
 
-        STEPS.append(('bash', {'command': 'touch /home/agent/sessions/started; sleep 30; touch /home/agent/sessions/late'}))
+        STEPS.append(('exec', {'command': 'touch /home/agent/sessions/started; sleep 30; touch /home/agent/sessions/late'}))
         task = asyncio.create_task(s.prompt('Synthetic cancellation.', context.Turn('77')))
         for _ in range(100):
             if (s.profile/'sessions/started').exists(): break

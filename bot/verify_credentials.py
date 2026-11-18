@@ -4,6 +4,7 @@ Run on EVO with the bot venv; --browser also uses the real Headless Shell
 against intercepted HTTPS fixture pages (no external requests).
 """
 import base64
+import asyncio
 import json
 import io
 import os
@@ -12,7 +13,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, AsyncMock
 
 from evo_bot import context
 from evo_bot.integrations import credential_input as ci
@@ -39,12 +40,15 @@ class CredentialChecks(unittest.TestCase):
         self.save()
         self.config_patch = patch.object(ci, 'CONFIG', self.config)
         self.config_patch.start()
+        self.otp_patch = patch.object(ci, 'OTP_CONFIG', self.root / 'otp.json')
+        self.otp_patch.start()
         self.turn = context.Turn('123')
         self.token = context.current.set(self.turn)
 
     def tearDown(self):
         context.current.reset(self.token)
         self.config_patch.stop()
+        self.otp_patch.stop()
         self.temp.cleanup()
 
     def save(self):
@@ -160,8 +164,8 @@ class CredentialChecks(unittest.TestCase):
     def test_tool_is_discord_only_and_not_in_scheduled_catalog(self):
         from evo_bot.tools import Registry
         registry = Registry()
-        self.assertIn('credential_input', [t['name'] for t in registry.definitions()])
-        self.assertNotIn('credential_input', [t['name'] for t in registry.definitions(cron=True)])
+        self.assertIn('auth', [t['name'] for t in registry.definitions()])
+        self.assertNotIn('auth', [t['name'] for t in registry.definitions(cron=True)])
 
     def rdp_args(self):
         self.entry['rdp_instances'] = ['test']; self.save()
@@ -222,6 +226,87 @@ class CredentialChecks(unittest.TestCase):
             self.assertEqual(client.call.call_count, 1)
 
 
+    def read_password(self, **args):
+        return ci.credential_input({'action': 'read', 'account': 'fixture@example.test',
+                                    'field': 'password', 'reason': 'Local diagnostic needs the raw value', **args})
+
+    def test_disclosure_requires_reason_before_reading_or_requesting_approval(self):
+        with patch.object(host, 'approve_once') as approve, patch.object(ci, 'secret_value') as read:
+            for reason in (None, '', ' ', 'x' * 161, 'two\nlines', 'hidden\u202e'):
+                with self.assertRaises(ValueError): self.read_password(reason=reason)
+        approve.assert_not_called(); read.assert_not_called()
+
+    def test_disclosure_approved_once_returns_only_selected_password(self):
+        def decision(key, notify, data):
+            self.assertEqual(data['kind'], 'credential_read')
+            self.assertIn('fixture@example.test', data['command'])
+            self.assertIn('Field: password', data['command'])
+            self.assertIn('Reason:', data['command'])
+            self.assertNotIn('NOT-A-REAL-SECRET', json.dumps(data))
+            self.assertNotIn(str(self.password), json.dumps(data))
+            self.assertIn('history', data['description'])
+            return {'resolved': True, 'choice': 'once'}
+        with patch.object(context, 'live_owner', return_value=self.turn), \
+             patch.object(host, 'discord_connected', return_value=True), \
+             patch.object(context, 'wait_for_approval', side_effect=decision) as wait, \
+             patch.object(ci, 'secret_value', wraps=ci.secret_value) as read:
+            result = self.read_password()
+            self.assertEqual(result, {'password': self.password.read_text().rstrip('\n')})
+            self.assertEqual(self.read_password()['approval_status'], 'duplicate_execution')
+        self.assertEqual(wait.call_count, 1); self.assertEqual(read.call_count, 1)
+
+    def test_disclosure_denied_or_expired_never_reads_and_does_not_prompt_again(self):
+        for decision in ({'resolved': True, 'choice': 'deny'}, {'resolved': False, 'cancelled': True}):
+            self.turn.id += 'x'
+            with patch.object(context, 'live_owner', return_value=self.turn), \
+                 patch.object(host, 'discord_connected', return_value=True), \
+                 patch.object(context, 'wait_for_approval', return_value=decision) as wait, \
+                 patch.object(ci, 'secret_value') as read:
+                self.assertEqual(self.read_password()['approval_status'], 'denied_or_expired')
+                self.assertEqual(self.read_password(reason='Different reason')['approval_status'], 'refused_this_turn')
+            read.assert_not_called(); self.assertEqual(wait.call_count, 1)
+
+    def test_disclosure_without_live_discord_never_reads(self):
+        with patch.object(host, 'discord_connected', return_value=False), patch.object(ci, 'secret_value') as read:
+            self.assertFalse(self.read_password()['success'])
+        read.assert_not_called()
+
+    def test_disclosure_cancelled_during_approval_never_reads(self):
+        def cancel(*args):
+            self.turn.cancelled.set()
+            return {'resolved': True, 'choice': 'once'}
+        with patch.object(context, 'live_owner', return_value=self.turn), \
+             patch.object(host, 'discord_connected', return_value=True), \
+             patch.object(context, 'wait_for_approval', side_effect=cancel), \
+             patch.object(ci, 'secret_value') as read:
+            self.assertFalse(self.read_password()['success'])
+        read.assert_not_called()
+
+    def test_disclosure_changed_account_during_approval_never_reads(self):
+        def changed(*args):
+            self.entry['password_file'] = str(self.root / 'different'); self.save()
+            return {'resolved': True, 'choice': 'once'}
+        with patch.object(context, 'live_owner', return_value=self.turn), \
+             patch.object(host, 'discord_connected', return_value=True), \
+             patch.object(context, 'wait_for_approval', side_effect=changed), \
+             patch.object(ci, 'secret_value') as read, self.assertRaisesRegex(ValueError, 'configuration changed'):
+            self.read_password()
+        read.assert_not_called()
+
+    def test_concurrent_disclosure_does_not_open_another_card(self):
+        with ci.DISCLOSURE_LOCK, patch.object(host, 'approve_once') as approve, \
+             patch.object(ci, 'secret_value') as read, self.assertRaisesRegex(ValueError, 'awaiting approval'):
+            self.read_password()
+        approve.assert_not_called(); read.assert_not_called()
+
+    def test_otp_and_private_browser_entry_still_need_no_disclosure_approval(self):
+        with patch.object(host, 'approve_once') as approve, patch.object(ci.browser.CLIENT, 'enter_secret'), \
+             patch.object(ci.time, 'time', return_value=59):
+            self.assertEqual(self.enter(), {'entered': True})
+            self.assertEqual(ci.credential_input({'action': 'read', 'account': 'fixture@example.test'})['otp'], '287082')
+        approve.assert_not_called()
+
+
 class ApprovalChecks(unittest.TestCase):
     def setUp(self):
         self.turn = context.Turn('123')
@@ -272,6 +357,15 @@ class ApprovalChecks(unittest.TestCase):
             self.assertEqual(self.gate(kind='credential')['approval_status'], 'denied_or_expired')
             self.assertIsNone(self.gate())
 
+    def test_disclosure_denial_is_separate_from_root_and_rdp_entry(self):
+        with patch.object(context, 'live_owner', return_value=self.turn), \
+             patch.object(host, 'discord_connected', return_value=True), \
+             patch.object(context, 'wait_for_approval', side_effect=[{'resolved': True, 'choice': 'deny'},
+                     {'resolved': True, 'choice': 'once'}, {'resolved': True, 'choice': 'once'}]):
+            self.assertEqual(self.gate(kind='credential_read')['approval_status'], 'denied_or_expired')
+            self.assertIsNone(self.gate(kind='credential'))
+            self.assertIsNone(self.gate())
+
     def test_existing_host_root_denial_cancels_ticket_without_execution(self):
         ticket = {'success': True, 'request_id': 'synthetic', 'token': 'test', 'digest': 'test',
                   'payload': {'run_as': 'root', 'command': 'id -u', 'cwd': '/workspace', 'reason': 'Test'}}
@@ -286,6 +380,59 @@ class ApprovalChecks(unittest.TestCase):
             denied = json.loads(host.host_command({'run_as': 'root', 'command': 'id -u', 'reason': 'Test'}))
         self.assertEqual(denied['approval_status'], 'denied_or_expired')
         self.assertEqual([c.args[0]['action'] for c in rpc.call_args_list], ['stage', 'cancel'])
+
+
+class ApprovalFlowChecks(unittest.IsolatedAsyncioTestCase):
+    async def test_tool_dispatch_and_real_approval_buttons_with_synthetic_channel(self):
+        from evo_bot.tools import Registry
+        for choice in ('once', 'deny', 'timeout'):
+            with self.subTest(choice=choice), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                password = root / 'password'; password.write_text('SYNTHETIC_APPROVAL_FIXTURE'); password.chmod(0o600)
+                config = root / 'accounts.json'
+                config.write_text(json.dumps({'instances': {}, 'accounts': {'fixture': {
+                    'username': 'operator', 'password_file': str(password)}}})); config.chmod(0o600)
+                turn = context.Turn('123'); token = context.current.set(turn)
+                posted = asyncio.Event(); captured = {}
+                message = Mock(edit=AsyncMock())
+                async def send(**kwargs):
+                    captured.update(kwargs); posted.set(); return message
+                channel = Mock(send=AsyncMock(side_effect=send))
+                client = Mock(); client.is_ready.return_value = True; client.get_channel.return_value = channel
+                try:
+                    with patch.object(ci, 'CONFIG', config), patch.object(ci, 'OTP_CONFIG', root / 'otp.json'), \
+                         patch.object(context, 'client', client), patch.object(host, 'CLIENT', client), \
+                         patch.object(host, 'LOOP', asyncio.get_running_loop()), \
+                         patch.object(ci, 'secret_value', wraps=ci.secret_value) as read:
+                        task = asyncio.create_task(Registry().call('auth', {'action': 'read', 'account': 'fixture',
+                            'field': 'password', 'reason': 'Synthetic local diagnostic'}, turn))
+                        try:
+                            await asyncio.wait_for(posted.wait(), 5)
+                            read.assert_not_called()
+                            self.assertNotIn('SYNTHETIC_APPROVAL_FIXTURE', captured['content'])
+                            self.assertNotIn(str(password), captured['content'])
+                            self.assertIn('비밀번호 공개', captured['content'])
+                            view = captured['view']
+                            stranger = Mock(user=Mock(id=1), response=Mock(send_message=AsyncMock()))
+                            self.assertFalse(await view.interaction_check(stranger))
+                            interaction = Mock(user=Mock(id=int(host.OWNER)), response=Mock(defer=AsyncMock()))
+                            self.assertTrue(await view.interaction_check(interaction))
+                            if choice == 'timeout': await view.on_timeout()
+                            else:
+                                label = 'Allow Once' if choice == 'once' else 'Deny'
+                                await next(button for button in view.children if button.label == label).callback(interaction)
+                            result = await asyncio.wait_for(task, 5)
+                            if choice == 'once':
+                                self.assertEqual(result, {'password': 'SYNTHETIC_APPROVAL_FIXTURE'})
+                                self.assertEqual(read.call_count, 1)
+                            else:
+                                self.assertEqual(result['approval_status'], 'denied_or_expired'); read.assert_not_called()
+                            self.assertTrue(all(button.disabled for button in view.children))
+                        finally:
+                            if not task.done():
+                                turn.cancelled.set(); await asyncio.wait_for(task, 5)
+                finally:
+                    context.current.reset(token)
 
 
 @unittest.skipUnless(REAL_BROWSER, 'use --browser for actual Headless Shell fixture')

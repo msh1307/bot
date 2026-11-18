@@ -10,6 +10,10 @@ const PIPE = '\\\\.\\pipe\\codex-ipc';
 // This inbound limit is separate from small commands sent to the desktop.
 const MAX_FRAME = 512 * 1024 * 1024;
 const MAX_REQUEST = 1024 * 1024;
+// Codex desktop 26.1111.2228.0 advertises stream-state protocol v13.
+// The payload shape used below is unchanged, but the desktop tags snapshots
+// with this method version and the bridge must match it exactly.
+const STREAM_STATE_VERSION = 13;
 const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 class DesktopError extends Error {
@@ -234,11 +238,13 @@ class DesktopIPC {
       this.write({type: 'response', requestId: message.requestId,
         resultType: 'error', error: 'no-handler-for-request'});
     } else if (message.type === 'broadcast' && message.method === 'thread-stream-state-changed'
-      && message.version === 11 && message.params?.hostId === 'local'
+      && message.params?.hostId === 'local'
       && message.params?.change?.type === 'snapshot') {
       const pending = this.snapshots.get(message.params.conversationId);
       if (pending && pending.owner === message.sourceClientId) {
-        pending.resolve(message.params.change.conversationState);
+        if (message.version !== STREAM_STATE_VERSION) pending.reject(new DesktopError('protocol_mismatch',
+          `Desktop snapshot protocol ${message.version}; bridge expects ${STREAM_STATE_VERSION}. Update the bridge. No command was submitted.`));
+        else pending.resolve(message.params.change.conversationState);
       }
     }
   }

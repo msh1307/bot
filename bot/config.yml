@@ -28,13 +28,8 @@ edit:
     qwen3.8-27b-uncensored: replace
 compaction:
   enabled: true
-  methodOrder: [shake, soft]
-  asyncEnabled: false
-  idleEnabled: false
-  thresholdTokens: 60000
-  reserveTokens: 28000
+  reserveTokens: 31072
   keepRecentTokens: 12000
-  handoffSaveToDisk: false
 bash:
   autoBackground:
     enabled: false

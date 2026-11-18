@@ -18,5 +18,5 @@
     "note": "Our Windows/Oracle support files only; reuse the installed Codex server and authentication."
   },
   "update": "Host configuration/code changes use bash with instance=localhost, root=true and a reason; each execution needs owner approval.",
-  "credentials": "Tools use private file references. Secret values are unnecessary for discovery; keep them outside the workspace."
+  "credentials": "Store private files together in /var/lib/evo-bot/credentials/: OTP, login/sudo passwords, SSH keys, Gmail, Discord and Codex tokens. Connection settings stay in /etc/evo-bot/remote-control.json accounts[ID]: username, password_file or identity_file, optional sudo_password_file, origins and ssh_instances/rdp_instances. Root setup helper: /opt/evo-bot/register_credential.py. auth: list; prefer private enter password|otp; register/read OTP without approval. Exceptional read field=password requires a reason and owner Allow Once; never forward disclosed values to external agents/services. Seeds stay private. GitHub uses the existing key through OpenSSH ssh-agent."
 }

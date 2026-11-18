@@ -2,7 +2,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from evo_bot import context
 from evo_bot.integrations import codex
@@ -16,6 +16,7 @@ def bridge():
     b.save = lambda: None
     b.monitor_desktop = lambda job: None
     b.settings = {'cwd': 'C:\\verification'}
+    b.prefer_gui = AsyncMock(return_value=False)
     return b
 
 
@@ -173,6 +174,8 @@ async def same_chat_followups():
         if check:
             check()
         calls.append((method, args))
+        if method == 'thread/resume':
+            return {'thread': {'id': args['threadId']}}
         return {'turn': {'id': 'next-turn'}}
 
     b.status, b.rpc = status, rpc

@@ -2,7 +2,7 @@
 const assert = require('assert/strict');
 const {decodeMessage} = require('./snapshot-tail');
 const {DesktopIPC} = require('./desktop-ipc');
-const envelope = state => ({type:'broadcast',method:'thread-stream-state-changed',version:11,
+const envelope = state => ({type:'broadcast',method:'thread-stream-state-changed',version:13,
   sourceClientId:'owner',params:{hostId:'local',conversationId:'thread',
     change:{type:'snapshot',conversationState:state}}});
 const decode = state => decodeMessage(Buffer.from(JSON.stringify(envelope(state)))).params.change.conversationState;

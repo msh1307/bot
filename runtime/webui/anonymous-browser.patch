@@ -1,0 +1,63 @@
+--- a/tools/ui/src/lib/services/tools.service.ts
++++ b/tools/ui/src/lib/services/tools.service.ts
+@@ -14,11 +14,11 @@
+ import { parseSseJsonStream, type SseJsonEvent } from '$lib/utils/sse';
+ 
+ export class ToolsService {
+-	static async cleanup(operation: 'turn'): Promise<void> {
++	static async cleanup(operation: 'turn', session?: string): Promise<void> {
+ 		await apiFetch('/evo/tools/cleanup', {
+-			body: JSON.stringify({ operation }),
+-			method: 'POST',
+-			signal: AbortSignal.timeout(5000)
++			body: JSON.stringify({ operation, session }),
++			method: 'POST',
++			signal: AbortSignal.timeout(15000)
+ 		});
+ 	}
+ 
+@@ -33,10 +33,11 @@
+ 		toolName: string,
+ 		params: Record<string, unknown>,
+ 		signal?: AbortSignal,
+-		cwd?: string
++		cwd?: string,
++		session?: string
+ 	): Promise<ToolExecutionResult> {
+ 		const result = await apiFetch<Record<string, unknown>>(API_TOOLS.EXECUTE, {
+-			body: JSON.stringify({ params, tool: toolName }),
++			body: JSON.stringify({ params, tool: toolName, ...(toolName === 'browser' ? { session } : {}) }),
+ 			headers: cwd ? { [HEADERS.X_TOOL_CWD_HEADER]: cwd } : undefined,
+ 			method: 'POST',
+ 			signal
+--- a/tools/ui/src/lib/stores/agentic/index.svelte.ts
++++ b/tools/ui/src/lib/stores/agentic/index.svelte.ts
+@@ -389,7 +389,7 @@
+ 
+ 			return { error: normalizedError, handled: true };
+ 		} finally {
+-			await ToolsService.cleanup('turn').catch((error: unknown) =>
++			await ToolsService.cleanup('turn', conversationId).catch((error: unknown) =>
+ 				console.warn('[AgenticStore] Search cleanup failed:', error)
+ 			);
+ 			this.updateSession(conversationId, {
+@@ -823,7 +823,7 @@
+ 						} else if (toolSource === ToolSource.SERVER) {
+ 							const args = this.parseToolArguments(toolCall.function.arguments);
+ 							const cwd = conversationsStore.activeConversation?.cwd;
+-							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd);
++							const executionResult = await ToolsService.executeTool(toolName, args, signal, cwd, conversationId);
+ 
+ 							result = executionResult.content;
+ 
+--- a/tools/ui/src/lib/stores/agentic/gates.svelte.ts
++++ b/tools/ui/src/lib/stores/agentic/gates.svelte.ts
+@@ -135,7 +135,7 @@
+ 		serverLabel: string,
+ 		signal?: AbortSignal
+ 	): Promise<ToolPermissionDecision> {
+-		if (['run_python', 'internet_search', 'web_read', 'web_image'].includes(toolName)
++		if (['run_python', 'internet_search', 'web_read', 'web_image', 'browser'].includes(toolName)
+ 			&& toolsStore.getToolSource(toolName) === ToolSource.SERVER) {
+ 			return ToolPermissionDecision.ONCE;
+ 		}

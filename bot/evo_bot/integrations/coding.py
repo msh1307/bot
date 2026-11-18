@@ -30,6 +30,8 @@ def request(args, fields):
 def checked(value):
     if isinstance(value, str):
         value = json.loads(value)
+    if value.get('approval_status') in ('denied_or_expired','refused_this_turn','duplicate_execution'):
+        raise PermissionError(value.get('error','Execution was not approved'))
     if value.get('error') or value.get('success') is False and 'exit_code' not in value:
         raise RuntimeError(value.get('error', 'Remote request failed'))
     return value
@@ -83,6 +85,8 @@ def host_file(req):
 
 def file_io(args):
     turn, ident = request(args, {'action', 'path', 'content', 'expected'})
+    if ident != 'localhost' and not windows_backend(ident) and ident not in ssh.configuration()['servers']:
+        raise ValueError('Unknown instance; use remote_control list. No fallback was used.')
     action, path = args.get('action'), args.get('path')
     if action not in ('read', 'write') or not isinstance(path, str) or not 1 <= len(path) <= 4096 or '\0' in path:
         raise ValueError('Use read/write with an absolute remote path or ~/...')
@@ -134,25 +138,34 @@ def image_mime(raw):
     return None
 
 
+def windows_command(command):
+    # Keep script parsing intact, with UTF-8 output and no EncodedCommand CLIXML progress.
+    encoded = base64.b64encode(command.encode('utf-16-le')).decode('ascii')
+    script = ("[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); "
+              "$OutputEncoding = [Console]::OutputEncoding; "
+              "$env:PYTHONIOENCODING = 'utf-8'; $env:PYTHONUTF8 = '1'; "
+              "& ([scriptblock]::Create([Text.Encoding]::Unicode.GetString("
+              "[Convert]::FromBase64String('" + encoded + "'))))")
+    return ['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script]
+
+
 def execute(args):
     turn, ident = request(args, {'command', 'root', 'reason', 'timeout'})
     command, root = args.get('command'), args.get('root', False)
-    timeout = args.get('timeout', 15 if windows_backend(ident) else 60)
+    timeout = ssh.command_timeout(args.get('timeout', 600))
     if not isinstance(command, str) or not command.strip() or '\0' in command or type(root) is not bool:
         raise ValueError('Use command text and optional root=true')
+    windows = windows_backend(ident)
     if root and (not isinstance(args.get('reason'), str) or not args['reason'].strip()):
         raise ValueError('root=true requires a reason for fresh Discord approval')
     if ident == 'localhost':
         return checked(host.host_command({'command': command, 'timeout': timeout,
             **({'run_as': 'root', 'reason': args['reason']} if root else {})}))
-    if windows_backend(ident):
+    if windows:
         if root:
             raise ValueError('Windows elevation is not supported; root=true never bypasses approval')
-        if type(timeout) not in (int, float) or not 0 < timeout <= 15:
-            raise ValueError('Windows command timeout must be at most 15 seconds')
-        result = checked(codex.windows_exec({'instance': ident, 'command': [
-            'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand',
-            base64.b64encode(command.encode('utf-16-le')).decode('ascii')], 'timeout_ms': int(timeout * 1000)}))
+        result = checked(codex.windows_exec({'instance': ident, 'command': windows_command(command),
+            'timeout_ms': int(timeout * 1000)}))
         return {'exit_code': result['exit_code'], 'output': result.get('stdout', '') + result.get('stderr', ''),
                 'output_truncated': result.get('truncated', False)}
     request_args = {'instance': ident, 'command': command, 'timeout': timeout}

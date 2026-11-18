@@ -22,6 +22,7 @@ class ParityTests(unittest.IsolatedAsyncioTestCase):
     def bridge(self, kind=codex.Bridge):
         b=kind({'url':'wss://unused','ca':'unused','token':'test','cwd':'/tmp'},'test')
         b.monitor_desktop=lambda job:None
+        b.prefer_gui=AsyncMock(return_value=False)
         return b
 
     async def test_first_turn_settings_shared_by_both_platforms(self):
@@ -62,6 +63,67 @@ class ParityTests(unittest.IsolatedAsyncioTestCase):
         b=self.bridge(); b.rpc=AsyncMock(return_value={'thread':{'id':'t','model':'server-default'}})
         out=await b.start_native_thread({}, {'cwd':'x'})
         self.assertEqual(b.rpc.call_args.args[1],{'cwd':'x'});self.assertEqual(out['model'],'server-default')
+
+    async def test_windows_start_prompt_skips_picker_and_preserves_defaults(self):
+        b=self.bridge();b.settings['cwd']=r'C:\workspace';b.open_new_chat=AsyncMock()
+        b.rpc=AsyncMock(side_effect=[{'thread':{'id':'t','ephemeral':True,
+            'model':'native-default','daybreakEnabled':True}}, {'turn':{'id':'turn'}}])
+        out=await b.action({'action':'start','prompt':'Inspect the code'},'77')
+        b.open_new_chat.assert_not_called()
+        self.assertEqual([c.args[0] for c in b.rpc.call_args_list],['thread/start','turn/start'])
+        self.assertEqual(b.rpc.call_args_list[0].args[1],{'cwd':r'C:\workspace','ephemeral':True})
+        self.assertEqual(b.rpc.call_args_list[1].args[1],codex.turn_input('t','Inspect the code',True))
+        self.assertEqual(out['state'],'running');self.assertEqual(out['model'],'native-default')
+        self.assertTrue(out['wake']);self.assertTrue(b.jobs[out['job_id']]['_compact'])
+
+    async def test_windows_picker_remains_available_without_prompt_or_with_new(self):
+        for args in ({'action':'start'}, {'action':'new','prompt':'Inspect the code'}):
+            b=self.bridge();b.rpc=AsyncMock();b.open_new_chat=AsyncMock(return_value={'picker':True})
+            self.assertEqual(await b.action(args,'77'),{'picker':True})
+            b.open_new_chat.assert_awaited_once();b.rpc.assert_not_called()
+
+    async def test_windows_direct_start_validates_prompt_and_existing_ids(self):
+        for extra in ({'prompt':''},{'prompt':'  '},{'prompt':123},{'prompt':'x'*16001},
+                      {'prompt':'hi','thread_id':'existing'},{'prompt':'hi','job_id':'existing'}):
+            b=self.bridge();b.rpc=AsyncMock();b.open_new_chat=AsyncMock()
+            with self.assertRaises(ValueError):await b.action(dict(action='start',**extra),'77')
+            b.rpc.assert_not_called();b.open_new_chat.assert_not_called()
+
+    async def test_windows_direct_start_does_not_replay_or_open_picker_on_timeout(self):
+        for fail_at in ('thread/start','turn/start'):
+            b=self.bridge();b.settings['cwd']=r'C:\workspace';b.open_new_chat=AsyncMock()
+            replies=[TimeoutError('uncertain result')] if fail_at=='thread/start' else [
+                {'thread':{'id':'t','ephemeral':True}},TimeoutError('uncertain result')]
+            b.rpc=AsyncMock(side_effect=replies)
+            with self.assertRaises(TimeoutError):await b.action({'action':'start','prompt':'hi'},'77')
+            self.assertEqual([c.args[0] for c in b.rpc.call_args_list],
+                ['thread/start'] if fail_at=='thread/start' else ['thread/start','turn/start'])
+            b.open_new_chat.assert_not_called()
+            if fail_at=='turn/start':self.assertEqual(next(iter(b.jobs.values()))['state'],'connection_lost')
+
+    async def test_windows_direct_start_keeps_project_and_explicit_settings(self):
+        b=self.bridge();b.open_new_chat=AsyncMock()
+        b.select_project=AsyncMock(return_value={'project_id':'p','name':'Code',
+            'default_cwd':r'C:\code','roots':[r'C:\code']})
+        b.model_catalog=AsyncMock(return_value=[{'id':'chosen'}])
+        b.rpc=AsyncMock(side_effect=[{'thread':{'id':'t','ephemeral':False,'projectId':'p',
+            'model':'chosen','daybreakEnabled':False},'approvalPolicy':'on-request',
+            'sandbox':{'type':'readOnly'}}, {'turn':{'id':'turn'}}])
+        out=await b.action(dict(action='start',prompt='hi',project='p',model='chosen',mode='off',
+            policy='on-request',sandbox='read-only',wake=False,compact=False),'77')
+        self.assertEqual(b.rpc.call_args_list[0].args[1],{'cwd':r'C:\code','ephemeral':False,
+            'projectId':'p','runtimeWorkspaceRoots':[r'C:\code'],'model':'chosen',
+            'approvalPolicy':'on-request','sandbox':'read-only'})
+        self.assertEqual(b.rpc.call_args_list[1].args[1],codex.turn_input('t','hi',False))
+        self.assertFalse(out['wake']);self.assertFalse(b.jobs[out['job_id']]['_compact'])
+        b.open_new_chat.assert_not_called()
+
+    async def test_scheduled_start_remains_denied_on_both_platforms(self):
+        self.turn.cron=True
+        for kind in (codex.Bridge,codex.AppServer):
+            b=self.bridge(kind);b.rpc=AsyncMock();b.open_new_chat=AsyncMock()
+            with self.assertRaises(PermissionError):await b.action({'action':'start','prompt':'hi'},'77')
+            b.rpc.assert_not_called();b.open_new_chat.assert_not_called()
 
     async def test_model_lookup_pages_and_second_page_selection(self):
         b=self.bridge(); b.settings_rpc=AsyncMock(side_effect=[{'data':[{'id':'a'}],'nextCursor':'page2'},

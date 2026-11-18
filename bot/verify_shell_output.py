@@ -57,7 +57,7 @@ async def main():
                 for name, raw in fixtures.items():
                     command = f'cat /workspace/{fixture.name}/{name}.txt'
                     if name == 'unicode_failure': command += '; exit 7'
-                    body = await call('bash', {'command': command})
+                    body = await call('exec', {'command': command})
                     rows.append({'variant': variant, 'case': name, 'bytes': len(body.encode()), 'text': body})
                     if name == 'small':
                         assert raw.strip() in body and 'artifact://' not in body

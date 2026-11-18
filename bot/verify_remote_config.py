@@ -34,6 +34,7 @@ class Checks(unittest.TestCase):
         self.stack = contextlib.ExitStack()
         for mod in (rc, remote, ssh, rdp, codex, ci):
             self.stack.enter_context(patch.object(mod, 'CONFIG', self.path))
+        self.stack.enter_context(patch.object(ci, 'OTP_CONFIG', self.root / 'otp.json'))
         self.identity = context.current.set(context.Turn('123'))
 
     def save(self):
@@ -63,7 +64,8 @@ class Checks(unittest.TestCase):
             rows = remote.catalog()
         self.assertEqual(rows['defaults'], self.data['defaults'])
         self.assertEqual({r['id']: r['protocols'] for r in rows['instances']},
-                         {'localhost': [], 'pc': ['rdp', 'codex'], 'linux': ['ssh'], 'cloud': ['ssh']})
+                         {'localhost': ['terminal'], 'pc': ['rdp', 'codex'],
+                          'linux': ['ssh', 'terminal'], 'cloud': ['ssh', 'terminal']})
         text = json.dumps(rows)
         self.assertNotIn('SYNTHETIC_PRIVATE', text)
         self.assertNotIn(str(self.secret), text)
@@ -72,6 +74,22 @@ class Checks(unittest.TestCase):
         self.data['instances']['pc']['host'] = '192.0.2.30'; self.save()
         self.assertEqual(rdp.configuration()['servers']['pc']['host'], '192.0.2.30')
         self.assertEqual(codex.server_config()[1]['pc']['url'], 'wss://192.0.2.30:4500/')
+
+    def test_root_gate_defaults_overrides_and_invalid_values(self):
+        self.assertEqual(rc.host_root_gate(self.path), 'approval_card')
+        self.assertEqual(ssh.configuration()['servers']['linux']['root_gate'], 'notify_only')
+        self.data['host'] = {'root_gate': 'notify_only'}
+        self.data['accounts']['linux-login']['root_gate'] = 'approval_card'; self.save()
+        self.assertEqual(rc.host_root_gate(self.path), 'notify_only')
+        self.assertEqual(ssh.configuration()['servers']['linux']['root_gate'], 'approval_card')
+        self.data['instances']['linux']['ssh']['root_gate'] = 'notify_only'; self.save()
+        self.assertEqual(ssh.configuration()['servers']['linux']['root_gate'], 'notify_only')
+        for entry in (self.data['host'], self.data['accounts']['linux-login'],
+                      self.data['instances']['linux']['ssh']):
+            old = entry['root_gate']; entry['root_gate'] = 'unknown'; self.save()
+            with self.assertRaises(ValueError): rc.document(self.path)
+            entry['root_gate'] = old
+        self.save()
 
     def test_token_read_is_deferred_until_bridge_creation(self):
         entry = codex.server_config()[1]['pc']

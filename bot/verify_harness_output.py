@@ -80,7 +80,7 @@ async def main():
                     checks.append(name + ': exact full source + native ranged read')
             # Streaming native tool also uses the smaller configured preview.
             cmd = "python3 -c \"for i in range(2200): print(f'CAPTURE_{i:04d} ' + 'abcdefghij'*8)\""
-            body = (await run([('bash', {'command': cmd})]))[0]
+            body = (await run([('exec', {'command': cmd})]))[0]
             rows.append({'case': 'native_bash', 'variant': label, 'text': body, 'bytes': len(body.encode())})
             match = re.search(r'artifact://[^\s)\]`<>]+', body)
             assert match, body[-1200:]

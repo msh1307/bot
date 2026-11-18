@@ -53,6 +53,7 @@
 !/runtime/power/*.patch
 !/runtime/webui/*.patch
 !/runtime/webui/auto-compact.js
+!/runtime/webui/verify-auto-compact.mjs
 !/runtime/api/*.patch
 !/runtime/api/evo_responses_tools.py
 /bot/*
@@ -67,6 +68,8 @@
 !/bot/instructions.txt
 !/bot/requirements.txt
 !/bot/rdp-requirements.txt
+!/bot/browser-mcp-requirements.txt
+!/bot/browser-tool.json
 !/bot/output-budget-verification.json
 !/bot/compaction-accounting-verification.json
 !/bot/context-budget-verification.json
@@ -150,6 +153,9 @@ __pycache__/
 !/bot/pi-runner.mjs
 !/bot/pi-tools.mjs
 !/bot/pi-runtime.json
+!/bot/patches/
+/bot/patches/*
+!/bot/patches/pi-compaction-summary.patch
 !/bot/pi-migration-verification.json
 !/bot/pi-task-verification.json
 !/bot/steer-audit-verification.json

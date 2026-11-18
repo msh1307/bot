@@ -27,10 +27,12 @@ class SSHChecks(unittest.TestCase):
         self.config = self.root / 'ssh.json'
         self.entry = {'host': '127.0.0.1', 'username': 'operator',
                       'known_hosts': str(self.root / 'known_hosts'),
+                      'root_gate': 'approval_card',
                       'password_file': str(self.password)}
         self.save()
         self.pin = patch.object(ssh, 'CONFIG', self.config); self.pin.start()
         self.accounts_pin = patch.object(credential_input, 'CONFIG', self.config); self.accounts_pin.start()
+        self.otp_pin = patch.object(credential_input, 'OTP_CONFIG', self.root / 'otp.json'); self.otp_pin.start()
         self.turn = context.Turn('123')
         self.token = context.current.set(self.turn)
 
@@ -46,7 +48,7 @@ class SSHChecks(unittest.TestCase):
 
     def tearDown(self):
         context.current.reset(self.token)
-        self.pin.stop(); self.accounts_pin.stop(); self.tmp.cleanup()
+        self.pin.stop(); self.accounts_pin.stop(); self.otp_pin.stop(); self.tmp.cleanup()
 
     def test_no_password_in_argv_or_environment(self):
         argv, env = ssh.transport(self.entry, 'id')
@@ -78,7 +80,7 @@ class SSHChecks(unittest.TestCase):
 
     def test_closed_schema_and_limits(self):
         for args in ({'command': 'id', 'host': 'other'}, {'command': 'x\0y'},
-                     {'command': 'id', 'timeout': True}, {'command': 'id', 'timeout': 301},
+                     {'command': 'id', 'timeout': True}, {'command': 'id', 'timeout': 601},
                      {'command': 'id', 'instance': 'bad@host'}, {'command': ''}):
             with self.assertRaises(ValueError): ssh.validate(args)
 
@@ -166,15 +168,28 @@ class SSHChecks(unittest.TestCase):
         self.assertEqual(item['capabilities'], ['remote_ssh'])
 
     def test_normal_command_uses_bash_without_startup_files(self):
-        import shlex
         def transport(entry, command):
-            argv = shlex.split(command)
-            self.assertEqual(argv[:4], ['/bin/bash', '--noprofile', '--norc', '-c'])
-            return argv, {'PATH': '/usr/bin:/bin'}
+            self.assertIn('/bin/bash --noprofile --norc',command)
+            self.assertNotIn('BASH_OK',command)
+            return ['/bin/sh','-c',command], {'PATH': '/usr/bin:/bin'}
         with patch.object(ssh, 'transport', transport):
             result = json.loads(ssh.execute(self.entry, 'test', '[[ -n $BASH_VERSION ]] && printf BASH_OK', 5, self.turn))
         self.assertEqual(result['output'], 'BASH_OK')
         self.assertEqual(result['exit_code'], 0)
+
+    def test_script_stdin_is_not_inherited_by_child_commands(self):
+        with patch.object(ssh,'transport',lambda entry,cmd: (['/bin/sh','-c',cmd],{'PATH':'/usr/bin:/bin'})):
+            value=json.loads(ssh.execute(self.entry,'test','cat\nprintf "AFTER_CAT\\n"',5,self.turn))
+        self.assertEqual(value['exit_code'],0)
+        self.assertEqual(value['output'],'AFTER_CAT\n')
+
+    def test_large_utf8_script_is_delivered_without_pipe_deadlock(self):
+        import shlex
+        text='가'*14000
+        with patch.object(ssh,'transport',lambda entry,cmd: (['/bin/sh','-c',cmd],{'PATH':'/usr/bin:/bin'})):
+            value=json.loads(ssh.execute(self.entry,'test','printf %s '+shlex.quote(text),5,self.turn))
+        self.assertEqual(value['exit_code'],0)
+        self.assertEqual(value['output'],text)
 
     def root_args(self):
         self.entry['sudo_password_file'] = str(self.password); self.save()
@@ -193,6 +208,44 @@ class SSHChecks(unittest.TestCase):
              patch.object(ssh, 'stored_password') as read, patch.object(ssh, 'execute') as execute:
             result = json.loads(ssh.remote_ssh(args))
         self.assertFalse(result['success']); read.assert_not_called(); execute.assert_not_called()
+
+    def test_notify_only_executes_once_and_reports_without_approval(self):
+        args = self.root_args()
+        self.entry['root_gate'] = 'notify_only'; self.save()
+        with patch.dict(host.ROOT_EXECUTIONS, {}, clear=True), \
+                patch.object(host, 'approve_root_once') as approve, \
+                patch.object(host, 'discord_connected', return_value=True), \
+                patch.object(host, 'notify_root') as notice, \
+                patch.object(ssh, 'stored_password', return_value='SYNTHETIC_SUDO') as read, \
+                patch.object(ssh, 'execute', return_value='{"exit_code": 0, "output": "fixture"}') as execute:
+            reply = json.loads(ssh.remote_ssh(args))
+            duplicate = json.loads(ssh.remote_ssh(args))
+        self.assertEqual(reply['exit_code'], 0)
+        approve.assert_not_called(); read.assert_called_once_with(str(self.password))
+        execute.assert_called_once()
+        self.assertEqual(execute.call_args.kwargs, {'sudo_password': 'SYNTHETIC_SUDO'})
+        notice.assert_called_once()
+        self.assertIs(notice.call_args.args[0], self.turn)
+        self.assertIn('[ssh:test] exit=0', notice.call_args.args[1])
+        self.assertNotIn('SYNTHETIC_SUDO', notice.call_args.args[1])
+        self.assertFalse(duplicate['success']); self.assertFalse(duplicate['retryable'])
+
+    def test_notify_only_notice_failure_keeps_execution_result_without_replay(self):
+        args = self.root_args()
+        self.entry['root_gate'] = 'notify_only'; self.save()
+        with patch.dict(host.ROOT_EXECUTIONS, {}, clear=True), \
+                patch.object(host, 'approve_root_once') as approve, \
+                patch.object(host, 'discord_connected', return_value=True), \
+                patch.object(host, 'notify_root', side_effect=RuntimeError('Synthetic notice failure')), \
+                patch.object(ssh, 'stored_password', return_value='SYNTHETIC_SUDO'), \
+                patch.object(ssh, 'execute', return_value='{"exit_code": 0, "output": "fixture"}') as execute, \
+                self.assertLogs(ssh.LOG, level='ERROR'):
+            reply = json.loads(ssh.remote_ssh(args))
+            duplicate = json.loads(ssh.remote_ssh(args))
+        self.assertEqual(reply['exit_code'], 0)
+        self.assertEqual(reply['discord_notice'], 'delivery_failed_after_execution; do_not_retry')
+        approve.assert_not_called(); execute.assert_called_once()
+        self.assertFalse(duplicate['success'])
 
     def test_passwordless_sudo_configuration_is_explicit_and_unambiguous(self):
         self.entry['identity_file'] = self.entry.pop('password_file')

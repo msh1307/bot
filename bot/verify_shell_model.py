@@ -55,7 +55,7 @@ async def main():
         body = '\n'.join(b.get('text', '') for b in first.get('result', {}).get('content', []))
         result.update(answer=answer, calls=calls, elapsed_seconds=round(time.monotonic()-started, 3),
                       first_output_bytes=len(body.encode()), rounds=session.rounds)
-        result['passed'] = (calls[0]['tool'] == 'bash' and len(calls) >= 2 and 'artifact://' in body
+        result['passed'] = (calls[0]['tool'] == 'exec' and len(calls) >= 2 and 'artifact://' in body
                             and len(body.encode()) < 3000 and all(s in answer for s in (
                                 'rev-cobalt-29', 'failed', 'missing interface header')))
         assert result['passed'], result

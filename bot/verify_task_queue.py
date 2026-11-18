@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from evo_bot import context, gateway, tools
+from evo_bot.integrations import terminal
 
 
 class QueueTests(unittest.IsolatedAsyncioTestCase):
@@ -35,6 +36,61 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
     def saved(self):
         return tools.load_jobs()
 
+    async def test_late_bound_owner_reply_wakes_goal_without_unrelated_message_capture(self):
+        ident = tools.schedule({'action': 'enqueue', 'prompt': 'Proceed after owner confirms scope'})['id']
+        claim = self.bot.claim_due()[0]
+        self.turn.job_id, self.turn.task_run = ident, claim['last_run_at']
+        self.bot.bind_task_reply(self.turn, 123)
+        tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Await scope clarification'})
+        self.bot.finish_job(claim, 'ok')
+        message = SimpleNamespace(author=SimpleNamespace(bot=False, id=int(context.OWNER)),
+            content='Use the original scope only', channel=SimpleNamespace(id=77), attachments=[],
+            reference=SimpleNamespace(message_id=123))
+        await self.bot.on_message(message)
+        self.assertEqual(self.bot.queue.qsize(), 0)
+        again = self.bot.claim_due()[0]
+        self.assertEqual(again['id'], ident)
+        self.assertIn('Use the original scope only', again['wake_note'])
+
+    async def test_unrelated_chat_does_not_resume_waiting_goal(self):
+        ident = tools.schedule({'action': 'enqueue', 'prompt': 'Wait for a specific answer'})['id']
+        claim = self.bot.claim_due()[0]
+        self.turn.job_id, self.turn.task_run = ident, claim['last_run_at']
+        tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Await input'})
+        self.bot.finish_job(claim, 'ok')
+        message = SimpleNamespace(author=SimpleNamespace(bot=False, id=int(context.OWNER)),
+            content='Different question', channel=SimpleNamespace(id=77), attachments=[], reference=None)
+        self.bot.interrupt_compaction = AsyncMock()
+        await self.bot.on_message(message)
+        self.assertEqual(self.bot.queue.get_nowait()['text'], 'Different question')
+        self.bot.queue.task_done()
+        self.assertFalse(self.saved()[0]['enabled'])
+
+    async def test_worker_and_scheduler_continue_goal_then_stop_on_done(self):
+        calls, done = [], asyncio.Event()
+        async def prompt(text, turn, images):
+            calls.append((turn.job_id, text))
+            tools.schedule({'action': 'note', 'state': 'continue' if len(calls) == 1 else 'done',
+                            'text': 'A verified; next B' if len(calls) == 1 else 'A and B verified'})
+            if len(calls) == 2: done.set()
+            return 'Step verified'
+        session = self.worker_environment(prompt)
+        ident = tools.schedule({'action': 'enqueue', 'prompt': 'Verify A then B'})['id']
+        with patch.object(gateway, 'context_footer', AsyncMock(return_value='')):
+            workers = [asyncio.create_task(self.bot.work_loop()), asyncio.create_task(self.bot.schedule_loop())]
+            try:
+                await asyncio.wait_for(done.wait(), 8)
+                await asyncio.wait_for(self.bot.queue.join(), 1)
+                self.assertEqual([c[0] for c in calls], [ident, ident])
+                self.assertTrue(all('Verify A then B' in text for _, text in calls))
+                self.assertIn('A verified; next B', calls[1][1])
+                self.assertEqual(self.saved()[0]['task_state'], 'done')
+                self.assertFalse(self.saved()[0]['enabled'])
+                self.assertEqual(session.compact.await_count, 2)
+            finally:
+                for worker in workers: worker.cancel()
+                await asyncio.gather(*workers, return_exceptions=True)
+
     async def test_enqueue_is_immediate_single_continuation(self):
         out = tools.schedule({'action':'enqueue','prompt':'Check existing Codex task'})
         self.assertTrue(out['continuation'])
@@ -56,6 +112,32 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         alarm=tools.schedule({'action':'create','at':tomorrow,'name':'Tomorrow','prompt':'Normal reminder'})
         self.assertFalse(alarm['continuation'])
 
+    async def test_callbacks_do_not_have_a_separate_eight_job_limit(self):
+        for _ in range(12):
+            tools.schedule({'action':'defer','after_seconds':600,'prompt':'Independent authorized task'})
+        self.assertEqual(len(self.saved()),12)
+
+    async def test_finished_history_does_not_consume_active_schedule_capacity(self):
+        out=tools.schedule({'action':'create','at':(datetime.now(tools.TZ)+timedelta(minutes=1)).isoformat(),
+                            'name':'History','prompt':'Completed check'})
+        old=self.saved()[0]
+        old.update(enabled=False,running=False,task_state='done',last_status='ok')
+        tools.save_jobs([dict(old,id=str(i)) for i in range(70)])
+        created=tools.schedule({'action':'defer','after_seconds':600,'prompt':'New work'})
+        self.assertTrue(any(j['id']==created['id'] for j in self.saved()))
+        self.assertEqual(len(self.saved()),71)
+        jobs=self.saved()
+        for job in jobs:job.update(enabled=False,running=False,task_state='waiting',last_status='paused')
+        tools.save_jobs(jobs)
+        tools.schedule({'action':'defer','after_seconds':600,'prompt':'Paused history does not block new work'})
+        self.assertEqual(len(self.saved()),72)
+
+    async def test_active_schedule_capacity_still_bounds_resource_use(self):
+        for _ in range(64):
+            tools.schedule({'action':'defer','after_seconds':600,'prompt':'Waiting task'})
+        with self.assertRaisesRegex(ValueError,'64 active'):
+            tools.schedule({'action':'defer','after_seconds':600,'prompt':'Overflow'})
+
     async def test_agent_configurable_wait_is_bounded(self):
         for seconds in (0,43201,True):
             with self.assertRaises(ValueError):
@@ -64,6 +146,23 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(out['queue_timeout_seconds'],20)
         tools.schedule({'action':'update','id':out['id'],'queue_timeout_seconds':30})
         self.assertEqual(self.saved()[0]['queue_timeout_seconds'],30)
+
+    async def test_terminal_review_uses_existing_callback_queue_and_cancels_on_reset(self):
+        client = terminal.Terminal('oracle')
+        client.sessions['abc-1'] = {'created': time.monotonic()-7201, 'channel': '77', 'notice': 0}
+        with patch.dict(terminal.CLIENTS, {'oracle': client}, clear=True), \
+                patch.object(client, 'running', return_value=True):
+            terminal.notify_due(self.bot)
+            self.assertEqual(self.bot.queue.qsize(), 1)
+            item = self.bot.queue.get_nowait()
+            self.bot.queue.task_done()
+            self.assertTrue(item['callback_valid']())
+            self.assertTrue(item['compact'])
+            self.assertEqual(item['channel'], '77')
+            self.assertIsNone(item['job'])
+            self.assertIn('Do not restart/replay', item['text'])
+            self.bot.epochs['77'] = 1
+            self.assertFalse(item['callback_valid']())
 
     async def test_callback_cannot_be_moved_past_ten_minutes(self):
         out=tools.schedule({'action':'defer','after_seconds':1,'prompt':'callback'})
@@ -193,14 +292,58 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             tools.schedule({'action':'defer','after_seconds':600,'prompt':'No extension'})
 
-    async def test_stop_cancels_one_shot_tasks_but_keeps_read_only_alarm(self):
+    async def test_stop_cancels_one_shot_tasks_but_keeps_recurring_read_only_alarm(self):
         at=(datetime.now(tools.TZ)+timedelta(minutes=2)).isoformat()
         task=tools.schedule({'action':'create','at':at,'name':'Shutdown','prompt':'Verify first'})
-        alarm=tools.schedule({'action':'create','at':at,'mode':'check','name':'Briefing','prompt':'Read only'})
+        alarm=tools.schedule({'action':'create','cron':'0 9 * * *','mode':'check','name':'Briefing','prompt':'Read only'})
         tools.cancel_deferred('77')
         jobs={j['id']:j for j in self.saved()}
         self.assertFalse(jobs[task['id']]['enabled'])
         self.assertTrue(jobs[alarm['id']]['enabled'])
+
+    async def test_read_only_one_shot_can_recheck_without_gaining_execution_rights(self):
+        from evo_bot.integrations import coding
+        at=(datetime.now(tools.TZ)+timedelta(minutes=1)).isoformat()
+        result=tools.schedule({'action':'create','at':at,'mode':'check','name':'Monitor','prompt':'Read status until complete; no execution'})
+        jobs=self.saved();jobs[0]['next_run_at']=datetime.now(tools.TZ).isoformat();tools.save_jobs(jobs)
+        calls=[]
+        async def prompt(text,turn,images):
+            self.assertTrue(turn.cron);self.assertTrue(turn.task_run)
+            self.assertIsNone(context.owner_message());self.assertIn('Read-only check',text)
+            with patch.object(coding,'execute') as execute,self.assertRaises(PermissionError):
+                await self.bot.registry.call('_pi_exec',{'instance':'desktop','command':'SYNTHETIC'},turn)
+            execute.assert_not_called()
+            self.assertFalse(self.saved()[0]['enabled']);self.assertTrue(self.saved()[0]['running'])
+            follow=tools.schedule({'action':'note','state':'waiting','after_seconds':600,'text':'Read same status again'})
+            self.assertEqual(follow['job_id'],result['id']);calls.append(turn.task_deadline)
+            return 'Still running'
+        session=self.worker_environment(prompt);claim=self.bot.claim_due()[0]
+        worker=asyncio.create_task(self.bot.work_loop())
+        try:
+            self.bot.enqueue('77',claim['prompt'],[],claim);await asyncio.wait_for(self.bot.queue.join(),2)
+            self.assertEqual(calls,[claim['task_deadline']])
+            saved=self.saved()[0];self.assertEqual(saved['mode'],'check');self.assertEqual(saved['task_state'],'waiting')
+            self.assertTrue(saved['enabled']);self.assertEqual(saved['task_deadline'],claim['task_deadline'])
+            session.compact.assert_not_awaited();session.close.assert_awaited_once()
+        finally:worker.cancel();await asyncio.gather(worker,return_exceptions=True)
+
+    async def test_legacy_pending_check_gets_run_lease_but_terminal_checks_do_not_revive(self):
+        at=(datetime.now(tools.TZ)+timedelta(minutes=1)).isoformat()
+        tools.schedule({'action':'create','at':at,'mode':'check','name':'Legacy','prompt':'Observe'})
+        jobs=self.saved();job=jobs[0]
+        for key in ('task_state','task_deadline'):job.pop(key)
+        job['next_run_at']=datetime.now(tools.TZ).isoformat();tools.save_jobs(jobs)
+        claim=self.bot.claim_due()[0];self.assertIn('task_state',claim);self.assertIn('task_deadline',claim)
+        self.turn.cron=True;self.turn.job_id=claim['id'];self.turn.task_run=claim['last_run_at']
+        tools.schedule({'action':'note','state':'done','text':'Status verified'})
+        self.bot.finish_job(claim,'ok');self.assertFalse(self.bot.claim_due())
+        self.assertEqual(self.saved()[0]['task_state'],'done')
+        with self.assertRaises(InterruptedError):tools.schedule({'action':'defer','after_seconds':1,'prompt':'Do not revive'})
+
+    async def test_stop_revokes_one_shot_read_only_continuation(self):
+        at=(datetime.now(tools.TZ)+timedelta(minutes=1)).isoformat()
+        tools.schedule({'action':'create','at':at,'mode':'check','name':'Check','prompt':'Observe'})
+        tools.cancel_deferred('77');self.assertFalse(self.saved()[0]['enabled']);self.assertEqual(self.saved()[0]['task_state'],'blocked')
 
     async def test_expired_owner_task_has_no_tool_authority(self):
         self.turn.task_deadline=time.time()-1
@@ -217,7 +360,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.saved()[0]['last_status'],'task_expired')
 
     async def test_scheduled_task_has_tools_and_can_execute_requested_followup(self):
-        from evo_bot.integrations import remote, codex
+        from evo_bot.integrations import remote, codex, coding
         actions=[]
         async def prompt(text,turn,images):
             self.assertFalse(turn.cron)
@@ -225,9 +368,10 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(context.owner_message(),turn)
             self.assertTrue(turn.task_deadline > time.time())
             self.assertIn('remote_control',{d['name'] for d in self.bot.registry.definitions(turn.cron)})
-            await self.bot.registry.call('remote_control',{'instance':'desktop','protocol':'codex',
-                'action':'exec','args':{'command':['SYNTHETIC-NO-EXECUTION']}},turn)
+            await self.bot.registry.call('_pi_exec',{'instance':'desktop',
+                'command':'SYNTHETIC-NO-EXECUTION'},turn)
             actions.append('followup')
+            tools.schedule({'action': 'note', 'state': 'done', 'text': 'Requested followup verified'})
             return 'completed'
         session=self.worker_environment(prompt)
         session.key='task:fixture'
@@ -236,6 +380,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
         claim=self.bot.claim_due()[0]
         with patch.object(remote,'catalog',return_value={'defaults':{'codex':'desktop'},
                 'instances':[{'id':'desktop','protocols':['codex']}]}), \
+             patch.object(coding,'windows_backend',return_value=True), \
              patch.object(codex,'windows_exec',return_value={'exit_code':0}) as execute, \
              patch.object(gateway,'context_footer',AsyncMock(return_value='')):
             worker=asyncio.create_task(self.bot.work_loop())
@@ -245,7 +390,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(actions,['followup'])
                 execute.assert_called_once()
                 self.assertEqual(self.saved()[0]['last_status'],'ok')
-                session.close.assert_awaited_once()
+                session.close.assert_not_awaited()  # Same channel session; compact controls continuity.
             finally:
                 worker.cancel(); await asyncio.gather(worker,return_exceptions=True)
 
@@ -312,9 +457,10 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             elif text.endswith('Codex callback'):
                 calls.append('codex')
                 self.assertTrue(turn.deferred)
-            elif text.endswith('Timer task'):
+            elif 'Timer task' in text:
                 calls.append('timer')
                 self.assertTrue(turn.deferred)
+                tools.schedule({'action': 'note', 'state': 'done', 'text': 'Timer task verified'})
             else:
                 self.fail('Unexpected worker prompt: '+text)
             return 'done'

@@ -1,5 +1,6 @@
 """Constrained host tools and native Discord controls; no access to shell or credentials."""
 import asyncio
+import base64
 import json
 from pathlib import Path
 import socket
@@ -18,7 +19,7 @@ def owner_present():
 
 def admin(payload):
     with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as connection:
-        connection.settimeout(5)
+        connection.settimeout(30 if payload.get('action')=='share' else 5)
         connection.connect('/run/evo-access/admin.sock')
         connection.sendall((json.dumps(payload)+'\n').encode())
         output=bytearray()
@@ -129,11 +130,14 @@ def temp_text(result):
 
 def panel_text(state):
     session=state.get('session')
-    mode='API' if state.get('mode')=='api' else 'Web UI'
+    mode={'api':'API','web':'Web UI','upload':'파일 업로드'}.get(state.get('mode'),'미선택')
+    files=state.get('downloads',[])
+    if not session and files:
+        return f'**EVO 접속 · 🟢 파일 공유 중**\n다운로드 {len(files)}개 · RAM 임시 보관 · 각 링크 만료 시 삭제\n파일 링크 버튼에서 확인 · 닫기로 모두 종료'
     if not session:
-        return f'**EVO 접속 · 🔴 닫힘**\n모드 {mode} · 13077 닫힘 · 키 유지\nAPI / Web UI를 선택하면 3시간 열립니다.'
+        return f'**EVO 접속 · 🔴 닫힘**\n모드 {mode} · 13077 닫힘 · 키 유지\nAPI / Web UI 3시간 · 파일 업로드 2시간'
     expiry=int(session['expires_at'])
-    return f"**EVO 접속 · 🟢 열림**\n모드 {mode} · 13077\n만료 <t:{expiry}:t> · <t:{expiry}:R>"
+    return f"**EVO 접속 · 🟢 열림**\n모드 {mode} · 13077\n만료 <t:{expiry}:t> · <t:{expiry}:R>" + (f'\n공유 파일 {len(files)}개 · 파일 링크 버튼에서 확인' if files else '')
 
 def access_log_text(result):
     records=result.get('records',[])[-6:]
@@ -149,6 +153,7 @@ def access_log_text(result):
     return '\n'.join(rows)
 
 def credential_text(result):
+    if result.get('mode')=='upload': return web_link_text(result)
     session=result.get('session')
     timer=f"만료 <t:{session['expires_at']}:F> · <t:{session['expires_at']}:R>" if session else '접속 닫힘 · Web UI 또는 Refresh를 누르면 열립니다.'
     url=result.get('web_url') or ('외부주소:13077'+result['web_path'])
@@ -163,14 +168,23 @@ async def private_credentials(result):
     await user.send(credential_text(result),view=VIEW_CLASS())
 
 def web_link_text(result):
+    if 'files' in result:
+        import discord
+        return '\n'.join(f"[{discord.utils.escape_markdown(f['name'])}]({f['url']}) · 만료 <t:{f['expires_at']}:R>" for f in result['files']) or '공유 중인 파일이 없습니다.'
     session=result.get('session')
-    timer=f"만료 <t:{session['expires_at']}:F> · <t:{session['expires_at']}:R>" if session else '접속 닫힘 · Web UI 버튼으로 열어주세요.'
+    timer=f"만료 <t:{session['expires_at']}:F> · <t:{session['expires_at']}:R>" if session else '접속 닫힘 · /access에서 다시 열어주세요.'
+    if result.get('mode')=='upload':
+        return f"[파일 업로드 열기]({result['upload_url']})\n{timer}\nEVO `/workspace/uploads` · 파일당 2 GiB · 만료 후에도 받은 파일은 유지됩니다. 이 링크는 업로드 전용입니다."
     return f"[웹 채팅 열기]({result['web_url']})\n{timer}"
 
 def web_link_view(result):
     import discord
     view=discord.ui.View(timeout=300)
-    view.add_item(discord.ui.Button(label='웹 채팅 열기 · 자동 로그인',style=discord.ButtonStyle.link,url=result['web_url']))
+    if 'files' in result:
+        for f in result['files']: view.add_item(discord.ui.Button(label=f['name'][:80],style=discord.ButtonStyle.link,url=f['url']))
+        return view
+    upload=result.get('mode')=='upload'
+    view.add_item(discord.ui.Button(label='파일 업로드 열기' if upload else '웹 채팅 열기 · 자동 로그인',style=discord.ButtonStyle.link,url=result['upload_url'] if upload else result['web_url']))
     return view
 
 async def private_web_link(result):
@@ -181,17 +195,37 @@ async def private_web_link(result):
 def manage(args,**kwargs):
     if not owner_present(): return json.dumps({'success':False,'error':'Only the Discord owner can manage external access'})
     action=args.get('action','status')
-    if action not in ('issue','refresh','select','extend','adjust','expire','status'): return json.dumps({'success':False,'error':'Unknown action'})
+    if action not in ('issue','refresh','select','extend','adjust','expire','status','share','downloads'): return json.dumps({'success':False,'error':'Unknown action'})
+    if action in ('share','downloads'):
+        try:
+            if action=='share':
+                from . import coding, remote_files
+                from .. import remote_file_worker as worker
+                if set(args)-{'action','path','instance','minutes'}: raise ValueError('share accepts path, optional instance and minutes')
+                path=args.get('path')
+                if not isinstance(path,str) or not 1<=len(path)<=4096 or '\0' in path: raise ValueError('A file path is required')
+                raw=(base64.b64decode(coding.file_io({'instance':args['instance'],'action':'read','path':path})['data'],validate=True)
+                     if 'instance' in args else worker.read_bytes(remote_files.local_path(path)))
+                if not owner_present(): raise InterruptedError('File sharing interrupted before opening a link')
+                result=admin({'action':'share','name':Path(path.replace('\\','/')).name,
+                              'data':base64.b64encode(raw).decode(),'minutes':args.get('minutes',120)})
+            else: result=admin({'action':'downloads'})
+            if not result.get('success'): raise ValueError(result.get('error','File sharing failed'))
+            metadata=[{k:f[k] for k in ('name','bytes','expires_at')} for f in result['files']]
+            try: asyncio.run_coroutine_threadsafe(private_web_link(result),LOOP).result(timeout=12)
+            except Exception: return json.dumps({'success':False,'files':metadata,'error':'File links exist; delivery is uncertain. Use /access → 파일 링크; do not recreate the share.'},ensure_ascii=False)
+            return json.dumps({'success':True,'files':metadata,'link_delivered':'Discord owner DM'},ensure_ascii=False)
+        except Exception as error: return json.dumps({'success':False,'error':str(error)},ensure_ascii=False)
     if action in ('issue','extend'): action='refresh'
-    payload={'action':action,'minutes':args.get('minutes',180)}
+    payload={'action':action,'minutes':args.get('minutes',120 if args.get('mode')=='upload' else 180)}
     if args.get('mode') is not None: payload['mode']=args['mode']
     if args.get('delta_minutes') is not None: payload['delta_minutes']=args['delta_minutes']
     try:
         if action in ('expire','adjust'):
             state=admin({'action':'status'})
             credential=state.get('credential') or state.get('session')
-            if not credential: raise ValueError('No credential exists')
-            payload['session_id']=credential['id']
+            if not credential and not (action=='expire' and state.get('downloads')): raise ValueError('No credential exists')
+            if credential: payload['session_id']=credential['id']
         result=admin(payload)
         first_issue=bool(result.get('api_key'))
         if result.get('api_key'):
@@ -201,9 +235,9 @@ def manage(args,**kwargs):
             except Exception:
                 admin({'action':'discard_undelivered','session_id':result['session']['id']})
                 raise RuntimeError('First credential delivery failed; access was closed and the undelivered key discarded')
-            for key in ('api_key','web_path','web_url'): result.pop(key,None)
+            for key in ('api_key','web_path','web_url','upload_path','upload_url'): result.pop(key,None)
             result['credentials_delivered']='Discord owner DM'
-        if result.get('success') and action=='select' and args.get('mode')=='web' and not first_issue:
+        if result.get('success') and not first_issue and (action=='select' and args.get('mode')=='web' or result.get('mode')=='upload' and action in ('select','refresh')):
             credentials=admin({'action':'credentials'})
             if not credentials.get('success'): raise ValueError(credentials.get('error','Cannot read the connection link'))
             asyncio.run_coroutine_threadsafe(private_web_link(credentials),LOOP).result(timeout=12)
@@ -243,30 +277,34 @@ def discord_factory(native,adapter):
                 await interaction.response.send_message('오너만 사용할 수 있습니다.',ephemeral=True)
                 return False
             return True
-        async def perform(self,interaction,action,mode=None,delta_minutes=None):
+        async def perform(self,interaction,action,mode=None,delta_minutes=None,minutes=None):
             is_panel=bool(interaction.message and interaction.message.content.startswith(('**EVO 외부 접속','**EVO 접속')))
             # A component update edits an ephemeral panel through its interaction token.
             # Credential DMs instead receive a new private reply so their key is retained.
             await interaction.response.defer(ephemeral=True,thinking=not is_panel)
             try:
                 state=await asyncio.to_thread(admin,{'action':'status'})
-                payload={'action':action,'minutes':180}
+                if action=='downloads':
+                    result=await asyncio.to_thread(admin,{'action':'downloads'})
+                    await interaction.followup.send(content=web_link_text(result),view=web_link_view(result),ephemeral=True)
+                    return
+                payload={'action':action,'minutes':minutes if minutes is not None else 120 if (mode or state.get('mode'))=='upload' else 180}
                 if mode is not None: payload['mode']=mode
                 if delta_minutes is not None: payload['delta_minutes']=delta_minutes
                 if action in ('expire','adjust'):
                     credential=state.get('credential') or state.get('session')
-                    if not credential: raise ValueError('아직 발급된 키가 없습니다.')
-                    payload['session_id']=credential['id']
+                    if not credential and not (action=='expire' and state.get('downloads')): raise ValueError('아직 발급된 키가 없습니다.')
+                    if credential: payload['session_id']=credential['id']
                 result=await asyncio.to_thread(admin,payload)
                 text=panel_text(result)
                 reply_view=AccessView() if result.get('success') else None
-                if result.get('api_key'):
+                if result.get('api_key') and result.get('mode')!='upload':
                     try: await private_credentials(result)
                     except Exception:
                         await asyncio.to_thread(admin,{'action':'discard_undelivered','session_id':result['session']['id']})
                         raise RuntimeError('키 DM 전송 실패: 접속을 닫았습니다. DM을 허용한 뒤 다시 Refresh하세요.')
                     text+='\n최초 키는 오너 DM으로 보냈습니다. 이후 Refresh에서는 키를 바꾸지 않습니다.'
-                if result.get('success') and action=='select' and mode=='web':
+                if result.get('success') and (action=='select' and mode=='web' or result.get('mode')=='upload' and action in ('select','refresh')):
                     credentials=await asyncio.to_thread(admin,{'action':'credentials'})
                     if not credentials.get('success'): raise ValueError(credentials.get('error','접속 링크를 읽지 못했습니다.'))
                     text=web_link_text(credentials)
@@ -281,7 +319,7 @@ def discord_factory(native,adapter):
                     panel=panel_text(await asyncio.to_thread(admin,{'action':'status'}))
                     if not result.get('success'): panel+='\n'+text
                     await interaction.edit_original_response(content=panel,view=AccessView())
-                    if result.get('success') and action=='select':
+                    if result.get('success') and (action=='select' or result.get('mode')=='upload' and action=='refresh'):
                         await interaction.followup.send(content=text,view=(reply_view if reply_view is not None else discord.utils.MISSING),ephemeral=True)
                 else:
                     await interaction.edit_original_response(content=text,view=reply_view)
@@ -294,12 +332,16 @@ def discord_factory(native,adapter):
         async def api(self,interaction,button): await self.perform(interaction,'select','api')
         @discord.ui.button(label='Web UI',style=discord.ButtonStyle.primary,custom_id='evo_access_web',row=0)
         async def web(self,interaction,button): await self.perform(interaction,'select','web')
-        @discord.ui.button(label='Refresh · 3시간',style=discord.ButtonStyle.success,custom_id='evo_access_issue',row=1)
+        @discord.ui.button(label='업로드 · 2시간',style=discord.ButtonStyle.primary,custom_id='evo_access_upload',row=0)
+        async def upload(self,interaction,button): await self.perform(interaction,'refresh','upload',minutes=120)
+        @discord.ui.button(label='Refresh',style=discord.ButtonStyle.success,custom_id='evo_access_issue',row=1)
         async def refresh(self,interaction,button): await self.perform(interaction,'refresh')
         @discord.ui.button(label='닫기',style=discord.ButtonStyle.danger,custom_id='evo_access_expire',row=0)
         async def expire(self,interaction,button): await self.perform(interaction,'expire')
         @discord.ui.button(label='상태',style=discord.ButtonStyle.secondary,custom_id='evo_access_status',row=0)
         async def status(self,interaction,button): await self.perform(interaction,'status')
+        @discord.ui.button(label='파일 링크',style=discord.ButtonStyle.secondary,custom_id='evo_access_files',row=1)
+        async def files(self,interaction,button): await self.perform(interaction,'downloads')
         @discord.ui.button(label='−3시간',style=discord.ButtonStyle.secondary,custom_id='evo_access_minus',row=1)
         async def minus(self,interaction,button): await self.perform(interaction,'adjust',delta_minutes=-180)
         @discord.ui.button(label='+3시간',style=discord.ButtonStyle.secondary,custom_id='evo_access_plus',row=1)
@@ -314,7 +356,7 @@ def discord_factory(native,adapter):
         await interaction.response.defer(ephemeral=True,thinking=True)
         state=await asyncio.to_thread(admin,{'action':'status'})
         await interaction.edit_original_response(content=panel_text(state),view=AccessView())
-    native.tree.add_command(discord.app_commands.Command(name='access',description='API / 웹 접속 · 3시간 타이머',callback=native_access),override=True)
+    native.tree.add_command(discord.app_commands.Command(name='access',description='API·웹 접속 / 임시 파일 업로드·다운로드',callback=native_access),override=True)
     async def native_temp(interaction):
         if str(interaction.user.id)!=OWNER:
             await interaction.response.send_message('오너만 사용할 수 있습니다.',ephemeral=True)
@@ -331,7 +373,7 @@ def discord_factory(native,adapter):
         def __init__(self): super().__init__(timeout=None)
         async def interaction_check(self,interaction):
             return await AccessView().interaction_check(interaction)
-        @discord.ui.button(label='Refresh · 3시간',custom_id='evo_access_extend')
+        @discord.ui.button(label='Refresh',custom_id='evo_access_extend')
         async def refresh(self,interaction,button): await AccessView().perform(interaction,'refresh')
     native.add_view(LegacyExtendView())
     async def panel_watch():
@@ -365,10 +407,12 @@ def register(ctx):
     ctx.register_platform_handler('discord',discord_factory)
     ctx.register_tool('evo_access_manage','evo_access',{
         'name':'evo_access_manage',
-        'description':'Owner-requested access on port 13077 with one fixed random key across expiry and restarts. refresh resets the timer to minutes from now (default 180); issue and extend are aliases. select changes mode without changing an active timer, or opens for 180 minutes if closed. mode api exposes OpenAI chat/completion APIs only; web exposes the existing 8080 chat interface including its API routes. adjust adds delta_minutes (+180 or -180) to the timer; reducing it past now closes access. expire closes the port and connections but keeps the key. The first opening sends the key privately to the owner. status reads metadata. Never open, extend, or switch access unless explicitly requested by the owner.',
-        'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['refresh','select','adjust','issue','extend','expire','status']},
-            'minutes':{'type':'integer','minimum':1,'maximum':180,'default':180},
-            'mode':{'type':'string','enum':['api','web'],'description':'Omit to retain the current mode.'},
+        'description':'Manage /access on port 13077, only when owner-requested. share gives a file download link (RAM only, default 120 minutes, max 16MiB); path is /workspace unless instance selects a remote server. downloads re-delivers existing file links. Links/keys go privately to the owner. refresh opens API/web for 180 minutes or upload for 120; select changes mode without extending. Upload receives into /workspace/uploads (2GiB/file). expire closes access and deletes shared RAM copies, preserving received files and the fixed API key. status reads metadata; adjust adds delta_minutes.',
+        'parameters':{'type':'object','properties':{'action':{'type':'string','enum':['refresh','select','adjust','issue','extend','expire','status','share','downloads']},
+            'path':{'type':'string','maxLength':4096,'description':'Required for share.'},
+            'instance':{'type':'string','maxLength':48,'description':'For share only; omit for EVO /workspace.'},
+            'minutes':{'type':'integer','minimum':1,'maximum':180},
+            'mode':{'type':'string','enum':['api','web','upload'],'description':'Omit to retain mode. Use refresh + upload for a 2-hour upload-only link.'},
             'delta_minutes':{'type':'integer','enum':[-180,180],'description':'Required for adjust: remove or add three hours.'}},'required':['action']}},manage)
     ctx.register_tool('evo_system_status','evo_access',{
         'name':'evo_system_status','description':'Read EVO temperatures, physical RAM inventory (if available), kernel-managed RAM, GPU carveout/GTT, available RAM, system/model swap and limits, last-applied power profile, current CPU policy and model/access status. Missing measurements are unknown. Infrastructure status only; conversation history is not inspected. Read-only; no root approval or inference.',

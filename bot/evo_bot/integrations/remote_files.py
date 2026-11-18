@@ -93,7 +93,8 @@ def transfer(args):
     name = args['instance']
     servers = ssh.configuration()['servers']
     if name not in servers:
-        raise ValueError('Unknown SSH instance; use remote_control action=list')
+        raise ValueError('file_transfer supports SSH instances only: '+(', '.join(sorted(servers)) or 'none')
+                         + '. Desktop/Codex targets support text read/write, not this binary transfer tool.')
     req = {k: v for k, v in args.items() if k not in ('instance', 'local_path')}
     req['_expected'] = None  # Uploads create a new destination; text edits belong to Pi.
     dest = None
@@ -128,11 +129,12 @@ def register(ctx):
     ctx.register_tool('file_transfer', 'evo_ssh_files', {
         'name': 'file_transfer',
         'description': 'Upload/download a file between /workspace (local_path) and an SSH instance (path). '
+            'SSH targets only; desktop/Codex targets use read/write with instance. '
             '16MiB maximum; bytes stay out of chat. Download requires a new local_path. '
             'Upload requires a new remote path. Use read/write/edit for text files.',
         'parameters': {'type': 'object', 'properties': {
             'instance': {'type': 'string', 'maxLength': 48},
             'action': {'type': 'string', 'enum': ['upload', 'download']},
             'path': {'type': 'string', 'maxLength': 4096},
-            'local_path': {'type': 'string'},
+            'local_path': {'type': 'string','description':'EVO /workspace/filename; the selected server path belongs in path.'},
             }, 'required': ['instance', 'action', 'path', 'local_path'], 'additionalProperties': False}}, transfer)

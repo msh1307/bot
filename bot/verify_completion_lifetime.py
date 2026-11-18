@@ -2,7 +2,7 @@
 import asyncio
 import sys
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from evo_bot import context
 from evo_bot.integrations import codex
@@ -11,6 +11,8 @@ from evo_bot.rpc import PiSession
 
 def bridge():
     b = codex.Bridge.__new__(codex.Bridge)
+    b.server_id = 'verification'
+    b.rpc = AsyncMock(return_value={'data': []})
     b.action_lock = asyncio.Lock()
     b.jobs, b.desktop_monitors = {}, {}
     b.save = lambda: None
@@ -175,7 +177,7 @@ async def desktop_followup_monitor():
         try:
             ticks.put_nowait(None)
             await asyncio.wait_for(entered.wait(), 2)
-            await b.desktop_action({'action': 'send', 'thread_id': 'thread', 'prompt': 'followup'}, '77')
+            await b.desktop_action({'action': 'send', 'thread_id': 'thread', 'prompt': 'followup', 'wake': False}, '77')
             j['messages'] = {'answer': {'text': 'second answer', 'phase': 'final_answer'}}
             release.set()
             await real_sleep(0)

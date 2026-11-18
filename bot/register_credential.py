@@ -1,4 +1,6 @@
-"""Root-only account registration. Secret file references only; never plaintext arguments."""
+"""Root-only account registration. Keep private files in /var/lib/evo-bot/credentials;
+provide file references only, never plaintext arguments.
+"""
 import argparse
 import grp
 import json

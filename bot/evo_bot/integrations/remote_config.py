@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 CONFIG = Path('/etc/evo-bot/remote-control.json')
 PROTOCOLS = {'ssh', 'rdp', 'codex'}
+ROOT_GATES = ('notify_only', 'approval_card')
 
 
 def document(path=CONFIG):
@@ -22,11 +23,15 @@ def document(path=CONFIG):
 
 
 def validate(data):
-    if (set(data) - {'defaults', 'instances', 'accounts', 'browser'}
+    if (set(data) - {'defaults', 'instances', 'accounts', 'browser', 'host'}
             or not isinstance(data.get('instances'), dict)
             or not isinstance(data.get('defaults', {}), dict)
             or set(data.get('defaults', {})) - PROTOCOLS):
         raise ValueError('Remote configuration uses defaults, instances and accounts')
+    host_policy = data.get('host', {})
+    if (not isinstance(host_policy, dict) or set(host_policy) - {'root_gate'}
+            or host_policy.get('root_gate', 'approval_card') not in ROOT_GATES):
+        raise ValueError('host.root_gate must be approval_card or notify_only')
     for ident, entry in data['instances'].items():
         if (not isinstance(ident, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,48}', ident)
                 or not isinstance(entry, dict) or set(entry) - {'host', 'name', *PROTOCOLS}
@@ -37,6 +42,8 @@ def validate(data):
             if (not isinstance(settings, dict) or type(settings.get('enabled', True)) is not bool
                     or set(settings) & {'host', 'name', 'password', 'private_key', 'token'}):
                 raise ValueError('Protocol settings use file references; host/name belong to the instance')
+            if protocol == 'ssh' and settings.get('root_gate', 'notify_only') not in ROOT_GATES:
+                raise ValueError('ssh.root_gate must be notify_only or approval_card')
             if protocol in ('ssh', 'rdp') and (not isinstance(entry.get('host'), str)
                     or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9.:-]{0,252}', entry['host'])):
                 raise ValueError('SSH/RDP instances require a valid host')
@@ -87,3 +94,8 @@ def protocol(name, path=CONFIG):
     if name == 'rdp':
         value['enabled'] = bool(servers)
     return value
+
+
+def host_root_gate(path=CONFIG):
+    data = document(path)
+    return data.get('host', {}).get('root_gate', 'approval_card') if data else 'approval_card'

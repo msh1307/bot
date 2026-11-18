@@ -199,6 +199,50 @@ class OracleTests(unittest.IsolatedAsyncioTestCase):
 
 
 class DesktopTests(unittest.IsolatedAsyncioTestCase):
+    async def test_exec_limits_preserve_argv_and_native_approval_policy(self):
+        b = codex.Bridge.__new__(codex.Bridge)
+        b.rpc = AsyncMock(return_value={'exitCode': 0, 'stdout': 'done', 'stderr': ''})
+        for supplied, expected in (({}, 600000), ({'timeout_ms': 180000}, 180000),
+                                   ({'timeout_ms': 600000}, 600000)):
+            result = await b.files_or_command({'action': 'exec', 'command': ['echo', 'done'], **supplied})
+            self.assertEqual(result['exit_code'], 0)
+            self.assertEqual(b.rpc.call_args.args, ('command/exec', {'command': ['echo', 'done'], 'timeoutMs': expected}))
+        b.rpc.reset_mock()
+        for value in (99, 600001, True, '60000'):
+            with self.assertRaises(ValueError):
+                await b.files_or_command({'action': 'exec', 'command': ['echo', 'done'], 'timeout_ms': value})
+        b.rpc.assert_not_awaited()
+
+    async def test_exec_rpc_wait_budget_exceeds_command_limit_without_replay(self):
+        b = codex.Bridge.__new__(codex.Bridge)
+        b.pending = {}; b.counter = 0
+        async def send(raw):
+            b.pending[json.loads(raw)['id']].set_result({'exitCode': 0})
+        b.ws = SimpleNamespace(send=AsyncMock(side_effect=send))
+        wait_for = asyncio.wait_for
+        budgets = []
+        async def observed_wait(awaitable, timeout):
+            budgets.append(timeout)
+            return await wait_for(awaitable, timeout)
+        with patch.object(codex.asyncio, 'wait_for', side_effect=observed_wait):
+            await b.rpc('command/exec', {'timeoutMs': 600000}, connected=True)
+            await b.rpc('thread/list', {}, connected=True)
+        self.assertEqual(budgets, [610, 25])
+        self.assertEqual(b.ws.send.await_count, 2)
+        self.assertFalse(b.pending)
+
+    async def test_handshake_timeout_is_preconnection_and_never_replayed(self):
+        from unittest.mock import AsyncMock
+        b=codex.Bridge.__new__(codex.Bridge)
+        b.settings={'ca':'unused','url':'wss://fixture.invalid','token':'private-fixture-token'}
+        connect=AsyncMock(side_effect=TimeoutError('timed out during opening handshake'))
+        with patch('ssl.create_default_context',return_value=SimpleNamespace()), \
+             patch('websockets.asyncio.client.connect',connect):
+            with self.assertRaisesRegex(ConnectionError,'before connection; request was not sent') as error:
+                await b.open_ws()
+        connect.assert_awaited_once()
+        self.assertNotIn('private-fixture-token',str(error.exception))
+
     async def test_cancel_initialization_closes_socket_and_reader(self):
         b = codex.Bridge.__new__(codex.Bridge)
         b.ws = None; b.initialized = False; b.connect_lock = asyncio.Lock()
@@ -218,6 +262,34 @@ class DesktopTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError): await task
         self.assertTrue(closed); self.assertIsNone(b.ws)
         self.assertFalse(b.initialized); self.assertTrue(b.reader.done())
+
+
+class ToolBudgetTests(unittest.TestCase):
+    def test_long_exec_outer_deadline_does_not_cut_off_the_rpc(self):
+        client = SimpleNamespace(is_ready=lambda: True)
+        loop = SimpleNamespace(is_running=lambda: True)
+        bridge = SimpleNamespace(action=AsyncMock(), server_id='desktop')
+        budgets = []
+        def result(timeout):
+            budgets.append(timeout)
+            return {'exit_code': 0}
+        future = SimpleNamespace(result=result, cancel=lambda: None)
+        def submit(coroutine, target):
+            coroutine.close()
+            self.assertIs(target, loop)
+            return future
+        token = context.current.set(context.Turn('77'))
+        try:
+            with patch.object(context, 'client', client), patch.object(codex, 'CLIENT', client), \
+                    patch.object(codex, 'LOOP', loop), patch.object(codex, 'SERVERS', {'desktop': bridge}), \
+                    patch.object(codex, 'select_server', return_value=bridge), \
+                    patch.object(codex.asyncio, 'run_coroutine_threadsafe', side_effect=submit):
+                reply = json.loads(codex.codex_task({'action': 'exec', 'command': ['echo', 'done'],
+                                                    'timeout_ms': 600000}))
+            self.assertTrue(reply['success'])
+            self.assertEqual(budgets, [630])
+        finally:
+            context.current.reset(token)
 
 
 class WireTests(unittest.TestCase):

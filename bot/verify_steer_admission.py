@@ -61,8 +61,8 @@ class Admission(unittest.IsolatedAsyncioTestCase):
             bridge.arm_callback(job, {}, '77')
         finally:
             context.current.reset(token)
-        self.assertIn('long', job['_task_prompt'])
-        self.assertIn('ADD', job['_task_prompt'])
+        self.assertNotIn('_task_prompt', job)
+        self.assertEqual(job['_callback_scope'], self.bot.codex_callback_scope('77'))
 
     async def test_queue_full_is_explicit_without_stop_or_replay(self):
         self.bot.fake.steer_reply = RuntimeError('Additional input queue is full (16)')

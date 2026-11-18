@@ -41,6 +41,7 @@ def known_values():
         if path in otp_paths:
             import time
             values.extend(credential_input.totp(value, time.time() + n * 30) for n in (-1, 0, 1))
+    values.extend(credential_input.otp_sensitive_values())
     return [fold(v) for v in values if isinstance(v, str) and fold(v)]
 
 

@@ -2,6 +2,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 from pathlib import Path
 import socket
 import threading
@@ -15,6 +16,7 @@ CLIENT = LOOP = None
 HOST_LOCK = threading.Lock()
 ROOT_REFUSALS = OrderedDict()
 ROOT_EXECUTIONS = OrderedDict()
+LOG = logging.getLogger(__name__)
 
 
 def root_turn_refused(session_key, turn_id):
@@ -48,14 +50,14 @@ def result(value):
     return json.dumps(value, ensure_ascii=False)
 
 
-def rpc(payload, interrupted=None):
+def rpc(payload, interrupted=None, *, timeout=135):
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
         peer.settimeout(3)
         peer.connect(SOCKET)
         peer.sendall((json.dumps(payload, ensure_ascii=False) + '\n').encode('utf-8'))
         peer.settimeout(0.5)
         body = bytearray()
-        deadline = time.monotonic() + 135
+        deadline = time.monotonic() + timeout
         while b'\n' not in body:
             if interrupted is not None and interrupted():
                 raise InterruptedError('Host command cancelled')
@@ -88,6 +90,7 @@ async def post_root_approval(data, session_key, chat_id):
     import discord
     from .. import context as approval
     from ..context import redact_sensitive_text as _redact_approval_command
+    not_run = 'password was not disclosed.' if data.get('kind') == 'credential_read' else 'command was not run.'
 
     class RootApprovalView(discord.ui.View):
         def __init__(self):
@@ -120,7 +123,7 @@ async def post_root_approval(data, session_key, chat_id):
             count = approval.resolve_approval(session_key, choice,
                                                        request_id=data['request_id'])
             label = ('Approved once.' if choice == 'once' else 'Denied.') if count \
-                    else 'Expired or cancelled; command was not run.'
+                    else 'Expired or cancelled; ' + not_run
             await self.finish(label)
 
         @discord.ui.button(label='Allow Once', style=discord.ButtonStyle.green)
@@ -133,11 +136,11 @@ async def post_root_approval(data, session_key, chat_id):
 
         async def on_timeout(self):
             approval.withdraw_approval(session_key, data['request_id'])
-            await self.finish('Expired; command was not run.')
+            await self.finish('Expired; ' + not_run)
 
     command = _redact_approval_command(data['command']).replace('```', "'''")
     reason = _redact_approval_command(data['description']).replace('```', "'''")
-    title = data.get('title', 'Root command — approve this execution only')
+    title = data.get('title', 'Root approval')
     preview = '**' + title + '**\n```bash\n' \
               + command + '\n```\n' + reason[:220]
     if len(preview) > 1850:
@@ -164,7 +167,7 @@ def approve_once(turn, command, description, execution_key, kind='root'):
                     error='Approval was denied or expired this turn. Wait for a new owner message.')
     if execution_key in ROOT_EXECUTIONS:
         return dict(success=False, retryable=False, approval_status='duplicate_execution',
-                    error='This approved action already executed this turn. Use its existing result.')
+                    error='Already executed this turn; use the existing result.')
     root_view = None
 
     def notify(data):
@@ -179,10 +182,13 @@ def approve_once(turn, command, description, execution_key, kind='root'):
     data = {'command': command, 'description': description}
     if kind == 'credential':
         data['title'] = 'Secret entry — approve this input only'
+    elif kind == 'credential_read':
+        data.update(kind=kind, title='비밀번호 공개 — 이번 조회만 승인')
     decision = wait_for_approval(turn.key, notify, data)
     approved = decision.get('resolved') and decision.get('choice') == 'once' and not decision.get('cancelled')
     if root_view is not None:
-        label = 'Approved once.' if approved else 'Not approved; command was not run.'
+        label = 'Approved once.' if approved else ('Not approved; password was not disclosed.'
+                    if kind == 'credential_read' else 'Not approved; command was not run.')
         update = asyncio.run_coroutine_threadsafe(root_view.finish(label), LOOP)
         try:
             update.result(timeout=5)
@@ -192,7 +198,7 @@ def approve_once(turn, command, description, execution_key, kind='root'):
     if not approved:
         remember_root_refusal(refusal_key, turn.id)
         return dict(success=False, retryable=False, approval_status='denied_or_expired',
-                    error='Not approved; no action ran. Wait for a new owner message before requesting approval again.')
+                    error='Not approved; command not run. Wait for a new owner message.')
     if turn.cancelled.is_set() or not discord_connected():
         return dict(success=False, error='Approved action cancelled before execution')
     return None
@@ -200,6 +206,42 @@ def approve_once(turn, command, description, execution_key, kind='root'):
 
 def approve_root_once(turn, command, description, execution_key):
     return approve_once(turn, command, description, execution_key)
+
+
+def root_gate_policy():
+    from . import remote_config
+    return remote_config.host_root_gate()
+
+
+def root_summary(scope, status, reason, command):
+    reason = ' '.join(str(reason).split())
+    command = ' '.join(str(command).split())
+    if len(reason) > 80:
+        reason = reason[:80] + f'…(+{len(reason) - 80}자)'
+    if len(command) > 200:
+        command = command[:200] + f'…(+{len(command) - 200}자)'
+    return f'[{scope}] {status} | {reason} | {command}'
+
+
+async def _post_root_notice(turn, message):
+    import discord
+    from ..context import redact_sensitive_text
+    channel = CLIENT.get_channel(int(turn.channel)) or await CLIENT.fetch_channel(int(turn.channel))
+    return await channel.send(redact_sensitive_text(message),
+                              allowed_mentions=discord.AllowedMentions.none())
+
+
+def notify_root(turn, message):
+    if not discord_connected():
+        raise InterruptedError('Discord disconnected before root notice')
+    future = asyncio.run_coroutine_threadsafe(_post_root_notice(turn, message), LOOP)
+    try:
+        delivered = future.result(timeout=15)
+        LOG.info('root_notice_sent message_id=%s', getattr(delivered, 'id', None))
+        return delivered
+    except Exception:
+        future.cancel()
+        raise
 
 
 def host_command(args, **kwargs):
@@ -221,38 +263,49 @@ def host_command(args, **kwargs):
         if turn is None:
             return result(dict(success=False, error='No live Discord owner session'))
         session_key, turn_id = turn.key, turn.id
+        root_gate = root_gate_policy() if args.get('run_as', 'evo-bot') == 'root' else None
         if args.get('run_as', 'evo-bot') == 'root':
             if not turn_id:
                 return result(dict(success=False, retryable=False,
                     error='Root execution requires a live user turn identifier'))
-            if root_turn_refused(session_key, turn_id):
+            if root_gate == 'approval_card' and root_turn_refused(session_key, turn_id):
                 return result(dict(success=False, retryable=False, approval_status='refused_this_turn',
-                    error='Root approval was denied or expired this turn. No command ran. '
-                          'Do not request root again until a new owner message. Sandbox work is still available.'))
+                    error='Root approval denied or expired; command not run. Wait for a new owner message.'))
         payload = {key: args[key] for key in ('command', 'reason', 'cwd', 'run_as', 'timeout')
                    if key in args}
         ticket = rpc(dict(action='stage', payload=payload))
         if not ticket.get('success'):
             return result(ticket)
-        # Root always asks the live owner. Do not consult YOLO, session grants,
-        # saved patterns, or an automatic reviewer for this privileged path.
         if ticket['payload']['run_as'] == 'root':
             execution_key = root_command_key(session_key, turn_id, ticket['payload'])
-            refusal = approve_root_once(turn,
-                '# EVO root; cwd=' + ticket['payload']['cwd'] + '\n' + ticket['payload']['command'],
-                'Root access: ' + ticket['payload']['reason'] + ' (this command only)', execution_key)
-            if refusal:
-                return result(refusal)
+            if root_gate == 'approval_card':
+                refusal = approve_root_once(turn,
+                    '# EVO root; cwd=' + ticket['payload']['cwd'] + '\n' + ticket['payload']['command'],
+                    'Reason: ' + ticket['payload']['reason'], execution_key)
+                if refusal:
+                    return result(refusal)
+            elif execution_key in ROOT_EXECUTIONS:
+                return result(dict(success=False, retryable=False,
+                                   error='This root command already executed this turn.'))
         def cancelled():
             return is_interrupted() or not discord_connected()
         if cancelled():
             return result(dict(success=False, error='Host command cancelled before execution'))
         if ticket['payload']['run_as'] == 'root':
             remember_root_execution(execution_key)
+        executed_payload = ticket['payload']
         answer = rpc(dict(action='execute', request_id=ticket['request_id'],
-                          token=ticket['token'], digest=ticket['digest']), cancelled)
+                          token=ticket['token'], digest=ticket['digest']), cancelled,
+                     timeout=ticket['payload']['timeout'] + 15)
         ticket = None  # Consumed atomically before execution, including failures.
         answer['output'] = redact_sensitive_text(answer.get('output', ''))
+        if executed_payload['run_as'] == 'root' and root_gate == 'notify_only':
+            try:
+                notify_root(turn, root_summary('host', f"exit={answer.get('exit_code')}",
+                                               executed_payload['reason'], executed_payload['command']))
+            except Exception:
+                LOG.exception('host_root_notice_failed turn=%s', turn_id)
+                answer['discord_notice'] = 'delivery_failed_after_execution; do_not_retry'
         return result(answer)
     except Exception as error:
         return result(dict(success=False, error=str(error)[:250]))

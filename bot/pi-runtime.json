@@ -1,11 +1,12 @@
 {
   "package": "@earendil-works/pi-coding-agent",
-  "version": "1.4.0",
-  "upstream": "https://github.com/earendil-works/pi/releases/tag/v1.4.0",
-  "install_manifest": "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-coding-agent-install-package.json",
-  "install_manifest_sha256": "9792b34aba5a94320fde5c68600eac4a5720d0d63ebc527d462bd125665b29ee",
-  "install_lockfile": "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-coding-agent-install-package-lock.json",
-  "install_lockfile_sha256": "eb2c76ac270f099f2af3cbc6ccd08c3d22bf562b914af3690d1abba985461ade",
-  "install_directory": "/opt/evo-bot/bin/pi-1.4.0",
-  "upstream_modifications": false
+  "version": "1.5.2",
+  "upstream": "https://github.com/earendil-works/pi/releases/tag/v1.5.2",
+  "install_manifest": "https://github.com/earendil-works/pi/releases/download/v1.5.2/pi-coding-agent-install-package.json",
+  "install_manifest_sha256": "6c433244d03aa280f1aa298035ba59f54afd0c486566771ef83cc5aef318c4cc",
+  "install_lockfile": "https://github.com/earendil-works/pi/releases/download/v1.5.2/pi-coding-agent-install-package-lock.json",
+  "install_lockfile_sha256": "57e3b475e52f630cf903f73b0d2a02c405875af61ce4a845f481dcc798f58005",
+  "install_directory": "/opt/evo-bot/bin/pi-1.5.2",
+  "upstream_modifications": true,
+  "runtime_patches": ["patches/pi-compaction-summary.patch"]
 }

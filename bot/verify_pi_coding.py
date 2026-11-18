@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -61,22 +62,48 @@ class CodingChecks(unittest.TestCase):
         request = {'instance': 'fixture', 'command': 'id', 'root': True, 'reason': 'Owner test'}
         refusal = {'success': False, 'approval_status': 'denied_or_expired', 'error': 'Not approved'}
         with patch.object(ssh, 'remote_ssh', return_value=json.dumps(refusal)) as run:
-            with self.assertRaisesRegex(RuntimeError, 'Not approved'): coding.execute(request)
+            with self.assertRaisesRegex(PermissionError, 'Not approved'): coding.execute(request)
             self.assertEqual(run.call_args.args[0], {'instance': 'fixture', 'command': 'id',
-                'run_as': 'root', 'reason': 'Owner test', 'timeout': 60})
+                'run_as': 'root', 'reason': 'Owner test', 'timeout': 600})
     def test_host_uses_existing_broker(self):
         with patch.object(host, 'host_command', return_value='{"success":true,"exit_code":0,"output":"ok"}') as run:
             coding.execute({'instance': 'localhost', 'command': 'id'})
-            self.assertEqual(run.call_args.args[0], {'command': 'id', 'timeout': 60})
+            self.assertEqual(run.call_args.args[0], {'command': 'id', 'timeout': 600})
     def test_windows_default_and_no_elevation(self):
         with patch.dict(codex.SERVERS, {'fixture': object()}), \
              patch.object(codex, 'windows_exec', return_value='{"exit_code":0,"stdout":"ok"}') as run:
             coding.execute({'instance': 'fixture', 'command': 'Write-Output ok'})
-            self.assertEqual(run.call_args.args[0]['timeout_ms'], 15000)
+            self.assertEqual(run.call_args.args[0]['timeout_ms'], 600000)
             self.assertEqual(run.call_args.args[0]['command'][0], 'powershell.exe')
+            script = run.call_args.args[0]['command'][-1]
+            self.assertEqual(run.call_args.args[0]['command'][3], '-Command')
+            self.assertIn('PYTHONIOENCODING', script)
+            encoded = re.search(r"FromBase64String\('([^']+)'\)", script)[1]
+            self.assertEqual(base64.b64decode(encoded).decode('utf-16-le'), 'Write-Output ok')
             with self.assertRaisesRegex(ValueError, 'elevation'):
                 coding.execute({'instance': 'fixture', 'command': 'id', 'root': True, 'reason': 'test'})
             self.assertEqual(run.call_count, 1)
+    def test_windows_timeout_seconds_match_native_exec_limits(self):
+        with patch.dict(codex.SERVERS, {'fixture': object()}), \
+             patch.object(codex, 'windows_exec', return_value='{"exit_code":0,"stdout":"ok"}') as run:
+            result = coding.execute({'instance': 'fixture', 'command': 'Write-Output 한글', 'timeout': 600})
+            self.assertEqual(run.call_args.args[0]['timeout_ms'], 600000)
+            encoded = re.search(r"FromBase64String\('([^']+)'\)", run.call_args.args[0]['command'][-1])[1]
+            self.assertEqual(base64.b64decode(encoded).decode('utf-16-le'), 'Write-Output 한글')
+            self.assertEqual(result, {'exit_code': 0, 'output': 'ok', 'output_truncated': False})
+            run.reset_mock()
+            for timeout in (0, 601, True, '60', float('nan'), float('inf')):
+                with self.assertRaises(ValueError):
+                    coding.execute({'instance': 'fixture', 'command': 'Write-Output ok', 'timeout': timeout})
+            run.assert_not_called()
+    def test_instance_selects_native_shell_without_a_language_selector(self):
+        with patch.dict(codex.SERVERS, {'pc': object()}, clear=True), \
+             patch.object(codex, 'windows_exec', return_value={'exit_code':0, 'stdout':'ok'}) as windows:
+            coding.execute({'instance': 'pc', 'command': 'Write-Output ok'})
+            self.assertEqual(windows.call_args.args[0]['command'][0], 'powershell.exe')
+            with self.assertRaisesRegex(ValueError, 'Invalid coding request'):
+                coding.execute({'instance': 'pc', 'shell': 'powershell', 'command': 'no legacy selector'})
+            windows.assert_called_once()
     def test_nonzero_exit_is_preserved(self):
         self.assertEqual(coding.checked({'success': False, 'exit_code': 7})['exit_code'], 7)
     def test_legacy_tools_not_declared(self):
@@ -112,16 +139,19 @@ async def integration(root, report, live=False):
         STEPS.extend([('write', {'path': fixture, 'content': 'a = 41\n'}),
             ('edit', {'path': fixture, 'edits': [{'oldText': '41', 'newText': '42'}]}),
             ('read', {'path': fixture}),
-            ('bash', {'command': 'export PI_PROBE=42'}),
-            ('bash', {'command': 'test -z "$PI_PROBE" && echo ONE_SHOT_OK'}),
+            ('exec', {'command': 'export PI_PROBE=42'}),
+            ('exec', {'command': 'test -z "$PI_PROBE" && echo ONE_SHOT_OK'}),
             ('read', {'instance': 'no-such-instance', 'path': '/tmp/not-local'}),
-            ('bash', {'instance': 'n100', 'command': 'id', 'root': True})])
+            ('exec', {'instance': 'n100', 'command': 'id', 'root': True})])
         await session.prompt('Synthetic local routing and rejection checks.', context.Turn('77'))
         text = str([m['content'] for m in REQUESTS[-1]['messages'] if m['role'] == 'tool'])
         assert 'a = 42' in text and 'ONE_SHOT_OK' in text and 'Unknown instance' in text and 'requires' in text, [
             m for m in REQUESTS[-1]['messages'] if m['role'] == 'tool']
         results['local_native_edit_read_and_one_shot'] = True
         results['unknown_target_and_root_without_reason_rejected'] = True
+        names = {t['function']['name'] for t in REQUESTS[0]['tools']}
+        assert 'exec' in names and not names & {'bash', 'powershell'}
+        results['unified_exec_declared'] = True
         if live:
             import secrets
             marker = 'pi-wrapper-' + secrets.token_hex(8)
@@ -139,7 +169,7 @@ async def integration(root, report, live=False):
                     ('read', {'instance': ident, 'path': path})])
                 shell = ("[Console]::Write('PI_EXEC_OK'); Get-Content -LiteralPath '"+path+"'" if ident == 'desktop'
                          else 'printf PI_EXEC_OK; cat '+path)
-                STEPS.append(('bash', {'instance': ident, 'command': shell}))
+                STEPS.append(('exec', {'instance': ident, 'command': shell}))
                 await session.prompt('Synthetic real transport fixture check.', context.Turn('77'))
                 text = str([m['content'] for m in REQUESTS[-1]['messages'] if m['role'] == 'tool'])
                 assert 'value = 42' in text and 'PI_EXEC_OK' in text, text[-5000:]

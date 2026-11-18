@@ -8,12 +8,14 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 from PIL import Image
 from evo_bot import context
 from evo_bot.integrations import rdp
 from evo_bot.integrations import credential_input as ci
 from evo_bot.rdp_worker import Desktop, DesktopError, chord, TrustedTLS, connect_verified
+from evo_bot import rdp_worker
 from asysocks.unicomm.common.connection import UniConnection
 from aardwolf.connection import RDPConnection
 from aardwolf.protocol.T125.extendedinfopacket import PERF
@@ -209,6 +211,42 @@ class WorkerChecks(unittest.IsolatedAsyncioTestCase):
             await self.action('click', server='other', x=1, y=1)
         self.assertFalse(self.conn.calls)
 
+    async def test_wait_needs_no_frame_and_returns_fresh_image_without_input(self):
+        self.desktop.frame = None
+        result = await self.desktop.call({'action': 'wait', 'server': 'test', 'seconds': 0})
+        self.assertTrue(self.desktop.frame)
+        self.assertEqual(result['content'][1]['type'], 'image')
+        self.assertFalse(self.conn.calls)
+
+    async def test_wait_detects_disconnect_without_sending_input(self):
+        self.conn.disconnected_evt.set()
+        with self.assertRaisesRegex(ConnectionError, 'disconnected'):
+            await self.desktop.call({'action': 'wait', 'server': 'test', 'seconds': 600})
+        self.assertFalse(self.conn.calls)
+
+    async def test_unsupported_key_does_not_consume_frame_or_send_focus(self):
+        frame = self.desktop.frame
+        with self.assertRaisesRegex(DesktopError, 'Unsupported key'):
+            await self.action('key', key='not-a-key')
+        self.assertEqual(self.desktop.frame, frame)
+        self.assertFalse(self.conn.calls)
+
+    async def test_worker_stale_frame_rejection_keeps_session_for_next_screenshot(self):
+        requests = [dict(id=1, params={'action': 'click', 'server': 'test', 'frame': 'expired', 'x': 0, 'y': 0}),
+                    dict(id=2, params={'action': 'screenshot', 'server': 'test'})]
+        source = io.BytesIO(('\n'.join(json.dumps(r) for r in requests) + '\n').encode())
+        output = io.StringIO()
+        with patch.object(rdp_worker, 'Desktop', return_value=self.desktop), \
+                patch.object(rdp_worker.sys, 'argv', ['worker', str(self.config)]), \
+                patch.object(rdp_worker.sys, 'stdin', SimpleNamespace(buffer=source)), \
+                patch.object(rdp_worker.sys, 'stdout', output), patch.object(rdp_worker.logging, 'disable'):
+            await rdp_worker.main()
+        first, second = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertTrue(first['recoverable'])
+        self.assertIn('Stale', first['error'])
+        self.assertEqual(second['result']['content'][1]['type'], 'image')
+        self.assertFalse(self.conn.calls)
+
 
 class AdapterChecks(unittest.TestCase):
     def test_owner_discord_only(self):
@@ -230,6 +268,40 @@ class AdapterChecks(unittest.TestCase):
                      {'action': 'secret_type', 'frame': 'x', 'text': 'raw'}):
             with self.assertRaises(ValueError):
                 rdp.validate(args)
+
+    def test_wait_bounds(self):
+        for seconds in (0, .01, 600):
+            rdp.validate({'action': 'wait', 'seconds': seconds})
+        for seconds in (-1, 601, True, None, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                rdp.validate({'action': 'wait', 'seconds': seconds})
+
+    def test_recoverable_worker_error_does_not_close_or_replay(self):
+        client = rdp.RemoteDesktop(); client.server = 'test'
+        with patch.object(rdp, 'configuration', return_value={'enabled': True, 'servers': {'test': {}}}), \
+                patch.object(client, 'running', return_value=True), patch.object(client, 'close') as close, \
+                patch.object(client, 'request', side_effect=rdp.RequestError('Stale RDP frame')) as request:
+            with self.assertRaises(rdp.RequestError):
+                client.call({'action': 'screenshot'}, context.Turn('123'))
+        close.assert_not_called(); request.assert_called_once()
+
+    def test_connection_fault_closes_without_replay(self):
+        client = rdp.RemoteDesktop(); client.server = 'test'
+        with patch.object(rdp, 'configuration', return_value={'enabled': True, 'servers': {'test': {}}}), \
+                patch.object(client, 'running', return_value=True), patch.object(client, 'close') as close, \
+                patch.object(client, 'request', side_effect=ConnectionError('Transport lost')) as request:
+            with self.assertRaises(ConnectionError):
+                client.call({'action': 'screenshot'}, context.Turn('123'))
+        close.assert_called_once(); request.assert_called_once()
+
+    def test_rdp_does_not_schedule_idle_disconnect(self):
+        client = rdp.RemoteDesktop(); client.server = 'test'
+        with patch.object(rdp, 'configuration', return_value={'enabled': True, 'servers': {'test': {}}}), \
+                patch.object(client, 'running', return_value=True), patch.object(client, 'close') as close, \
+                patch.object(client, 'request', return_value={'content': []}), \
+                patch.object(rdp.threading, 'Timer') as timer:
+            client.call({'action': 'screenshot'}, context.Turn('123'))
+        close.assert_not_called(); timer.assert_not_called()
 
     def test_lazy_status_and_disabled_connect_do_not_spawn(self):
         client = rdp.RemoteDesktop()

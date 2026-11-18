@@ -46,11 +46,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Server launcher compilation failed' }
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent().Name
 $trigger=New-ScheduledTaskTrigger -AtLogOn -User $identity
 $trigger.Delay='PT45S'
+$recovery=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $action=New-ScheduledTaskAction -Execute (Join-Path $serverRoot 'EvoCodexServer.exe')
 $principal=New-ScheduledTaskPrincipal -UserId $identity -LogonType Interactive -RunLevel Limited
 $taskSettings=New-ScheduledTaskSettingsSet -Hidden -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName 'EVO-Codex-Server' -Action $action -Trigger $trigger -Principal $principal `
+Register-ScheduledTask -TaskName 'EVO-Codex-Server' -Action $action -Trigger @($trigger,$recovery) -Principal $principal `
     -Settings $taskSettings -Description 'Authenticated TLS Codex app-server for the EVO owner Discord bot.' -Force | Out-Null
 Start-ScheduledTask -TaskName 'EVO-Codex-Server'
 Write-Output 'Installed quiet login server; TLS port 4500, authenticated loopback backend 4501.'

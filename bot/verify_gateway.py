@@ -87,7 +87,7 @@ async def main():
             patch.object(asyncio.get_running_loop(), 'add_signal_handler'):
         path.return_value.exists.return_value = False
         await gateway.main()
-        path.assert_called_once_with('/etc/evo-bot/gmail.json')
+        path.assert_called_once_with('/var/lib/evo-bot/credentials/gmail.json')
         fake.start.assert_awaited_once_with('SYNTHETIC_ONLY')
     print('PASS startup never reads retired remote configuration')
     for p in (Path(__file__).parent / 'evo_bot').rglob('*.py'):
@@ -156,6 +156,21 @@ async def main():
         assert b.fake.inputs.count('broken') == 1
         assert not worker.done()
         print('PASS broken transport is released without replaying the failed turn')
+        b.fake = Session()
+        b.models['77'] = b.fake.model
+        b.sessions['77'] = SimpleNamespace(parked=True, model=b.fake.model)
+        scope = b.codex_callback_scope('77')
+        assert b.enqueue_codex_callback('77', 'RESTORED-CALLBACK', scope, lambda: True, compact=False)
+        await asyncio.wait_for(b.queue.join(), 3)
+        assert 'Earlier conversation is available.' in b.fake.inputs[-1]
+        assert 'unavailable' not in b.fake.inputs[-1]
+        print('PASS parked conversation restoration is reported available to callbacks')
+        b.sessions.pop('77', None)
+        assert b.enqueue_codex_callback('77', 'FRESH-CALLBACK', scope, lambda: True, compact=False)
+        await asyncio.wait_for(b.queue.join(), 3)
+        assert 'Earlier conversation is unavailable.' in b.fake.inputs[-1]
+        assert 'ask for the task instructions before resuming work' in b.fake.inputs[-1]
+        print('PASS callback without conversation does not assume an old owner instruction')
         token = context.current.set(context.Turn('77', platform='web'))
         try:
             assert context.owner_message() is None and context.live_owner() is None

@@ -74,7 +74,7 @@ async def main():
             checks['all_schema_constraints_preserved'] = True
             checks['tool_count'] = len(captured['candidate'])
             assert {t['function']['name'] for t in captured['candidate']} == {
-                'read', 'grep', 'glob', 'edit', 'write', 'bash',
+                'read', 'grep', 'glob', 'edit', 'write', 'exec',
                 *(t['name'] for t in registry.definitions())}
             checks['user_input_present'] = any(t['function']['name'] == 'user_input' for t in captured['candidate'])
         (report / 'schemas.json').write_text(json.dumps(captured, ensure_ascii=False, indent=2))
