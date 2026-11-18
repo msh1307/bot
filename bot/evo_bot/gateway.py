@@ -362,13 +362,24 @@ class Bot(commands.Bot):
         with JOB_LOCK:
             jobs = load_jobs()
             changed = False
+            now = datetime.now(TZ)
             for job in jobs:
                 if job.get('continuation') and not job.get('task_deadline'):
                     job['mode'] = 'task'
                     job['task_deadline'] = datetime.fromisoformat(job['next_run_at']).timestamp() + 43200
                     changed = True
-                if job.pop('running', False):
+                was_running = job.get('running', False)
+                if (job['schedule']['kind'] == 'cron'
+                        and (was_running or job.get('enabled') and datetime.fromisoformat(job['next_run_at']) <= now)):
+                    job.update(running=False, last_status='skipped_after_restart')
+                    if job.get('enabled'):
+                        job['next_run_at'] = next_run(job).isoformat()
+                        if job.get('until') and datetime.fromisoformat(job['next_run_at']) > datetime.fromisoformat(job['until']):
+                            job['enabled'] = False
                     changed = True
+                elif was_running:
+                    changed = True
+                    job['running'] = False
                     job['last_status'] = 'interrupted_by_restart'
                     # Never replay a callback whose actions may already have run.
                     if job.get('continuation') or job.get('mode') == 'task':
@@ -768,6 +779,10 @@ class Bot(commands.Bot):
                             outcome = 'ok'
                         else:
                             outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
+            except asyncio.CancelledError:
+                if self.shutting_down and job and job['schedule']['kind'] == 'cron':
+                    outcome = 'skipped_after_restart'
+                raise
             except QueueExpired:
                 outcome = 'queue_expired'
                 await self.notify_queue_expired(item)
@@ -839,6 +854,11 @@ class Bot(commands.Bot):
                     job['next_run_at'] = claim['due_at']
                     if claim.get('wake_note'):
                         job['wake_note'] = '\n'.join(p for p in (claim['wake_note'], job.get('wake_note')) if p)[-8000:]
+                elif outcome == 'skipped_after_restart' and job['schedule']['kind'] == 'cron':
+                    if job.get('enabled'):
+                        job['next_run_at'] = next_run(job).isoformat()
+                        if job.get('until') and datetime.fromisoformat(job['next_run_at']) > datetime.fromisoformat(job['until']):
+                            job['enabled'] = False
                 elif 'task_state' in job:
                     warning = None
                     if outcome != 'ok' or not job.get('task_reported'):
@@ -931,16 +951,14 @@ class Bot(commands.Bot):
                         job.update(task_state='continue', task_reported=False)
                         job.pop('resume_at', None)
                         job.pop('reply_ids', None)
-                    if job['schedule']['kind'] == 'at':
-                        job['enabled'] = False
-                    else:
+                    if job['schedule']['kind'] != 'at':
                         job['next_run_at'] = next_run(job).isoformat()
                         if until and datetime.fromisoformat(job['next_run_at']) > until:
                             job['enabled'] = False
                         if (job.get('task_deadline') and datetime.fromisoformat(job['next_run_at']).timestamp()
                                 >= job['task_deadline']):
                             job['enabled'] = False
-                    due.append(dict(job, final_run=not job['enabled'], wake_note=wake_note))
+                    due.append(dict(job, final_run=job['schedule']['kind'] == 'at' or not job['enabled'], wake_note=wake_note))
                     changed = True
             if changed:
                 save_jobs(jobs)

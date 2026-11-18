@@ -540,7 +540,7 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             with patch.object(coding,'execute') as execute,self.assertRaises(PermissionError):
                 await self.bot.registry.call('_pi_exec',{'instance':'desktop','command':'SYNTHETIC'},turn)
             execute.assert_not_called()
-            self.assertFalse(self.saved()[0]['enabled']);self.assertTrue(self.saved()[0]['running'])
+            self.assertTrue(self.saved()[0]['enabled']);self.assertTrue(self.saved()[0]['running'])
             follow=tools.schedule({'action':'note','state':'waiting','after_seconds':600,'text':'Read same status again'})
             self.assertEqual(follow['job_id'],result['id']);calls.append(turn.task_deadline)
             return 'Still running'
@@ -553,6 +553,31 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(saved['enabled']);self.assertEqual(saved['task_deadline'],claim['task_deadline'])
             session.compact.assert_not_awaited();session.close.assert_awaited_once()
         finally:worker.cancel();await asyncio.gather(worker,return_exceptions=True)
+
+    async def test_shutdown_marks_cron_skipped_without_replaying_the_occurrence(self):
+        started = asyncio.Event()
+        async def prompt(text, turn, images):
+            started.set()
+            await asyncio.Event().wait()
+        self.worker_environment(prompt)
+        item = tools.schedule({'action': 'create', 'name': 'Daily', 'prompt': 'Read only', 'cron': '0 9 * * *'})
+        jobs = self.saved(); jobs[0]['next_run_at'] = datetime.now(tools.TZ).isoformat(); tools.save_jobs(jobs)
+        claim = self.bot.claim_due()[0]
+        worker = asyncio.create_task(self.bot.work_loop())
+        try:
+            self.bot.enqueue('77', claim['prompt'], [], claim)
+            await asyncio.wait_for(started.wait(), 2)
+            self.bot.shutting_down = True
+            worker.cancel(); await asyncio.gather(worker, return_exceptions=True)
+            job = next(j for j in self.saved() if j['id'] == item['id'])
+            self.assertEqual(job['last_status'], 'skipped_after_restart')
+            self.assertFalse(job['running'])
+            self.assertTrue(job['enabled'])
+            self.assertGreater(datetime.fromisoformat(job['next_run_at']), datetime.now(tools.TZ))
+            self.assertEqual(self.bot.claim_due(), [])
+        finally:
+            worker.cancel(); await asyncio.gather(worker, return_exceptions=True)
+            self.bot.shutting_down = False
 
     async def test_legacy_pending_check_gets_run_lease_but_terminal_checks_do_not_revive(self):
         at=(datetime.now(tools.TZ)+timedelta(minutes=1)).isoformat()

@@ -40,6 +40,76 @@ class ScheduleChecks(unittest.TestCase):
         self.assertEqual(self.read(ident)['note'], jobs[0]['note'])
         self.assertNotIn('prompt', self.call('list')['jobs'][0])
 
+    def test_running_list_and_read_keep_enabled_and_publish_saved_recheck(self):
+        ident = self.call('enqueue', prompt='Read existing progress')['id']
+        claim = Bot.claim_due()[0]
+        self.assertTrue(self.read(ident)['enabled'])
+        self.assertTrue(self.read(ident)['running'])
+        self.assertEqual(Bot.claim_due(), [])
+        self.turn.job_id, self.turn.task_run = ident, claim['last_run_at']
+        reply = self.call('note', state='waiting', after_seconds=600, text='Read again later')
+        read = self.read(ident)
+        listed = next(j for j in self.call('list')['jobs'] if j['id'] == ident)
+        for key in ('enabled', 'running', 'task_state', 'next_run_at'):
+            self.assertEqual(listed[key], read[key])
+        self.assertTrue(listed['enabled'])
+        self.assertEqual(listed['task_state'], 'waiting')
+        self.assertEqual(listed['next_run_at'], reply['next_run_at'])
+        self.assertEqual(read['resume_at'], reply['next_run_at'])
+        self.assertEqual(read['due_at'], claim['due_at'])
+        self.assertEqual(Bot.claim_due(), [])
+        Bot.finish_job(claim, 'ok')
+        self.assertFalse(self.read(ident)['running'])
+        self.assertEqual(Bot.claim_due(), [])
+
+    def test_metadata_edit_does_not_release_running_one_shot_for_replay(self):
+        ident = self.call('enqueue', prompt='Observe once')['id']
+        claim = Bot.claim_due()[0]
+        for changes in ({'name': 'Renamed'}, {'compact': False}, {'quiet': False}):
+            self.call('update', id=ident, **changes)
+            self.assertTrue(self.read(ident)['running'])
+            self.assertTrue(self.read(ident)['enabled'])
+            self.assertEqual(self.read(ident)['last_run_at'], claim['last_run_at'])
+            self.assertEqual(Bot.claim_due(), [])
+
+    def test_ordinary_note_has_no_implicit_task_and_points_to_defer(self):
+        before = tools.load_jobs()
+        with self.assertRaisesRegex(PermissionError, 'ordinary chat use defer'):
+            self.call('note', state='waiting', after_seconds=600, text='Wait for input')
+        self.assertEqual(tools.load_jobs(), before)
+        ident = self.call('defer', after_seconds=600, prompt='Recheck existing progress')['id']
+        self.assertEqual(self.read(ident)['task_state'], 'continue')
+        self.assertTrue(self.read(ident)['enabled'])
+
+    def test_cron_restart_skips_interrupted_or_missed_occurrence_without_replay(self):
+        for running in (True, False):
+            with self.subTest(running=running):
+                tools.save_jobs([])
+                ident = self.create()
+                jobs = tools.load_jobs()
+                jobs[0].update(running=running, last_status='ok',
+                               next_run_at=(datetime.now(tools.TZ) - timedelta(hours=1)).isoformat())
+                tools.save_jobs(jobs)
+                Bot.recover_schedules()
+                job = self.read(ident)
+                self.assertEqual(job['last_status'], 'skipped_after_restart')
+                self.assertFalse(job['running'])
+                self.assertTrue(job['enabled'])
+                self.assertGreater(datetime.fromisoformat(job['next_run_at']), datetime.now(tools.TZ))
+                self.assertEqual(Bot.claim_due(), [])
+
+    def test_restart_does_not_relabel_owner_interruption_or_enable_paused_cron(self):
+        ident = self.create()
+        jobs = tools.load_jobs(); jobs[0].update(running=False, last_status='interrupted'); tools.save_jobs(jobs)
+        before = (tools.STATE / 'jobs.json').read_bytes()
+        Bot.recover_schedules()
+        self.assertEqual((tools.STATE / 'jobs.json').read_bytes(), before)
+        self.call('pause', id=ident)
+        jobs = tools.load_jobs(); jobs[0]['next_run_at'] = (datetime.now(tools.TZ) - timedelta(hours=1)).isoformat()
+        tools.save_jobs(jobs); Bot.recover_schedules()
+        self.assertFalse(self.read(ident)['enabled'])
+        self.assertEqual(self.read(ident)['last_status'], 'paused')
+
     def test_edit_keeps_id_recurrence_and_due_time(self):
         ident = self.create(); before = self.read(ident)
         self.call('update', id=ident, prompt='Read only new posts.', name='New briefing')

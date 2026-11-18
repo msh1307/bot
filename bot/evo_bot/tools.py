@@ -295,7 +295,7 @@ def schedule(args):
         jobs = load_jobs()
         if action == 'note':
             if not t.job_id:
-                raise PermissionError('Progress notes belong to a scheduled run')
+                raise PermissionError('note is only for the current scheduled task; in ordinary chat use defer(after_seconds,prompt)')
             note = args.get('text')
             if not isinstance(note, str) or len(note) > 4000:
                 raise ValueError('Progress note must be at most 4000 characters')
@@ -325,6 +325,7 @@ def schedule(args):
                 own.pop('resume_at', None)
                 if when:
                     own['resume_at'] = when
+                    own['next_run_at'] = when
             own['note'] = note
             if 'compact' in args:
                 own['compact'] = args['compact']
@@ -425,10 +426,11 @@ def schedule(args):
                 raise ValueError('No scheduled check occurs before the end time')
             if updated['prompt'] != job['prompt']:
                 updated.pop('note', None)
-            # Revoke a queued old claim; its stale completion cannot overwrite this edit.
-            updated['running'] = False
-            awaiting_event = (updated.get('task_state') == 'waiting' and job.get('last_status') != 'paused')
-            updated['last_status'] = 'pending' if updated['enabled'] or awaiting_event else 'paused'
+            # Only new instructions/timing replace a run; metadata edits must not replay it.
+            if not job.get('running') or changes & {'prompt', 'at', 'cron'}:
+                updated['running'] = False
+                awaiting_event = (updated.get('task_state') == 'waiting' and job.get('last_status') != 'paused')
+                updated['last_status'] = 'pending' if updated['enabled'] or awaiting_event else 'paused'
             if t.cancelled.is_set():
                 raise InterruptedError('Task interrupted; schedule was not updated')
             jobs[jobs.index(job)] = updated
@@ -512,7 +514,7 @@ def schedule(args):
             if datetime.fromisoformat(when).timestamp() >= own['task_deadline']:
                 raise ValueError('Task lifetime ends before this callback')
             own.update(task_state='waiting', task_reported=True, resume_at=when,
-                       note=prompt, compact=False if compact is None else compact)
+                       next_run_at=when, note=prompt, compact=False if compact is None else compact)
             save_jobs(jobs)
             return {'success': True, 'id': own['id'], 'state': 'waiting', 'next_run_at': when}
         job = {'id': secrets.token_hex(6), 'name': name, 'prompt': prompt,
@@ -583,7 +585,7 @@ SCHEDULE_SCHEMA = {
     'description': 'Tasks/reminders, Asia/Seoul. create(name,prompt,at OR cron); at defaults to task, cron to read-only check. '
                    'list(query) finds jobs; read(id) shows instructions/progress. id accepts an ID or exact unique name. '
                    'update changes supplied fields only; pause/resume/delete manage existing jobs. '
-                   'During a scheduled run: ONE note(text,state) reports the result and next step; omit id. '
+                   'note is scheduled-run only: ONE note(text,state) reports the result and next step; omit id. '
                    'done=verified complete; blocked=cannot proceed; waiting=await input/event; continue=more work now. '
                    'For a timed recheck, use note(text=next check,state=waiting,after_seconds=1..600); this also saves progress and schedules it. '
                    'Codex wake=true handles completion events. In ordinary chat, defer(after_seconds,prompt) schedules a callback; enqueue(prompt) queues immediate work. '
@@ -591,6 +593,7 @@ SCHEDULE_SCHEMA = {
                    'Callbacks reuse the current task and its fixed 12-hour deadline. Check mode stays read-only; recurring checks only note(text). '
                    'New tasks compact first by default; waiting resumes do not unless compact=true is supplied. '
                    'quiet+until reports only the final recurring check; until=null removes the end. '
+                   'enabled controls future scheduling; last_status describes the last run, not whether the schedule is paused. '
                    'Queue wait defaults to 12 hours. Paused/expired jobs do not run; /stop cancels current work.',
     'parameters': {'type': 'object', 'properties': {
         'action': {'type': 'string', 'enum': ['list', 'read', 'update', 'create', 'defer', 'enqueue', 'pause', 'resume', 'delete', 'note']},
