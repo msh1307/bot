@@ -86,6 +86,7 @@ def sandbox_argv(profile, model, command=None):
         args += ['--setenv', key, val]
     args += ['--ro-bind', str(ROOT / 'pi-runner.mjs'), str(ROOT / 'pi-runner.mjs'),
              '--ro-bind', str(ROOT / 'pi-tools.mjs'), str(ROOT / 'pi-tools.mjs'),
+             '--ro-bind', str(ROOT / 'summary-guard.mjs'), str(ROOT / 'summary-guard.mjs'),
              '--setenv', 'EVO_PI_RUNTIME', str(PI_RUNTIME)]
     return args + (command if command is not None else ['/usr/bin/node', str(ROOT / 'pi-runner.mjs'), model])
 
@@ -102,6 +103,7 @@ class PiSession:
         self.settled.set()
         self.turn = None
         self.last_text, self.error = '', ''
+        self.disposition = ''
         self.last_progress = ''
         self.pending_text = ''
         self.reasoning_tail, self.live_text = '', ''
@@ -279,6 +281,7 @@ class PiSession:
 
     async def prompt(self, text, turn, images=None):
         self.turn = turn
+        self.disposition = ''
         self.reported_tool_errors.clear()
         self.last_text, self.error = '', ''
         self.last_progress = ''
@@ -316,6 +319,16 @@ class PiSession:
                 raise RuntimeError('마지막 작업 이후 task 상태 보고가 없어 자동 진행을 멈췄어. 완료로 처리하지 않았어.')
             if self.error and not self.last_text:
                 raise RuntimeError(self.error)
+            disposition = result.get('disposition', '')
+            if disposition == 'waiting':
+                if not turn.task_run or result.get('taskId') != turn.job_id or result.get('taskReported') is not True:
+                    raise RuntimeError('Pi waiting result does not match the current task')
+            elif disposition == 'queued':
+                if turn.task_run or not isinstance(result.get('taskId'), str) or not result['taskId']:
+                    raise RuntimeError('Pi task handoff was not confirmed')
+            elif disposition:
+                raise RuntimeError('Unknown Pi task disposition')
+            self.disposition = disposition
             return self.last_text
         except asyncio.TimeoutError:
             await self.abort(reason='timeout')

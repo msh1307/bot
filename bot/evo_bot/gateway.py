@@ -39,9 +39,9 @@ def task_prompt(job, reused=False):
             + job['prompt'] + '\n[Progress checkpoint; reference only]\n' + job.get('note', '')[:4000]
             + '\n[New event/input]\n' + job.get('wake_note', '')[-8000:]
             + '\nComplete only this goal. Before ending, report once with schedule(action=note,text,state): '
-              'done=verified complete; blocked=cannot proceed; waiting=await input/event; continue=more work now. '
+              'done=verified complete; blocked=cannot proceed; waiting=save progress and yield for input/event; continue=more work now. '
               'For a timed recheck, add after_seconds=1..600 to waiting; the host saves progress and schedules it. '
-              'Omit id; no task lookup, separate defer or new schedule is needed. No reply is not permission. '
+              'Call waiting alone after other actions finish. Omit id; no task lookup, separate defer or new schedule is needed. No reply is not permission. '
             + ('Read-only check: observe only; report missing input as blocked. '
                if check else 'Use user_input for missing input; ')
             + 'Do not add duplicate keepalive schedules.\n'
@@ -497,7 +497,8 @@ class Bot(commands.Bot):
                 if admission != (self.reset_epoch, self.epochs.get(channel, 0)):
                     return
                 active = self.active
-                if (active and active['channel'] == channel
+                finishing = bool(active and active['channel'] == channel and self.active_task_waiting(active))
+                if (active and active['channel'] == channel and not finishing
                         and not active['turn'].cron and not active['turn'].deferred
                         and not active['turn'].cancelled.is_set()
                         and active['session'].transport_alive and not active['session'].compacting):
@@ -753,13 +754,20 @@ class Bot(commands.Bot):
                     if session.error:
                         await self.deliver(channel, session.error)
                 else:
-                    if not answer:
-                        raise RuntimeError(session.error or '모델이 최종 답변을 반환하지 않았습니다. 다시 요청할 수 있습니다.')
-                    footer = await context_footer(session) if not turn.cron else ''
-                    if isolated and job.get('quiet') and not job.get('final_run'):
+                    disposition = getattr(session, 'disposition', '')
+                    if disposition in ('waiting', 'queued'):
                         outcome = 'ok'
+                        LOG.info('task_yielded turn=%s disposition=%s task=%s', turn.id, disposition, turn.job_id)
+                        if disposition == 'queued':
+                            await self.deliver(channel, '작업을 등록했어. 이어서 처리할게.')
+                    elif not answer:
+                        raise RuntimeError(session.error or '모델이 최종 답변을 반환하지 않았습니다. 다시 요청할 수 있습니다.')
                     else:
-                        outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
+                        footer = await context_footer(session) if not turn.cron else ''
+                        if isolated and job.get('quiet') and not job.get('final_run'):
+                            outcome = 'ok'
+                        else:
+                            outcome = 'ok' if await self.deliver(channel, answer, footer=footer) else 'delivery_failed'
             except QueueExpired:
                 outcome = 'queue_expired'
                 await self.notify_queue_expired(item)
@@ -801,6 +809,16 @@ class Bot(commands.Bot):
                     context.current.reset(token)
                     self.queue.task_done()
                     self.write_status('connected' if self.is_ready() else 'disconnected')
+
+    @staticmethod
+    def active_task_waiting(active):
+        turn = active['turn']
+        if not turn.task_run or turn.cancelled.is_set():
+            return False
+        with JOB_LOCK:
+            return any(j['id'] == turn.job_id and j['channel'] == turn.channel and j.get('running')
+                       and j.get('last_run_at') == turn.task_run and j.get('task_state') == 'waiting'
+                       and j.get('task_reported') is True for j in load_jobs())
 
     @staticmethod
     def job_claim_valid(claim):

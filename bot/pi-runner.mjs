@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { codingTools } from './pi-tools.mjs';
+import { guardSummaryStream } from './summary-guard.mjs';
 
 const require = createRequire(`${process.env.EVO_PI_RUNTIME}/package.json`);
 const engineVersion = JSON.parse(readFileSync(`${process.env.EVO_PI_RUNTIME}/node_modules/@earendil-works/pi-coding-agent/package.json`, 'utf8')).version;
@@ -11,7 +12,7 @@ const { parse } = require('yaml');
 const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager,
   SettingsManager, createToolSearchExtension } =
   await import(`${process.env.EVO_PI_RUNTIME}/node_modules/@earendil-works/pi-coding-agent/dist/index.js`);
-const { streamSimple } = await import(`${process.env.EVO_PI_RUNTIME}/node_modules/@earendil-works/pi-ai/dist/compat.js`);
+const { streamSimple, lazyStream } = await import(`${process.env.EVO_PI_RUNTIME}/node_modules/@earendil-works/pi-ai/dist/compat.js`);
 const home = '/home/agent';
 const modelId = process.argv[2];
 const config = parse(readFileSync(`${home}/.pi/agent/config.yml`, 'utf8'));
@@ -19,8 +20,10 @@ const provider = parse(readFileSync(`${home}/.pi/agent/models.yml`, 'utf8')).pro
 const pending = new Map();
 let session, manager, filter, busy = false, compacting = false, stopping = false;
 let inputTail = Promise.resolve(), inputCount = 0, inputEpoch = 0, aborting;
+let inputRevision = 0;
 let finalRecoveryUsed = false, finalRecoveryPending = false, answerOnlyRequest = false;
 let taskId = '', taskReported = false, taskRepair = false, taskRepairCalls = 0;
+let yieldRequest, promptDisposition = '';
 const CHECKPOINT_POLICY = 'Checkpoint only the current unfinished task and explicitly reusable user preferences. '
   + 'Completed, cancelled and superseded requests are historical facts, never standing authorization. '
   + 'Revalidate previous-summary items against newer messages; omit obsolete operational steps. '
@@ -63,6 +66,12 @@ function queueInput(c) {
       if (epoch !== inputEpoch) throw new Error('Additional input cancelled');
       if (disposition === 'queued') {
         finalRecoveryPending = false;
+      }
+      if (disposition === 'queued' || disposition === 'handled') {
+        inputRevision++;
+        yieldRequest = undefined;
+        promptDisposition = '';
+        if (taskId) taskReported = false;
       }
       return { disposition };
     } finally {
@@ -171,7 +180,7 @@ async function initialize(definitions, transcript) {
         answerOnlyRequest = finalOnly;
         finalRecoveryPending = false;
       }
-      return streamSimple(
+      const output = streamSimple(
       { ...model, api: 'openai-completions' }, compacting ? {
         ...context, systemPrompt: (context.systemPrompt ?? '') + '\n' + CHECKPOINT_POLICY,
       } : completedTurnContext(context), {
@@ -189,6 +198,7 @@ async function initialize(definitions, transcript) {
           };
         },
       });
+      return compacting ? guardSummaryStream(output, model, lazyStream) : output;
     },
   });
   manager = transcript ? SessionManager.open(transcript, `${home}/sessions`, '/workspace')
@@ -201,6 +211,7 @@ async function initialize(definitions, transcript) {
       // Pi must not settle while an accepted input is still being expanded.
       pi.on('agent_before_settle', async event => {
         while (inputCount) await inputTail;
+        if (promptDisposition && !stopping && !session.pendingMessageCount) return;
         if (event.outcome === 'completed' && !stopping && !session.pendingMessageCount
             && taskId && !taskReported && !taskRepair) {
           taskRepair = true;
@@ -221,6 +232,13 @@ async function initialize(definitions, transcript) {
       });
       // Enforce the recovery restriction even if a provider ignores tool_choice=none.
       pi.on('tool_call', event => {
+        yieldRequest = undefined;
+        promptDisposition = '';
+        const pause = event.toolName === 'schedule' && (event.input?.state === 'waiting'
+          || taskId && ['defer', 'enqueue'].includes(event.input?.action)
+          || !taskId && event.input?.action === 'enqueue' && event.input.handoff === true);
+        if (pause && session.messages.at(-1)?.content.filter(b => b.type === 'toolCall').length > 1)
+          return { block: true, reason: 'Save waiting/enqueue in a separate tool call after other actions finish.' };
         if (taskId && !['schedule', 'tool_search'].includes(event.toolName)) taskReported = false;
         if (taskRepair && (++taskRepairCalls > 3 || !(event.toolName === 'tool_search'
             || event.toolName === 'schedule' && ['read', 'note'].includes(event.input?.action))))
@@ -241,12 +259,22 @@ async function initialize(definitions, transcript) {
       name: d.name, label: d.label ?? d.name, description: d.description,
       parameters: d.parameters, exposure: d.loadMode === 'essential' ? 'direct' : 'deferred',
       execute: async (_id, args, signal) => {
+        const revision = inputRevision;
         const result = await hostCall(d, args, signal);
-        if (taskId && d.name === 'schedule') {
+        if (d.name === 'schedule') {
           try {
             const report = JSON.parse(result.content?.find(b => b.type === 'text')?.text ?? '{}');
-            if ((report.saved || report.success) && (report.job_id || report.id) === taskId
-                && ['continue', 'waiting', 'done', 'blocked'].includes(report.state)) taskReported = true;
+            if (revision === inputRevision && !inputCount && !session.pendingMessageCount
+                && taskId && (report.saved || report.success) && (report.job_id || report.id) === taskId
+                && ['continue', 'waiting', 'done', 'blocked'].includes(report.state)) {
+              taskReported = true;
+              if (report.state === 'waiting') yieldRequest = { disposition: 'waiting', taskId };
+            } else if (revision === inputRevision && !inputCount && !session.pendingMessageCount
+                && !taskId && args.action === 'enqueue' && args.handoff === true && report.handoff === true
+                && report.success === true && report.continuation === true && report.mode === 'task'
+                && typeof report.id === 'string') {
+              yieldRequest = { disposition: 'queued', taskId: report.id };
+            }
           } catch (_) { /* A malformed result cannot confirm task completion. */ }
         }
         if (d.name === 'user_input' && !signal?.aborted && !stopping) {
@@ -272,6 +300,16 @@ async function initialize(definitions, transcript) {
       },
     }))],
   }));
+  const finishTurn = session.agent.finishTurn;
+  session.agent.finishTurn = async (turn, signal) => {
+    const decision = await finishTurn?.(turn, signal);
+    if (yieldRequest && !inputCount && !stopping && !session.pendingMessageCount && !pending.size
+        && !['error', 'aborted'].includes(turn.message.stopReason)) {
+      promptDisposition = yieldRequest.disposition;
+      return { action: 'end' };
+    }
+    return decision;
+  };
   // Several Discord addenda at the same tool boundary belong to the same correction.
   session.setSteeringMode('all');
   session.setFollowUpMode('one-at-a-time');
@@ -316,6 +354,7 @@ async function command(c) {
       finalRecoveryUsed = finalRecoveryPending = answerOnlyRequest = false;
       taskId = typeof c.task_id === 'string' ? c.task_id : '';
       taskReported = taskRepair = false; taskRepairCalls = 0;
+      yieldRequest = undefined; promptDisposition = '';
       respond(c, { agentInvoked: true });
       let error;
       try {
@@ -333,7 +372,9 @@ async function command(c) {
         finalRecoveryPending = answerOnlyRequest = false;
         emit({ type: 'prompt_result', id: c.id, agentInvoked: true,
           status: error ? 'error' : 'completed', error, taskReported: taskReportConfirmed,
+          ...(!error && promptDisposition ? { disposition: promptDisposition, taskId: yieldRequest.taskId } : {}),
           sessionSettled: state().isSettled });
+        yieldRequest = undefined; promptDisposition = '';
         emitSettled();
       }
       return;

@@ -97,6 +97,7 @@ def main():
             (home / "instructions.txt").write_text("Answer briefly. Preserve the user's goal while summarizing.")
             code = runner_path.read_text().replace("const home = '/home/agent';", "const home = " + json.dumps(tmp) + ";")
             code = code.replace("from './pi-tools.mjs'", 'from ' + json.dumps(str(runner_path.parent / 'pi-tools.mjs')))
+            code = code.replace("from './summary-guard.mjs'", 'from ' + json.dumps(str(runner_path.parent / 'summary-guard.mjs')))
             code = code.replace("'/workspace'", json.dumps(str(workspace)))
             test_runner = home / "runner.mjs"
             test_runner.write_text(code)

@@ -75,6 +75,7 @@ def main():
             (home/'instructions.txt').write_text('Synthetic fixture. Answer briefly. No external actions.')
             code = runner.read_text().replace("const home = '/home/agent';", 'const home = '+json.dumps(directory)+';')
             code = code.replace("from './pi-tools.mjs'", 'from '+json.dumps(str(runner.parent/'pi-tools.mjs')))
+            code = code.replace("from './summary-guard.mjs'", 'from '+json.dumps(str(runner.parent/'summary-guard.mjs')))
             code = code.replace("'/workspace'", json.dumps(str(workspace)))
             candidate = home/'runner.mjs'; candidate.write_text(code)
 

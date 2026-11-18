@@ -36,6 +36,233 @@ class QueueTests(unittest.IsolatedAsyncioTestCase):
     def saved(self):
         return tools.load_jobs()
 
+    def claim_current_task(self, prompt='Coordinate worker A'):
+        ident = tools.schedule({'action': 'enqueue', 'prompt': prompt})['id']
+        claim = self.bot.claim_due()[0]
+        self.turn.job_id, self.turn.task_run = ident, claim['last_run_at']
+        self.turn.task_deadline = claim['task_deadline']
+        return claim
+
+    async def test_enqueue_handoff_is_explicit_and_only_for_ordinary_chat(self):
+        for extra in ({}, {'handoff': False}, {'handoff': True}):
+            reply = tools.schedule({'action': 'enqueue', 'prompt': 'Registered owner work', **extra})
+            self.assertEqual(reply.get('handoff', False), extra.get('handoff', False))
+            if not extra.get('handoff'):
+                self.assertNotIn('handoff', reply)
+            self.assertTrue(next(j for j in self.saved() if j['id'] == reply['id'])['compact'])
+        before = (self.root / 'jobs.json').read_bytes()
+        for args in ({'action': 'enqueue', 'prompt': 'Invalid', 'handoff': 'true'},
+                     {'action': 'defer', 'prompt': 'Invalid', 'after_seconds': 1, 'handoff': True},
+                     {'action': 'list', 'handoff': False}):
+            with self.assertRaisesRegex(ValueError, 'ordinary chat only'):
+                tools.schedule(args)
+            self.assertEqual((self.root / 'jobs.json').read_bytes(), before)
+        claim = self.bot.claim_due()[0]
+        self.turn.job_id, self.turn.task_run = claim['id'], claim['last_run_at']
+        with self.assertRaisesRegex(ValueError, 'ordinary chat only'):
+            tools.schedule({'action': 'enqueue', 'prompt': 'Use current task instead', 'handoff': True})
+
+    async def test_waiting_compaction_defaults_and_explicit_override(self):
+        claim = self.claim_current_task()
+        self.assertTrue(claim['compact'])  # New-task default is unchanged.
+        reply = tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Worker A running'})
+        self.assertEqual(reply, {'saved': True, 'job_id': claim['id'], 'state': 'waiting'})
+        self.assertFalse(self.saved()[0]['compact'])
+        for compact in (True, False):
+            tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Worker A running', 'compact': compact})
+            self.assertIs(self.saved()[0]['compact'], compact)
+        tools.schedule({'action': 'note', 'text': 'Current checkpoint', 'compact': True})
+        self.assertTrue(self.saved()[0]['compact'])
+        before = (self.root / 'jobs.json').read_bytes()
+        for compact in (None, 0, 'false'):
+            with self.assertRaisesRegex(ValueError, 'compact needs a boolean'):
+                tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Invalid', 'compact': compact})
+            self.assertEqual((self.root / 'jobs.json').read_bytes(), before)
+
+    async def test_same_task_defer_and_enqueue_default_to_continuous_resume(self):
+        claim = self.claim_current_task()
+        for action, extra in (('defer', {'after_seconds': 600}), ('enqueue', {})):
+            reply = tools.schedule({'action': action, 'prompt': 'Recheck worker A', **extra})
+            self.assertEqual(reply['id'], claim['id'])
+            self.assertEqual(reply['state'], 'waiting')
+            self.assertFalse(self.saved()[0]['compact'])
+            tools.schedule({'action': action, 'prompt': 'Explicit compact', 'compact': True, **extra})
+            self.assertTrue(self.saved()[0]['compact'])
+            self.assertEqual(len(self.saved()), 1)
+
+    async def test_waiting_ack_requires_saved_current_claim(self):
+        claim = self.claim_current_task()
+        snapshots = []
+        save = tools.save_jobs
+        def checked_save(jobs):
+            save(jobs)
+            snapshots.append(self.saved()[0])
+        with patch.object(tools, 'save_jobs', side_effect=checked_save):
+            reply = tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Next: read worker result'})
+        self.assertTrue(reply['saved'])
+        self.assertEqual(snapshots[0]['task_state'], 'waiting')
+        self.assertEqual(snapshots[0]['note'], 'Next: read worker result')
+        self.assertTrue(snapshots[0]['task_reported'])
+        before = (self.root / 'jobs.json').read_bytes()
+        with patch.object(tools, 'save_jobs', side_effect=OSError('Synthetic write failure')):
+            with self.assertRaises(OSError):
+                tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Must not acknowledge'})
+        self.assertEqual((self.root / 'jobs.json').read_bytes(), before)
+        current = tools.running_task
+        def cancel_before_save(jobs, turn):
+            own = current(jobs, turn)
+            turn.cancelled.set()
+            return own
+        try:
+            with patch.object(tools, 'running_task', side_effect=cancel_before_save):
+                with self.assertRaises(InterruptedError):
+                    tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Cancelled before save'})
+            self.assertEqual((self.root / 'jobs.json').read_bytes(), before)
+        finally:
+            self.turn.cancelled.clear()
+        tools.schedule({'action': 'update', 'id': claim['id'], 'prompt': 'Corrected owner scope'})
+        with self.assertRaises(InterruptedError):
+            tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Stale run cannot acknowledge'})
+        self.assertEqual(self.saved()[0]['prompt'], 'Corrected owner scope')
+
+    async def test_callback_before_waiting_note_and_timer_coalesce(self):
+        claim = self.claim_current_task()
+        scope = self.bot.codex_callback_scope('77')
+        self.assertTrue(self.bot.enqueue_codex_callback('77', 'Worker A completed', scope,
+                        lambda: True, owner_task_id=claim['id']))
+        self.assertEqual(self.bot.queue.qsize(), 0)
+        self.assertIn('Worker A completed', self.saved()[0]['wake_note'])
+        tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Read worker A result', 'after_seconds': 600})
+        self.bot.finish_job(claim, 'ok')
+        due = self.bot.claim_due()
+        self.assertEqual(len(due), 1)
+        self.assertEqual(due[0]['id'], claim['id'])
+        self.assertIn('Worker A completed', due[0]['wake_note'])
+        self.assertEqual(due[0]['note'], 'Read worker A result')
+        self.assertEqual(self.bot.claim_due(), [])
+
+    async def test_waiting_correction_is_current_and_late_cancelled_callback_does_not_revive(self):
+        claim = self.claim_current_task('Original goal: inspect only')
+        tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Old checkpoint'})
+        self.bot.finish_job(claim, 'ok')
+        tools.schedule({'action': 'update', 'id': claim['id'], 'prompt': 'Corrected goal: explain only'})
+        self.assertEqual(self.saved()[0]['last_status'], 'pending')
+        self.assertFalse(self.saved()[0]['enabled'])
+        tools.wake_task(claim['id'], '77', 'Worker completed')
+        resumed = self.bot.claim_due()[0]
+        self.assertEqual(resumed['prompt'], 'Corrected goal: explain only')
+        self.assertNotIn('note', resumed)
+        self.assertNotIn('Original goal', gateway.task_prompt(resumed, True))
+        tools.cancel_deferred('77')
+        self.assertTrue(self.bot.enqueue_codex_callback('77', 'Late worker result',
+                        self.bot.codex_callback_scope('77'), lambda: True, owner_task_id=claim['id']))
+        self.assertEqual(self.saved()[0]['task_state'], 'blocked')
+        self.assertEqual(self.bot.claim_due(), [])
+        self.assertTrue(self.bot.queue.empty())
+
+    async def test_clean_waiting_restart_keeps_note_but_inflight_run_blocks(self):
+        claim = self.claim_current_task()
+        tools.schedule({'action': 'note', 'state': 'waiting', 'text': 'Await worker completion'})
+        self.bot.finish_job(claim, 'ok')
+        self.bot.recover_schedules()
+        saved = self.saved()[0]
+        self.assertEqual(saved['task_state'], 'waiting')
+        self.assertEqual(saved['note'], 'Await worker completion')
+        self.assertFalse(saved['enabled'])
+        self.assertFalse(saved.get('running'))
+        tools.wake_task(claim['id'], '77', 'Worker finished after restart')
+        resumed = self.bot.claim_due()[0]
+        self.assertEqual(resumed['id'], claim['id'])
+        self.bot.recover_schedules()  # Unknown execution progress must not be replayed.
+        saved = self.saved()[0]
+        self.assertEqual(saved['task_state'], 'blocked')
+        self.assertEqual(saved['last_status'], 'interrupted_by_restart')
+        self.assertFalse(saved['enabled'])
+        self.assertTrue(tools.wake_task(claim['id'], '77', 'Late callback'))
+        self.assertEqual(self.bot.claim_due(), [])
+
+    async def test_terminal_task_callbacks_never_become_standalone_work(self):
+        for state in ('done', 'paused', 'deleted', 'expired'):
+            with self.subTest(state=state):
+                tools.save_jobs([])
+                self.turn.job_id = self.turn.task_run = ''
+                self.turn.task_deadline = 0
+                claim = self.claim_current_task()
+                tools.schedule({'action': 'note', 'state': 'done' if state == 'done' else 'waiting',
+                                'text': 'Worker checkpoint'})
+                self.bot.finish_job(claim, 'ok')
+                if state in ('paused', 'deleted'):
+                    tools.schedule({'action': 'pause' if state == 'paused' else 'delete', 'id': claim['id']})
+                    if state == 'paused':
+                        tools.schedule({'action': 'update', 'id': claim['id'], 'prompt': 'Keep paused after correction'})
+                        self.assertEqual(self.saved()[0]['last_status'], 'paused')
+                elif state == 'expired':
+                    jobs = self.saved(); jobs[0]['task_deadline'] = time.time() - 1; tools.save_jobs(jobs)
+                self.assertTrue(self.bot.enqueue_codex_callback('77', 'Late worker completion',
+                                self.bot.codex_callback_scope('77'), lambda: True, owner_task_id=claim['id']))
+                self.assertTrue(self.bot.queue.empty())
+                self.assertTrue(all(j.get('expired_before_queue') for j in self.bot.claim_due()))
+
+    async def test_waiting_yields_owner_message_then_resumes_same_task_without_extra_compact(self):
+        calls, waiting, release = [], asyncio.Event(), asyncio.Event()
+        phase = 0
+        async def prompt(text, turn, images):
+            nonlocal phase
+            session.disposition = ''
+            if turn.job_id:
+                calls.append('A')
+                if phase == 0:
+                    phase = 1
+                    ack = tools.schedule({'action': 'note', 'state': 'waiting',
+                                          'text': 'A: worker running; next read its result'})
+                    self.assertEqual(ack['state'], 'waiting')
+                    self.assertEqual(self.saved()[0]['note'], 'A: worker running; next read its result')
+                    session.disposition = 'waiting'
+                    waiting.set()
+                    await release.wait()
+                    return ''  # Typed waiting is a successful yield, not a missing answer.
+                self.assertIn('Coordinate worker A', text)
+                self.assertIn('A: worker running; next read its result', text)
+                self.assertIn('Worker A completed', text)
+                tools.schedule({'action': 'note', 'state': 'done', 'text': 'Worker A result verified'})
+                return 'A complete'
+            calls.append('B')
+            self.assertEqual(text, 'Unrelated question B')
+            return 'B answered'
+        session = self.worker_environment(prompt)
+        session.disposition = ''; session.abort = AsyncMock()
+        self.bot.interrupt_compaction = AsyncMock()
+        claim = self.claim_current_task()
+        with patch.object(gateway, 'context_footer', AsyncMock(return_value='')):
+            worker = asyncio.create_task(self.bot.work_loop())
+            try:
+                self.bot.enqueue('77', claim['prompt'], [], claim)
+                await asyncio.wait_for(waiting.wait(), 1)
+                active_turn = self.bot.active['turn']
+                message = SimpleNamespace(author=SimpleNamespace(bot=False, id=int(context.OWNER)),
+                    content='Unrelated question B', channel=SimpleNamespace(id=77), attachments=[], reference=None)
+                await asyncio.wait_for(self.bot.on_message(message), 1)
+                self.assertFalse(active_turn.cancelled.is_set())
+                session.abort.assert_not_awaited()
+                release.set()
+                await asyncio.wait_for(self.bot.queue.join(), 2)
+                self.assertEqual(calls, ['A', 'B'])
+                self.assertIsNone(self.bot.active)
+                self.assertEqual(self.saved()[0]['task_state'], 'waiting')
+                self.assertFalse(self.saved()[0].get('running'))
+                self.assertTrue(self.bot.enqueue_codex_callback('77', 'Worker A completed',
+                                self.bot.codex_callback_scope('77'), lambda: True, owner_task_id=claim['id']))
+                resumed = self.bot.claim_due()[0]
+                self.bot.enqueue('77', resumed['prompt'], [], resumed)
+                await asyncio.wait_for(self.bot.queue.join(), 2)
+                self.assertEqual(calls, ['A', 'B', 'A'])
+                self.assertEqual(self.saved()[0]['task_state'], 'done')
+                self.assertEqual(session.compact.await_count, 1)
+                session.close.assert_not_awaited()
+            finally:
+                release.set(); worker.cancel()
+                await asyncio.gather(worker, return_exceptions=True)
+
     async def test_late_bound_owner_reply_wakes_goal_without_unrelated_message_capture(self):
         ident = tools.schedule({'action': 'enqueue', 'prompt': 'Proceed after owner confirms scope'})['id']
         claim = self.bot.claim_due()[0]

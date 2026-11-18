@@ -106,6 +106,7 @@ def main():
             (home / 'instructions.txt').write_text('Follow the current user task. This is a local transport fixture.')
             code = runner.read_text().replace("const home = '/home/agent';", 'const home = ' + json.dumps(tmp) + ';')
             code = code.replace("from './pi-tools.mjs'", 'from ' + json.dumps(str(runner.parent / 'pi-tools.mjs')))
+            code = code.replace("from './summary-guard.mjs'", 'from ' + json.dumps(str(runner.parent / 'summary-guard.mjs')))
             code = code.replace("'/workspace'", json.dumps(str(workspace)))
             patched = home / 'runner.mjs'; patched.write_text(code)
             process = subprocess.Popen(['node', str(patched), MODEL], stdin=subprocess.PIPE,

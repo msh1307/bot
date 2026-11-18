@@ -152,6 +152,8 @@ __pycache__/
 /bot/vendor-source/
 !/bot/pi-runner.mjs
 !/bot/pi-tools.mjs
+!/bot/summary-guard.mjs
+!/bot/verify_summary_guard.mjs
 !/bot/pi-runtime.json
 !/bot/patches/
 /bot/patches/*

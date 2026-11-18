@@ -284,6 +284,9 @@ def schedule(args):
     if t is None:
         raise PermissionError('Schedules require an owner Discord message')
     action = args.get('action', 'list')
+    if 'handoff' in args:
+        if type(args['handoff']) is not bool or action != 'enqueue' or t.job_id:
+            raise ValueError('handoff is a boolean for enqueue from ordinary chat only')
     if 'state' in args and action != 'note':
         raise ValueError('state is only for note on the current task')
     if t.cron and action not in ('read', 'note') and not (action == 'defer' and t.task_run):
@@ -296,6 +299,8 @@ def schedule(args):
             note = args.get('text')
             if not isinstance(note, str) or len(note) > 4000:
                 raise ValueError('Progress note must be at most 4000 characters')
+            if 'compact' in args and type(args['compact']) is not bool:
+                raise ValueError('compact needs a boolean')
             own = next((j for j in jobs if j['id'] == t.job_id and j['channel'] == t.channel), None)
             if own is None:
                 raise ValueError('Scheduled job is no longer available')
@@ -315,10 +320,16 @@ def schedule(args):
                     if datetime.fromisoformat(when).timestamp() >= own['task_deadline']:
                         raise ValueError('Task lifetime ends before this recheck')
                 own.update(task_state=state, task_reported=True)
+                if state == 'waiting':
+                    own['compact'] = args.get('compact', False)
                 own.pop('resume_at', None)
                 if when:
                     own['resume_at'] = when
             own['note'] = note
+            if 'compact' in args:
+                own['compact'] = args['compact']
+            if t.cancelled.is_set():
+                raise InterruptedError('Task interrupted; progress was not saved')
             save_jobs(jobs)
             return dict(saved=True, job_id=t.job_id, **({'state': own['task_state']} if 'state' in args else {}),
                         **({'next_run_at': own['resume_at']} if own.get('resume_at') else {}))
@@ -416,7 +427,8 @@ def schedule(args):
                 updated.pop('note', None)
             # Revoke a queued old claim; its stale completion cannot overwrite this edit.
             updated['running'] = False
-            updated['last_status'] = 'pending' if updated['enabled'] else 'paused'
+            awaiting_event = (updated.get('task_state') == 'waiting' and job.get('last_status') != 'paused')
+            updated['last_status'] = 'pending' if updated['enabled'] or awaiting_event else 'paused'
             if t.cancelled.is_set():
                 raise InterruptedError('Task interrupted; schedule was not updated')
             jobs[jobs.index(job)] = updated
@@ -500,7 +512,7 @@ def schedule(args):
             if datetime.fromisoformat(when).timestamp() >= own['task_deadline']:
                 raise ValueError('Task lifetime ends before this callback')
             own.update(task_state='waiting', task_reported=True, resume_at=when,
-                       note=prompt, compact=True if compact is None else compact)
+                       note=prompt, compact=False if compact is None else compact)
             save_jobs(jobs)
             return {'success': True, 'id': own['id'], 'state': 'waiting', 'next_run_at': when}
         job = {'id': secrets.token_hex(6), 'name': name, 'prompt': prompt,
@@ -541,6 +553,7 @@ def schedule(args):
         return {'success': True, 'id': job['id'], 'next_run_at': job['next_run_at'],
                 'schedule': job['schedule'], 'until': until, 'quiet': quiet,
                 'continuation': action in ('defer', 'enqueue'), 'mode': mode,
+                **({'handoff': True} if args.get('handoff') else {}),
                 'task_deadline': job.get('task_deadline'), 'compact': job.get('compact'), 'queue_timeout_seconds': timeout}
 
 
@@ -574,8 +587,10 @@ SCHEDULE_SCHEMA = {
                    'done=verified complete; blocked=cannot proceed; waiting=await input/event; continue=more work now. '
                    'For a timed recheck, use note(text=next check,state=waiting,after_seconds=1..600); this also saves progress and schedules it. '
                    'Codex wake=true handles completion events. In ordinary chat, defer(after_seconds,prompt) schedules a callback; enqueue(prompt) queues immediate work. '
+                   'enqueue(prompt,handoff=true) transfers the current work into that task before launching workers. '
                    'Callbacks reuse the current task and its fixed 12-hour deadline. Check mode stays read-only; recurring checks only note(text). '
-                   'compact defaults true. quiet+until reports only the final recurring check; until=null removes the end. '
+                   'New tasks compact first by default; waiting resumes do not unless compact=true is supplied. '
+                   'quiet+until reports only the final recurring check; until=null removes the end. '
                    'Queue wait defaults to 12 hours. Paused/expired jobs do not run; /stop cancels current work.',
     'parameters': {'type': 'object', 'properties': {
         'action': {'type': 'string', 'enum': ['list', 'read', 'update', 'create', 'defer', 'enqueue', 'pause', 'resume', 'delete', 'note']},
@@ -585,7 +600,8 @@ SCHEDULE_SCHEMA = {
         'name': {'type': 'string'}, 'prompt': {'type': 'string'},
         'at': {'type': 'string'}, 'cron': {'type': 'string'}, 'until': {'type': ['string', 'null']},
         'mode': {'type': 'string', 'enum': ['task', 'check'], 'description': 'create only; task acts on owner instructions, check only observes. Defaults: at=task, cron=check.'},
-        'quiet': {'type': 'boolean'}, 'compact': {'type': 'boolean', 'description': 'Task callbacks compact first by default; false continues without an extra compaction. update can change it.'}, 'text': {'type': 'string', 'maxLength': 4000},
+        'quiet': {'type': 'boolean'}, 'compact': {'type': 'boolean', 'description': 'Force compaction before the next run: new tasks default true, waiting resumes false. Normal context-limit compaction stays enabled.'}, 'text': {'type': 'string', 'maxLength': 4000},
+        'handoff': {'type': 'boolean', 'description': 'Ordinary-chat enqueue only: true saves the task and ends this turn so that task starts next. Default false just adds work.'},
         'queue_timeout_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 43200},
         'after_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 600, 'description': 'Delay for note(state=waiting), or defer outside the current task.'}}, 'required': ['action']}}
 WAIT_SCHEMA = {
